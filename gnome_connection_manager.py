@@ -662,7 +662,12 @@ def vte_feed(terminal, data):
     # fix #82: écriture directe sur le fd PTY (fiable toutes versions VTE)
     data_bytes = data.encode("utf-8") if isinstance(data, str) else data
     try:
-        return
+        pty = terminal.get_pty()
+        if pty is not None:
+            fd = pty.get_fd()
+            if fd >= 0:
+                os.write(fd, data_bytes)
+                return
     except Exception:
         pass
     # fallback feed_child pour VTE anciens
@@ -855,6 +860,8 @@ class RdpTab(Gtk.Box):
         """
         if self._proc is not None and self._proc.poll() is None:
             return
+        # Persister les options modifiees par l'utilisateur dans le widget
+        self.host.extra_params = self._entry_opts.get_text().strip()
         cmd = self._build_cmd()
         cmd_display = ["****" if a.startswith("/p:") else a for a in cmd]
         self._log(f"$ {' '.join(cmd_display)}\n")
@@ -1146,14 +1153,26 @@ class RdpEmbeddedTab(Gtk.Box):
 
     def connect_rdp(self):
         """Lance la connexion RDP automatiquement (appele depuis addTab)."""
-        # Attendre que le socket soit realise avant de lancer xfreerdp
         if self._socket.get_realized():
             self._on_connect(None)
         else:
-            self._socket.connect(
-                "realize",
-                lambda w: GLib.idle_add(self._on_connect, None),
-            )
+            # Connexion unique : stocker l'ID pour eviter l'accumulation de signaux
+            if not getattr(self, "_realize_handler_id", None):
+                self._realize_handler_id = self._socket.connect(
+                    "realize",
+                    self._on_realize_connect,
+                )
+
+    def _on_realize_connect(self, widget):
+        """Callback realize unique : deconnecte le signal puis lance xfreerdp.
+
+        Args:
+            widget (Gtk.Socket): Socket GTK.
+        """
+        if self._realize_handler_id:
+            self._socket.disconnect(self._realize_handler_id)
+            self._realize_handler_id = None
+        GLib.idle_add(self._on_connect, None)
 
 
 # ─── LIBVIRT IMPORT (étape 4) ───────────────────────────────────────────────

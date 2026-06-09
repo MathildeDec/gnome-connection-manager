@@ -36,7 +36,14 @@ translate:
 	msgfmt lang/pl_PL.po -o lang/pl/LC_MESSAGES/gcm-lang.mo
 	msgfmt lang/pt_BR.po -o lang/pt/LC_MESSAGES/gcm-lang.mo
 	msgfmt lang/ru_RU.po -o lang/ru/LC_MESSAGES/gcm-lang.mo
-
+	msgfmt lang/uk_UA.po -o lang/uk/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/ja_JP.po -o lang/ja_JP/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/ar_AR.po -o lang/ar_AR/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/tr_TR.po -o lang/tr_TR/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/nl_NL.po -o lang/nl_NL/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/cs_CZ.po -o lang/cs_CZ/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/sv_SE.po -o lang/sv_SE/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/nb_NO.po -o lang/nb_NO/LC_MESSAGES/gcm-lang.mo
 # Generate a deb package using fpm
 deb:
 	rm -rf $(TMPINSTALLDIR)

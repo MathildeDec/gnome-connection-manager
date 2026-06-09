@@ -1465,3 +1465,62 @@ msgstr "_편집"
 #: ../gnome-connection-manager.glade:308
 msgid "_Servidores"
 msgstr "_서버들"
+
+# --- Strings ajoutés en v1.3 (RDP, libvirt, XEmbed) ---
+
+msgid "Connecter"
+msgstr "연결"
+
+msgid "Deconnecter"
+msgstr "연결 해제"
+
+msgid "En attente…"
+msgstr "대기 중…"
+
+msgid "Connexion en cours…"
+msgstr "연결 중…"
+
+msgid "Session terminée"
+msgstr "세션 종료"
+
+msgid "xfreerdp introuvable"
+msgstr "xfreerdp를 찾을 수 없음"
+
+msgid "Déconnecté"
+msgstr "연결 해제됨"
+
+msgid "Connecté"
+msgstr "연결됨"
+
+msgid "Terminé (code {rc})"
+msgstr "종료됨 (코드 {rc})"
+
+msgid "Options xfreerdp :"
+msgstr "xfreerdp 옵션:"
+
+msgid "Journal xfreerdp :"
+msgstr "xfreerdp 로그:"
+
+msgid "Importer depuis libvirt"
+msgstr "libvirt에서 가져오기"
+
+msgid "User SSH pour les VMs :"
+msgstr "VM용 SSH 사용자:"
+
+msgid "Hyperviseurs (virt-manager / dconf) :"
+msgstr "하이퍼바이저 (virt-manager / dconf):"
+
+msgid "URI libvirt"
+msgstr "libvirt URI"
+
+msgid "Aucun hôte importé."
+msgstr "가져온 호스트 없음."
+
+msgid "Libvirt"
+msgstr "Libvirt"
+
+msgid "Utilisateur SSH par défaut (VMs) :"
+msgstr "기본 SSH 사용자 (VM):"
+
+msgid "Une nouvelle version est disponible : https://github.com/MathildeDec/gnome-connection-manager/releases"
+msgstr "새 버전 사용 가능: https://github.com/MathildeDec/gnome-connection-manager/releases"
