@@ -588,7 +588,7 @@ def encrypt_old(passw, string):
     """
     try:
         ret = xor(passw, string)
-        s = base64.b64encode("".join(ret))
+        s = base64.b64encode("".join(ret).encode()).decode()
     except:
         s = ""
     return s
@@ -604,7 +604,10 @@ def decrypt_old(passw, string):
         str: Texte en clair.
     """
     try:
-        ret = xor(passw, base64.b64decode(string))
+        decoded = base64.b64decode(
+            string if isinstance(string, bytes) else string.encode()
+        )
+        ret = xor(passw, decoded.decode())
         s = "".join(ret)
     except:
         s = ""
@@ -1173,6 +1176,607 @@ class RdpEmbeddedTab(Gtk.Box):
             self._socket.disconnect(self._realize_handler_id)
             self._realize_handler_id = None
         GLib.idle_add(self._on_connect, None)
+
+
+# ─── VNC / SPICE (#102) ──────────────────────────────────────────────────────
+
+# Détection des binaires VNC disponibles (ordre de préférence)
+VNC_BIN = (
+    shutil.which("vncviewer")
+    or shutil.which("tigervnc")
+    or shutil.which("xtightvncviewer")
+    or shutil.which("xvnc4viewer")
+    or shutil.which("vinagre")
+    or shutil.which("remmina")
+    or "vncviewer"
+)
+
+# Détection des binaires SPICE disponibles
+SPICE_BIN = (
+    shutil.which("remote-viewer")
+    or shutil.which("virt-viewer")
+    or shutil.which("spicy")
+    or "remote-viewer"
+)
+
+# Détection du binaire serial disponible (picocom > minicom > screen)
+SERIAL_BIN = (
+    shutil.which("picocom")
+    or shutil.which("minicom")
+    or shutil.which("screen")
+    or "picocom"
+)
+
+# Port par défaut par protocole (serial : débit par défaut 9600)
+_PROTO_DEFAULTS = {
+    "ssh": "22",
+    "telnet": "23",
+    "rdp": "3389",
+    "vnc": "5900",
+    "spice": "5930",
+    "serial": "9600",
+    "local": "",
+}
+
+# Templates série : (débit, flow, parity, databits, stopbits)
+#   flow : n=none  x=xon/xoff  h=rts/cts
+#   parity : n=none  e=even  o=odd
+_SERIAL_TEMPLATES = {
+    "Cisco IOS / IOS-XE / NX-OS": ("9600", "n", "n", "8", "1"),
+    "HP Comware (H3C)": ("9600", "n", "n", "8", "1"),
+    "Aruba AOS-S / AOS-CX": ("9600", "n", "n", "8", "1"),
+    "Juniper JunOS": ("9600", "n", "n", "8", "1"),
+    "Fortinet FortiOS": ("9600", "n", "n", "8", "1"),
+    "Palo Alto PAN-OS": ("9600", "n", "n", "8", "1"),
+    "F5 TMOS": ("19200", "n", "n", "8", "1"),
+    "Linux / Raspberry Pi": ("115200", "n", "n", "8", "1"),
+    "Arduino / ESP32": ("115200", "n", "n", "8", "1"),
+    "RS-485 Modbus RTU": ("9600", "n", "n", "8", "1"),
+    "Libre (manuel)": ("9600", "n", "n", "8", "1"),
+}
+
+
+class VncTab(Gtk.Box):
+    """Widget affiche dans le Gtk.Notebook pour les connexions VNC.
+
+    Lance vncviewer (ou vinagre/remmina) en fenetre externe.
+    Affiche le statut et un champ d'options modifiable.
+    """
+
+    def __init__(self, host, get_password_fn):
+        """Initialise le panneau VNC.
+
+        Args:
+            host (Host): Objet Host GCM avec protocol='vnc'.
+            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
+        """
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.host = host
+        self._get_password = get_password_fn
+        self._proc = None
+        self.set_margin_start(16)
+        self.set_margin_end(16)
+        self.set_margin_top(16)
+        self.set_margin_bottom(16)
+        self._build_ui()
+
+    def _build_ui(self):
+        """Construit l'interface du panneau VNC."""
+        h = self.host
+        port = getattr(h, "port", "5900") or "5900"
+        title = Gtk.Label()
+        title.set_markup(f"<b>VNC — {h.name}</b><small>   {h.host}:{port}</small>")
+        title.set_xalign(0)
+        self.pack_start(title, False, False, 0)
+        if h.description:
+            d = Gtk.Label(label=h.description)
+            d.set_xalign(0)
+            d.get_style_context().add_class("dim-label")
+            self.pack_start(d, False, False, 0)
+        self.pack_start(Gtk.Separator(), False, False, 4)
+        self._lbl_status = Gtk.Label(label=_("En attente…"))
+        self._lbl_status.set_xalign(0)
+        self.pack_start(self._lbl_status, False, False, 0)
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect.get_style_context().add_class("suggested-action")
+        self._btn_connect.connect("clicked", self._on_connect)
+        hb.pack_start(self._btn_connect, False, False, 0)
+        self._btn_disconnect = Gtk.Button(label=_("Deconnecter"))
+        self._btn_disconnect.set_sensitive(False)
+        self._btn_disconnect.connect("clicked", self._on_disconnect)
+        hb.pack_start(self._btn_disconnect, False, False, 0)
+        self.pack_start(hb, False, False, 0)
+        self.pack_start(Gtk.Separator(), False, False, 4)
+        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb2.pack_start(Gtk.Label(label=_("Options VNC :")), False, False, 0)
+        self._entry_opts = Gtk.Entry()
+        self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
+        self._entry_opts.set_tooltip_text(
+            "Paramètres additionnels vncviewer\n"
+            "Ex: -FullScreen -FullColour -CompressLevel 6"
+        )
+        hb2.pack_start(self._entry_opts, True, True, 0)
+        self.pack_start(hb2, False, False, 0)
+        # Binaire détecté
+        lbl_bin = Gtk.Label()
+        lbl_bin.set_markup(f"<small><i>Binaire détecté : {VNC_BIN}</i></small>")
+        lbl_bin.set_xalign(0)
+        self.pack_start(lbl_bin, False, False, 0)
+        self.show_all()
+
+    def _build_cmd(self):
+        """Construit la commande vncviewer.
+
+        Returns:
+            list[str]: Arguments pour subprocess.Popen.
+        """
+        h = self.host
+        port = getattr(h, "port", "5900") or "5900"
+        pwd = self._get_password() or ""
+        opts_str = self._entry_opts.get_text().strip()
+        bin_name = os.path.basename(VNC_BIN)
+        # Construction selon le binaire
+        if bin_name in ("vinagre", "remmina"):
+            # URI style
+            if pwd:
+                cmd = [VNC_BIN, f"vnc://{h.user}:{pwd}@{h.host}:{port}"]
+            else:
+                cmd = [VNC_BIN, f"vnc://{h.host}:{port}"]
+        else:
+            # vncviewer style (tigervnc, xtightvncviewer, etc.)
+            cmd = [VNC_BIN, f"{h.host}:{port}"]
+            if pwd:
+                cmd += ["-passwd", "/dev/stdin"]
+        if opts_str:
+            cmd += shlex.split(opts_str)
+        return cmd, pwd
+
+    def _on_connect(self, widget):
+        """Lance la connexion VNC.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur.
+        """
+        if self._proc is not None and self._proc.poll() is None:
+            return
+        self.host.extra_params = self._entry_opts.get_text().strip()
+        cmd, pwd = self._build_cmd()
+        bin_name = os.path.basename(VNC_BIN)
+        try:
+            if bin_name not in ("vinagre", "remmina") and pwd:
+                # Passer le mot de passe sur stdin
+                self._proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                self._proc.stdin.write(pwd.encode() + b"\n")
+                self._proc.stdin.close()
+            else:
+                self._proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        except FileNotFoundError:
+            self._set_status(_("vncviewer introuvable"))
+            return
+        self._set_status(_("Connexion en cours…"))
+        self._btn_connect.set_sensitive(False)
+        self._btn_disconnect.set_sensitive(True)
+        threading.Thread(target=self._wait_proc, daemon=True).start()
+
+    def _wait_proc(self):
+        """Attend la fin du processus VNC en arriere-plan."""
+        if self._proc:
+            rc = self._proc.wait()
+            if rc != 0:
+                GLib.idle_add(self._set_status, _("Terminé (code {rc})").format(rc=rc))
+            else:
+                GLib.idle_add(self._set_status, _("Session terminée"))
+        GLib.idle_add(self._btn_connect.set_sensitive, True)
+        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
+        self._proc = None
+
+    def _on_disconnect(self, widget):
+        """Termine la session VNC.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur.
+        """
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+        self._set_status(_("Déconnecté"))
+        self._btn_connect.set_sensitive(True)
+        self._btn_disconnect.set_sensitive(False)
+
+    def _set_status(self, text):
+        """Met a jour le label de statut.
+
+        Args:
+            text (str): Nouveau statut.
+        """
+        self._lbl_status.set_text(text)
+
+    def connect_vnc(self):
+        """Lance la connexion VNC automatiquement (appele depuis addTab)."""
+        self._on_connect(None)
+
+
+class SpiceTab(Gtk.Box):
+    """Widget affiche dans le Gtk.Notebook pour les connexions SPICE.
+
+    Lance remote-viewer (virt-viewer) en fenetre externe avec URI spice://.
+    """
+
+    def __init__(self, host, get_password_fn):
+        """Initialise le panneau SPICE.
+
+        Args:
+            host (Host): Objet Host GCM avec protocol='spice'.
+            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
+        """
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.host = host
+        self._get_password = get_password_fn
+        self._proc = None
+        self.set_margin_start(16)
+        self.set_margin_end(16)
+        self.set_margin_top(16)
+        self.set_margin_bottom(16)
+        self._build_ui()
+
+    def _build_ui(self):
+        """Construit l'interface du panneau SPICE."""
+        h = self.host
+        port = getattr(h, "port", "5930") or "5930"
+        title = Gtk.Label()
+        title.set_markup(f"<b>SPICE — {h.name}</b><small>   {h.host}:{port}</small>")
+        title.set_xalign(0)
+        self.pack_start(title, False, False, 0)
+        if h.description:
+            d = Gtk.Label(label=h.description)
+            d.set_xalign(0)
+            d.get_style_context().add_class("dim-label")
+            self.pack_start(d, False, False, 0)
+        self.pack_start(Gtk.Separator(), False, False, 4)
+        self._lbl_status = Gtk.Label(label=_("En attente…"))
+        self._lbl_status.set_xalign(0)
+        self.pack_start(self._lbl_status, False, False, 0)
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect.get_style_context().add_class("suggested-action")
+        self._btn_connect.connect("clicked", self._on_connect)
+        hb.pack_start(self._btn_connect, False, False, 0)
+        self._btn_disconnect = Gtk.Button(label=_("Deconnecter"))
+        self._btn_disconnect.set_sensitive(False)
+        self._btn_disconnect.connect("clicked", self._on_disconnect)
+        hb.pack_start(self._btn_disconnect, False, False, 0)
+        self.pack_start(hb, False, False, 0)
+        self.pack_start(Gtk.Separator(), False, False, 4)
+        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb2.pack_start(Gtk.Label(label=_("Options SPICE :")), False, False, 0)
+        self._entry_opts = Gtk.Entry()
+        self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
+        self._entry_opts.set_tooltip_text(
+            "Paramètres additionnels remote-viewer\n"
+            "Ex: --spice-ca-file=/etc/ssl/certs/ca.crt --full-screen"
+        )
+        hb2.pack_start(self._entry_opts, True, True, 0)
+        self.pack_start(hb2, False, False, 0)
+        lbl_bin = Gtk.Label()
+        lbl_bin.set_markup(f"<small><i>Binaire détecté : {SPICE_BIN}</i></small>")
+        lbl_bin.set_xalign(0)
+        self.pack_start(lbl_bin, False, False, 0)
+        self.show_all()
+
+    def _build_cmd(self):
+        """Construit la commande remote-viewer avec URI spice://.
+
+        Returns:
+            list[str]: Arguments pour subprocess.Popen.
+        """
+        h = self.host
+        port = getattr(h, "port", "5930") or "5930"
+        pwd = self._get_password() or ""
+        opts_str = self._entry_opts.get_text().strip()
+        if pwd:
+            uri = f"spice://{h.host}?port={port}&password={pwd}"
+        else:
+            uri = f"spice://{h.host}?port={port}"
+        cmd = [SPICE_BIN, uri]
+        if opts_str:
+            cmd += shlex.split(opts_str)
+        return cmd
+
+    def _on_connect(self, widget):
+        """Lance la connexion SPICE.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur.
+        """
+        if self._proc is not None and self._proc.poll() is None:
+            return
+        self.host.extra_params = self._entry_opts.get_text().strip()
+        cmd = self._build_cmd()
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            self._set_status(_("remote-viewer introuvable"))
+            return
+        self._set_status(_("Connexion en cours…"))
+        self._btn_connect.set_sensitive(False)
+        self._btn_disconnect.set_sensitive(True)
+        threading.Thread(target=self._wait_proc, daemon=True).start()
+
+    def _wait_proc(self):
+        """Attend la fin du processus SPICE en arriere-plan."""
+        if self._proc:
+            rc = self._proc.wait()
+            if rc != 0:
+                GLib.idle_add(self._set_status, _("Terminé (code {rc})").format(rc=rc))
+            else:
+                GLib.idle_add(self._set_status, _("Session terminée"))
+        GLib.idle_add(self._btn_connect.set_sensitive, True)
+        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
+        self._proc = None
+
+    def _on_disconnect(self, widget):
+        """Termine la session SPICE.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur.
+        """
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+        self._set_status(_("Déconnecté"))
+        self._btn_connect.set_sensitive(True)
+        self._btn_disconnect.set_sensitive(False)
+
+    def _set_status(self, text):
+        """Met a jour le label de statut.
+
+        Args:
+            text (str): Nouveau statut.
+        """
+        self._lbl_status.set_text(text)
+
+    def connect_spice(self):
+        """Lance la connexion SPICE automatiquement (appele depuis addTab)."""
+        self._on_connect(None)
+
+
+# ─── SERIAL / RS-232 / RS-485 ───────────────────────────────────────────────
+
+
+class SerialTab(Gtk.Box):
+    """Onglet de connexion série embarquant un terminal VTE.
+
+    Lance picocom (ou minicom / screen) dans le widget VTE intégré.
+    Supporte des templates constructeur (Cisco, HP Comware, Aruba…).
+
+    Args:
+        host (Host): Hôte avec protocol='serial'.
+            - host.host      : chemin du port (/dev/ttyUSB0, /dev/ttyS0…)
+            - host.port      : débit en bauds (9600, 115200…)
+            - host.extra_params : options picocom supplémentaires
+            - host.type      : clé template (ex. 'Cisco IOS / IOS-XE / NX-OS')
+    """
+
+    def __init__(self, host):
+        """Initialise le widget SerialTab."""
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.host = host
+
+        # ── barre supérieure ────────────────────────────────────────────────
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb.set_margin_start(6)
+        hb.set_margin_end(6)
+        hb.set_margin_top(4)
+
+        # Appareil
+        lbl_dev = Gtk.Label(label=_("Port série :"))
+        lbl_dev.set_xalign(1.0)
+        self._entry_dev = Gtk.Entry()
+        self._entry_dev.set_text(
+            getattr(host, "host", "/dev/ttyUSB0") or "/dev/ttyUSB0"
+        )
+        self._entry_dev.set_tooltip_text(_("Ex : /dev/ttyUSB0, /dev/ttyS0"))
+        self._entry_dev.set_hexpand(True)
+
+        # Débit
+        lbl_baud = Gtk.Label(label=_("Débit :"))
+        lbl_baud.set_xalign(1.0)
+        self._cmb_baud = Gtk.ComboBoxText()
+        for b in (
+            "300",
+            "1200",
+            "2400",
+            "4800",
+            "9600",
+            "19200",
+            "38400",
+            "57600",
+            "115200",
+            "230400",
+            "460800",
+            "921600",
+        ):
+            self._cmb_baud.append_text(b)
+        baud = str(getattr(host, "port", "9600") or "9600")
+        model = self._cmb_baud.get_model()
+        i = model.get_iter_first()
+        while i is not None:
+            if model[i][0] == baud:
+                self._cmb_baud.set_active_iter(i)
+                break
+            i = model.iter_next(i)
+        if self._cmb_baud.get_active() < 0:
+            self._cmb_baud.set_active(4)  # 9600 par défaut
+
+        # Template
+        lbl_tpl = Gtk.Label(label=_("Template :"))
+        lbl_tpl.set_xalign(1.0)
+        self._cmb_tpl = Gtk.ComboBoxText()
+        for tpl_name in _SERIAL_TEMPLATES:
+            self._cmb_tpl.append_text(tpl_name)
+        self._cmb_tpl.set_active(10)  # Libre (manuel) par défaut
+        self._cmb_tpl.connect("changed", self._on_template_changed)
+        # pré-sélectionner le template sauvegardé
+        tpl_saved = getattr(host, "type", "") or ""
+        if tpl_saved in _SERIAL_TEMPLATES:
+            tpl_list = list(_SERIAL_TEMPLATES.keys())
+            self._cmb_tpl.set_active(tpl_list.index(tpl_saved))
+
+        # Options supplémentaires
+        lbl_opts = Gtk.Label(label=_("Options :"))
+        lbl_opts.set_xalign(1.0)
+        self._entry_opts = Gtk.Entry()
+        self._entry_opts.set_text(getattr(host, "extra_params", "") or "")
+        self._entry_opts.set_tooltip_text(_("Options picocom supplémentaires"))
+
+        # Boutons
+        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect.connect("clicked", self._on_connect)
+        self._btn_disconnect = Gtk.Button(label=_("Déconnecter"))
+        self._btn_disconnect.set_sensitive(False)
+        self._btn_disconnect.connect("clicked", self._on_disconnect)
+
+        for w in (
+            lbl_dev,
+            self._entry_dev,
+            lbl_baud,
+            self._cmb_baud,
+            lbl_tpl,
+            self._cmb_tpl,
+            lbl_opts,
+            self._entry_opts,
+            self._btn_connect,
+            self._btn_disconnect,
+        ):
+            hb.pack_start(w, False, False, 0)
+
+        # Binaire détecté
+        lbl_bin = Gtk.Label()
+        lbl_bin.set_markup(f"<small><i>Binaire détecté : {SERIAL_BIN}</i></small>")
+        lbl_bin.set_xalign(0.0)
+        lbl_bin.set_margin_start(6)
+
+        # Statut
+        self._lbl_status = Gtk.Label(label=_("Non connecté"))
+        self._lbl_status.set_xalign(0.0)
+        self._lbl_status.set_margin_start(6)
+
+        # Terminal VTE embarqué
+        self._terminal = Vte.Terminal()
+        self._terminal.set_scrollback_lines(5000)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw.add(self._terminal)
+        sw.set_vexpand(True)
+        sw.set_hexpand(True)
+
+        self.pack_start(hb, False, False, 0)
+        self.pack_start(lbl_bin, False, False, 0)
+        self.pack_start(self._lbl_status, False, False, 0)
+        self.pack_start(sw, True, True, 0)
+        self.show_all()
+
+    # ── template ────────────────────────────────────────────────────────────
+
+    def _on_template_changed(self, cmb):
+        """Applique le template sélectionné (débit, flow, parity…)."""
+        name = cmb.get_active_text()
+        if name not in _SERIAL_TEMPLATES:
+            return
+        baud, flow, parity, databits, stopbits = _SERIAL_TEMPLATES[name]
+        # mettre à jour le combo débit
+        model = self._cmb_baud.get_model()
+        it = model.get_iter_first()
+        while it is not None:
+            if model[it][0] == baud:
+                self._cmb_baud.set_active_iter(it)
+                break
+            it = model.iter_next(it)
+        # mettre à jour les options picocom correspondantes
+        if os.path.basename(SERIAL_BIN) == "picocom":
+            opts = (
+                f"--flow {flow} --parity {parity}"
+                f" --databits {databits} --stopbits {stopbits}"
+            )
+        elif os.path.basename(SERIAL_BIN) == "minicom":
+            opts = f"--databits {databits} --stopbits {stopbits}"
+        else:
+            opts = ""
+        self._entry_opts.set_text(opts)
+        # sauvegarder le nom du template dans host.type
+        self.host.type = name
+
+    # ── construction de la commande ─────────────────────────────────────────
+
+    def _build_cmd(self):
+        """Construit la liste d'arguments pour le sous-processus série.
+
+        Returns:
+            list[str]: Commande prête pour vte_run().
+        """
+        device = self._entry_dev.get_text().strip() or "/dev/ttyUSB0"
+        baud = self._cmb_baud.get_active_text() or "9600"
+        opts_str = self._entry_opts.get_text().strip()
+        bin_name = os.path.basename(SERIAL_BIN)
+        if bin_name == "picocom":
+            cmd = [SERIAL_BIN, "--baud", baud]
+            if opts_str:
+                cmd += shlex.split(opts_str)
+            cmd.append(device)
+        elif bin_name == "minicom":
+            cmd = [SERIAL_BIN, "-b", baud, "-D", device]
+            if opts_str:
+                cmd += shlex.split(opts_str)
+        else:  # screen
+            cmd = [SERIAL_BIN, device, baud]
+            if opts_str:
+                cmd += shlex.split(opts_str)
+        return cmd
+
+    # ── connexion / déconnexion ──────────────────────────────────────────────
+
+    def _on_connect(self, widget):
+        """Lance la session série dans le terminal VTE."""
+        self.host.extra_params = self._entry_opts.get_text().strip()
+        self.host.port = self._cmb_baud.get_active_text() or "9600"
+        self.host.host = self._entry_dev.get_text().strip()
+        cmd = self._build_cmd()
+        if not cmd:
+            return
+        self._lbl_status.set_text(_("Connexion en cours…"))
+        self._btn_connect.set_sensitive(False)
+        self._btn_disconnect.set_sensitive(True)
+        vte_run(self._terminal, cmd[0], cmd[1:])
+
+    def _on_disconnect(self, widget):
+        """Envoie SIGTERM au processus fils du VTE."""
+        try:
+            pid = self._terminal.get_pty().get_fd()
+            if pid and pid > 0:
+                import signal as _signal
+
+                os.kill(pid, _signal.SIGTERM)
+        except Exception:
+            pass
+        self._lbl_status.set_text(_("Déconnecté"))
+        self._btn_connect.set_sensitive(True)
+        self._btn_disconnect.set_sensitive(False)
+
+    def connect_serial(self):
+        """Démarre la session série automatiquement (appelé depuis addTab)."""
+        self._on_connect(None)
 
 
 # ─── LIBVIRT IMPORT (étape 4) ───────────────────────────────────────────────
@@ -2596,6 +3200,86 @@ class Wmain(GCMBase):
             rdp_widget.connect_rdp()
             return sw
 
+    def _open_vnc_tab(self, notebook, host):
+        """Ouvre un onglet VNC (vncviewer externe) dans le notebook GCM.
+
+        Args:
+            notebook (Gtk.Notebook): Notebook cible.
+            host (Host): Hote avec protocol='vnc'.
+
+        Returns:
+            Gtk.ScrolledWindow: Widget ajoute au notebook.
+        """
+
+        def get_pwd():
+            try:
+                return decrypt(get_password(), host.password)
+            except Exception:
+                return ""
+
+        vnc_widget = VncTab(host, get_pwd)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw.add(vnc_widget)
+        sw.show_all()
+        tab_label = NotebookTabLabel(" %s " % host.name, notebook, sw, self)
+        notebook.append_page(sw, tab_label)
+        notebook.set_tab_reorderable(sw, True)
+        notebook.set_current_page(notebook.get_n_pages() - 1)
+        vnc_widget.connect_vnc()
+        return sw
+
+    def _open_serial_tab(self, notebook, host):
+        """Ouvre un onglet série (picocom/minicom/screen) dans le notebook GCM.
+
+        Args:
+            notebook (Gtk.Notebook): Notebook cible.
+            host (Host): Hôte avec protocol='serial'.
+
+        Returns:
+            Gtk.ScrolledWindow: Widget ajouté au notebook.
+        """
+        serial_widget = SerialTab(host)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw.add(serial_widget)
+        sw.show_all()
+        tab_label = NotebookTabLabel(" %s " % host.name, notebook, sw, self)
+        notebook.append_page(sw, tab_label)
+        notebook.set_tab_reorderable(sw, True)
+        notebook.set_current_page(notebook.get_n_pages() - 1)
+        serial_widget.connect_serial()
+        return sw
+
+    def _open_spice_tab(self, notebook, host):
+        """Ouvre un onglet SPICE (remote-viewer externe) dans le notebook GCM.
+
+        Args:
+            notebook (Gtk.Notebook): Notebook cible.
+            host (Host): Hote avec protocol='spice'.
+
+        Returns:
+            Gtk.ScrolledWindow: Widget ajoute au notebook.
+        """
+
+        def get_pwd():
+            try:
+                return decrypt(get_password(), host.password)
+            except Exception:
+                return ""
+
+        spice_widget = SpiceTab(host, get_pwd)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw.add(spice_widget)
+        sw.show_all()
+        tab_label = NotebookTabLabel(" %s " % host.name, notebook, sw, self)
+        notebook.append_page(sw, tab_label)
+        notebook.set_tab_reorderable(sw, True)
+        notebook.set_current_page(notebook.get_n_pages() - 1)
+        spice_widget.connect_spice()
+        return sw
+
     def on_mnu_import_libvirt_activate(self, widget):
         """Ouvre le dialogue d'import de VMs depuis libvirt.
 
@@ -2977,9 +3661,17 @@ class Wmain(GCMBase):
             nb (Gtk.Notebook): Notebook cible.
             host (Host): Hote a connecter.
         """
-        # ── RDP : onglet dédié si protocol=="rdp"
-        if isinstance(host, Host) and getattr(host, "protocol", "ssh") == "rdp":
-            return self._open_rdp_tab(notebook, host)
+        # ── RDP/VNC/SPICE : onglets dédiés selon protocol
+        if isinstance(host, Host):
+            proto = getattr(host, "protocol", "ssh")
+            if proto == "rdp":
+                return self._open_rdp_tab(notebook, host)
+            if proto == "vnc":
+                return self._open_vnc_tab(notebook, host)
+            if proto == "spice":
+                return self._open_spice_tab(notebook, host)
+            if proto == "serial":
+                return self._open_serial_tab(notebook, host)
 
         try:
             v = Vte.Terminal()
@@ -4798,32 +5490,38 @@ class HostUtils:
         Args:
             config (configparser.ConfigParser): Objet de configuration.
         """
+
+        def _s(v):
+            """Coerce any value to str safely (None → '')."""
+            return "" if v is None else str(v)
+
         if pwd == "":
             pwd = get_password()
-        cp.set(section, "group", host.group)
-        cp.set(section, "name", host.name)
-        cp.set(section, "description", host.description)
-        cp.set(section, "host", host.host)
-        cp.set(section, "user", host.user)
+        cp.set(section, "group", _s(host.group))
+        cp.set(section, "name", _s(host.name))
+        cp.set(section, "description", _s(host.description))
+        cp.set(section, "host", _s(host.host))
+        cp.set(section, "user", _s(host.user))
         cp.set(section, "pass", encrypt(pwd, host.password))
-        cp.set(section, "private_key", host.private_key)
-        cp.set(section, "port", host.port)
+        cp.set(section, "private_key", _s(host.private_key))
+        cp.set(section, "port", _s(host.port))
         cp.set(section, "tunnel", host.tunnel_as_string())
-        cp.set(section, "type", host.type)
-        cp.set(section, "commands", host.commands.replace("\n", "\\n"))
-        cp.set(section, "keepalive", host.keep_alive)
-        cp.set(section, "font-color", host.font_color)
-        cp.set(section, "back-color", host.back_color)
-        cp.set(section, "x11", host.x11)
-        cp.set(section, "agent", host.agent)
-        cp.set(section, "compression", host.compression)
-        cp.set(section, "compression-level", host.compressionLevel)
-        cp.set(section, "extra_params", host.extra_params)
-        cp.set(section, "log", host.log)
-        cp.set(section, "backspace-key", host.backspace_key)
-        cp.set(section, "delete-key", host.delete_key)
-        cp.set(section, "term", host.term)
-        cp.set(section, "protocol", getattr(host, "protocol", "ssh"))
+        cp.set(section, "type", _s(host.type))
+        commands = host.commands or ""
+        cp.set(section, "commands", commands.replace("\n", "\\n"))
+        cp.set(section, "keepalive", str(host.keep_alive))
+        cp.set(section, "font-color", str(host.font_color))
+        cp.set(section, "back-color", str(host.back_color))
+        cp.set(section, "x11", str(host.x11))
+        cp.set(section, "agent", str(host.agent))
+        cp.set(section, "compression", str(host.compression))
+        cp.set(section, "compression-level", str(host.compressionLevel))
+        cp.set(section, "extra_params", str(host.extra_params))
+        cp.set(section, "log", str(host.log))
+        cp.set(section, "backspace-key", str(host.backspace_key))
+        cp.set(section, "delete-key", str(host.delete_key))
+        cp.set(section, "term", str(host.term))
+        cp.set(section, "protocol", str(getattr(host, "protocol", "ssh")))
 
 
 class Whost(GCMBase):
@@ -4939,9 +5637,9 @@ class Whost(GCMBase):
         self.cmbBackspace.set_active(0)
         self.cmbDelete.set_active(0)
 
-        # ComboBox Protocol (RDP/SSH/telnet/local)
+        # ComboBox Protocol (SSH/telnet/RDP/VNC/SPICE/serial/local)
         self.cmbProtocol = Gtk.ComboBoxText()
-        for p in ("ssh", "telnet", "rdp", "local"):
+        for p in ("ssh", "telnet", "rdp", "vnc", "spice", "serial", "local"):
             self.cmbProtocol.append_text(p)
         self.cmbProtocol.set_active(0)
         self.cmbProtocol.connect("changed", self._on_proto_changed)
@@ -4956,10 +5654,9 @@ class Whost(GCMBase):
             cmb (Gtk.ComboBoxText): ComboBox modifie.
         """
         proto = cmb.get_active_text()
-        defaults = {"ssh": "22", "telnet": "23", "rdp": "3389", "local": ""}
         current = self.txtPort.get_text()
-        if current in ("22", "23", "3389", ""):
-            self.txtPort.set_text(defaults.get(proto, ""))
+        if current in ("22", "23", "3389", "5900", "5930", "9600", ""):
+            self.txtPort.set_text(_PROTO_DEFAULTS.get(proto, ""))
 
     def init(self, group, host=None):
         """Initialise les parametres de configuration avec les valeurs par defaut.
@@ -4992,7 +5689,7 @@ class Whost(GCMBase):
         self.txtPort.set_text(host.port)
         # Protocole
         proto = getattr(host, "protocol", "ssh")
-        protos = ["ssh", "telnet", "rdp", "local"]
+        protos = ["ssh", "telnet", "rdp", "vnc", "spice", "serial", "local"]
         self.cmbProtocol.set_active(protos.index(proto) if proto in protos else 0)
         for t in host.tunnel:
             if t != "":
