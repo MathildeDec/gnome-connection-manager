@@ -195,12 +195,26 @@ class conf():
     APP_TITLE = app_name
 
 def msgbox(text, parent=None):
+    """Affiche une boite de dialogue d'erreur modale.
+
+    Args:
+        text (str): Message a afficher.
+        parent (Gtk.Window, optional): Fenetre parente. Defaults to None.
+    """
     msgBox = Gtk.MessageDialog(parent=parent, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=text)
     msgBox.set_icon_from_file(ICON_PATH)
     msgBox.run()
     msgBox.destroy()
 
 def msgconfirm(text):
+    """Affiche une boite de dialogue de confirmation OK/Annuler.
+
+    Args:
+        text (str): Message de confirmation a afficher.
+
+    Returns:
+        Gtk.ResponseType: ResponseType.OK ou ResponseType.CANCEL.
+    """
     msgBox = Gtk.MessageDialog(parent=wMain.window, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.OK_CANCEL, text=text)
     msgBox.set_icon_from_file(ICON_PATH)
     response = msgBox.run()
@@ -209,6 +223,17 @@ def msgconfirm(text):
 
 
 def inputbox(title, text, default='', password=False):
+    """Affiche une boite de saisie de texte.
+
+    Args:
+        title (str): Titre de la boite de dialogue.
+        text (str): Label/description affiché au-dessus du champ de saisie.
+        default (str, optional): Valeur par defaut. Defaults to ''.
+        password (bool, optional): Masquer le texte saisi. Defaults to False.
+
+    Returns:
+        str or None: Texte saisi, ou None si annulé.
+    """
     msgBox = EntryDialog(title, text, default, mask=password)
     msgBox.set_icon_from_file(ICON_PATH)
     if msgBox.run() == Gtk.ResponseType.OK:
@@ -236,10 +261,19 @@ def show_font_dialog(parent, title, button):
     parent.dlgFont.hide()
 
 def show_open_dialog(parent, title, action):
-    dlg = Gtk.FileChooserDialog(title=title, parent=parent, action=action)
-    dlg.add_button(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)
+    """Affiche un dialogue de selection de fichier (ouverture ou sauvegarde).
 
-    dlg.add_button(Gtk.STOCK_SAVE if action==Gtk.FileChooserAction.SAVE else Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
+    Args:
+        parent (Gtk.Widget): Widget parent pour la dialogues.
+        title (str): Titre du dialogue.
+        action (Gtk.FileChooserAction): OPEN ou SAVE.
+
+    Returns:
+        str or None: Chemin du fichier selectionne, ou None si annule.
+    """
+    dlg = Gtk.FileChooserDialog(title=title, parent=parent, action=action)
+    dlg.add_button(_("Annuler"), Gtk.ResponseType.CANCEL)
+    dlg.add_button(_("Enregistrer") if action == Gtk.FileChooserAction.SAVE else _("Ouvrir"), Gtk.ResponseType.OK)
     dlg.set_do_overwrite_confirmation(True)
     if not hasattr(parent,'lastPath'):
         parent.lastPath = USERHOME_DIR
@@ -254,6 +288,14 @@ def show_open_dialog(parent, title, action):
     return filename
 
 def parse_color_rgba(spec):
+    """Convertit une couleur CSS/hex en objet Gdk.RGBA.
+
+    Args:
+        spec (str): Specification de couleur (ex: '#FF0000', 'red', 'rgba(255,0,0,1)').
+
+    Returns:
+        Gdk.RGBA: Objet couleur RGBA parse.
+    """
     rgba = Gdk.RGBA()
     b = rgba.parse(spec)
     return rgba
@@ -354,8 +396,15 @@ def decrypt(passw, string):
     return s
 
 def vte_feed(terminal, data):
-    # fix #82: écriture directe sur le fd PTY (fiable toutes versions VTE)
-    data_bytes = data.encode('utf-8') if isinstance(data, str) else data
+    """Envoie des donnees au terminal VTE via le PTY (ecriture directe sur fd).
+
+    Utilise l'ecriture directe sur le fd PTY pour une compatibilite maximale
+    avec toutes les versions de VTE. Fallback sur feed_child() si PTY indisponible.
+
+    Args:
+        terminal (Vte.Terminal): Terminal VTE cible.
+        data (str or bytes): Donnees a envoyer (str UTF-8 ou bytes bruts).
+    """
     try:
         pty = terminal.get_pty()
         if pty is not None:
@@ -374,7 +423,16 @@ def vte_feed(terminal, data):
         terminal.feed_child(data, len(data))
 
 def vte_run(terminal, command, arg=None):
-    term_type = terminal.host.term if hasattr(terminal, 'host') and terminal.host.term else conf.TERM or os.getenv("TERM") or DEFAULT_TERM_TYPE
+    """Lance une commande dans un terminal VTE.
+
+    Construit l'environnement complet (PATH, TERM, SSH_AUTH_SOCK, DISPLAY, etc.)
+    et lance la commande via spawn_async (VTE >= 0.48) ou spawn_sync.
+
+    Args:
+        terminal (Vte.Terminal): Terminal VTE dans lequel lancer la commande.
+        command (str): Chemin de l'executable a lancer.
+        arg (list, optional): Arguments supplementaires. Defaults to None.
+    """
     # fix #89: transmettre SSH_AUTH_SOCK et vars essentielles au processus VTE
     envv = [ 'PATH=%s' % os.getenv("PATH"), 'TERM=%s' % term_type ]
     for _ekey in ('SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'DISPLAY', 'WAYLAND_DISPLAY',
@@ -533,9 +591,15 @@ class Wmain(SimpleGladeApp):
                 window.style_provider
             )
 
-        #get window background color
+        #get window background color — fix: get_background_color est deprecie en GTK3 recent,
+        # on utilise lookup_color() avec fallback sur une couleur neutre
         context = window.get_style_context()
-        color = context.get_background_color(Gtk.StateFlags.NORMAL)
+        found, color = context.lookup_color('theme_bg_color')
+        if not found:
+            found, color = context.lookup_color('bg_color')
+        if not found:
+            color = Gdk.RGBA()
+            color.parse('#f0f0f0')
 
         #set the background color to the same as the gtk theme, but with alpha 0.99999 (it looks opaque but allows to have transparent widgets)
         CSS = b"""
@@ -918,55 +982,52 @@ class Wmain(SimpleGladeApp):
             self.on_btnVSplit_clicked(widget, args)
 
     def createMenu(self):
-        STOCK_COPY_X = "edit-copy"
+        """Construit les menus contextuels de l'application.
+
+        Cree trois menus:
+        - popupMenu: menu contextuel du terminal (clic droit dans le terminal)
+        - popupMenuFolder: menu contextuel du panneau de serveurs (clic droit sur host/groupe)
+        - popupMenuTab: menu contextuel des onglets (clic droit sur un onglet)
+
+        Utilise Gtk.MenuItem (GTK3 moderne, sans icones deprecieees).
+        """
         self.popupMenu = Gtk.Menu()
-        self.popupMenu.mnuCopy = menuItem = Gtk.ImageMenuItem(label=_("Copiar"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_COPY_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuCopy = menuItem = Gtk.MenuItem(label=_("Copiar"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'C')
         menuItem.show()
 
-        self.popupMenu.mnuPaste = menuItem = Gtk.ImageMenuItem(label=_("Pegar"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name("edit-paste", Gtk.IconSize.MENU))
+        self.popupMenu.mnuPaste = menuItem = Gtk.MenuItem(label=_("Pegar"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'V')
         menuItem.show()
 
-        self.popupMenu.mnuCopyPaste = menuItem = Gtk.ImageMenuItem(label=_("Copiar y Pegar"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_INDEX, Gtk.IconSize.MENU))
+        self.popupMenu.mnuCopyPaste = menuItem = Gtk.MenuItem(label=_("Copiar y Pegar"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'CV')
         menuItem.show()
 
-        STOCK_SELECT_ALL_X = "edit-select-all"
-        self.popupMenu.mnuSelect = menuItem = Gtk.ImageMenuItem(label=_("Seleccionar todo"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_SELECT_ALL_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuSelect = menuItem = Gtk.MenuItem(label=_("Seleccionar todo"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'A')
         menuItem.show()
 
-        self.popupMenu.mnuCopyAll = menuItem = Gtk.ImageMenuItem(label=_("Copiar todo"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_SELECT_ALL_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuCopyAll = menuItem = Gtk.MenuItem(label=_("Copiar todo"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'CA')
         menuItem.show()
 
-        STOCK_SAVE_X = "document-save"
-        self.popupMenu.mnuSelect = menuItem = Gtk.ImageMenuItem(label=_("Guardar buffer en archivo"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_SAVE_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuSelect = menuItem = Gtk.MenuItem(label=_("Guardar buffer en archivo"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'S')
         menuItem.show()
 
-        STOCK_NEW_X = "document-new"
-        self.popupMenu.mnuSplitH = menuItem = Gtk.ImageMenuItem(label=_("Split H"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_NEW_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuSplitH = menuItem = Gtk.MenuItem(label=_("Split H"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'SPH')
         menuItem.show()
 
-        self.popupMenu.mnuSplitV = menuItem = Gtk.ImageMenuItem(label=_("Split V"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_NEW_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuSplitV = menuItem = Gtk.MenuItem(label=_("Split V"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'SPV')
         menuItem.show()
@@ -975,21 +1036,17 @@ class Wmain(SimpleGladeApp):
         self.popupMenu.append(menuItem)
         menuItem.show()
 
-        self.popupMenu.mnuReset = menuItem = Gtk.ImageMenuItem(label=_("Reiniciar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_NEW_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuReset = menuItem = Gtk.MenuItem(label=_("Reiniciar consola"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'RS2')
         menuItem.show()
 
-        STOCK_CLEAR_X = "edit-clear"
-        self.popupMenu.mnuClear = menuItem = Gtk.ImageMenuItem(label=_("Reiniciar y Limpiar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_CLEAR_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuClear = menuItem = Gtk.MenuItem(label=_("Reiniciar y Limpiar consola"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'RC2')
         menuItem.show()
 
-        self.popupMenu.mnuClone = menuItem = Gtk.ImageMenuItem(label=_("Clonar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_COPY_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuClone = menuItem = Gtk.MenuItem(label=_("Clonar consola"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'CC2')
         menuItem.show()
@@ -999,9 +1056,7 @@ class Wmain(SimpleGladeApp):
         menuItem.connect("activate", self.on_popupmenu, 'L2')
         menuItem.show()
 
-        STOCK_CLOSE_X = "window-close"
-        self.popupMenu.mnuClose = menuItem = Gtk.ImageMenuItem(label=_("Cerrar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_CLOSE_X, Gtk.IconSize.MENU))
+        self.popupMenu.mnuClose = menuItem = Gtk.MenuItem(label=_("Cerrar consola"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'X')
         menuItem.show()
@@ -1013,7 +1068,7 @@ class Wmain(SimpleGladeApp):
         #Menu de comandos personalizados
         self.popupMenu.mnuCommands = Gtk.Menu()
 
-        self.popupMenu.mnuCmds = menuItem = Gtk.ImageMenuItem(label=_("Comandos personalizados"))
+        self.popupMenu.mnuCmds = menuItem = Gtk.MenuItem(label=_("Comandos personalizados"))
         menuItem.set_submenu(self.popupMenu.mnuCommands)
         self.popupMenu.append(menuItem)
         menuItem.show()
@@ -1022,38 +1077,32 @@ class Wmain(SimpleGladeApp):
         #Menu contextual para panel de servidores
         self.popupMenuFolder = Gtk.Menu()
 
-        self.popupMenuFolder.mnuConnect = menuItem = Gtk.ImageMenuItem(label=_("Conectar"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_EXECUTE, Gtk.IconSize.MENU))
+        self.popupMenuFolder.mnuConnect = menuItem = Gtk.MenuItem(label=_("Conectar"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_btnConnect_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuCopyAddress = menuItem = Gtk.ImageMenuItem(label=_("Copiar Direccion"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_COPY_X, Gtk.IconSize.MENU))
+        self.popupMenuFolder.mnuCopyAddress = menuItem = Gtk.MenuItem(label=_("Copiar Direccion"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'H')
         menuItem.show()
 
-        self.popupMenuFolder.mnuAdd = menuItem = Gtk.ImageMenuItem(label=_("Agregar Host"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_ADD, Gtk.IconSize.MENU))
+        self.popupMenuFolder.mnuAdd = menuItem = Gtk.MenuItem(label=_("Agregar Host"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_btnAdd_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuEdit = menuItem = Gtk.ImageMenuItem(label=_("Editar"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_EDIT, Gtk.IconSize.MENU))
+        self.popupMenuFolder.mnuEdit = menuItem = Gtk.MenuItem(label=_("Editar"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_bntEdit_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuDel = menuItem = Gtk.ImageMenuItem(label=_("Eliminar"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_DELETE, Gtk.IconSize.MENU))
+        self.popupMenuFolder.mnuDel = menuItem = Gtk.MenuItem(label=_("Eliminar"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_btnDel_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuDup = menuItem = Gtk.ImageMenuItem(label=_("Duplicar Host"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_DND_MULTIPLE, Gtk.IconSize.MENU))
+        self.popupMenuFolder.mnuDup = menuItem = Gtk.MenuItem(label=_("Duplicar Host"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'D')
         menuItem.show()
@@ -1062,12 +1111,12 @@ class Wmain(SimpleGladeApp):
         self.popupMenuFolder.append(menuItem)
         menuItem.show()
 
-        self.popupMenuFolder.mnuExpand = menuItem = Gtk.ImageMenuItem(label=_("Expandir todo"))
+        self.popupMenuFolder.mnuExpand = menuItem = Gtk.MenuItem(label=_("Expandir todo"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", lambda *args: self.treeServers.expand_all())
         menuItem.show()
 
-        self.popupMenuFolder.mnuCollapse = menuItem = Gtk.ImageMenuItem(label=_("Contraer todo"))
+        self.popupMenuFolder.mnuCollapse = menuItem = Gtk.MenuItem(label=_("Contraer todo"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", lambda *args: self.treeServers.collapse_all())
         menuItem.show()
@@ -1076,32 +1125,27 @@ class Wmain(SimpleGladeApp):
         #Menu contextual para tabs
         self.popupMenuTab = Gtk.Menu()
 
-        self.popupMenuTab.mnuRename = menuItem = Gtk.ImageMenuItem(label=_("Renombrar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_EDIT, Gtk.IconSize.MENU))
+        self.popupMenuTab.mnuRename = menuItem = Gtk.MenuItem(label=_("Renombrar consola"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'R')
         menuItem.show()
 
-        self.popupMenuTab.mnuReset = menuItem = Gtk.ImageMenuItem(label=_("Reiniciar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_NEW_X, Gtk.IconSize.MENU))
+        self.popupMenuTab.mnuReset = menuItem = Gtk.MenuItem(label=_("Reiniciar consola"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'RS')
         menuItem.show()
 
-        self.popupMenuTab.mnuClear = menuItem = Gtk.ImageMenuItem(label=_("Reiniciar y Limpiar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_CLEAR_X, Gtk.IconSize.MENU))
+        self.popupMenuTab.mnuClear = menuItem = Gtk.MenuItem(label=_("Reiniciar y Limpiar consola"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'RC')
         menuItem.show()
 
-        self.popupMenuTab.mnuReopen = menuItem = Gtk.ImageMenuItem(label=_("Reconectar al host"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_CONNECT, Gtk.IconSize.MENU))
+        self.popupMenuTab.mnuReopen = menuItem = Gtk.MenuItem(label=_("Reconectar al host"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'RO')
         #menuItem.show()
 
-        self.popupMenuTab.mnuClone = menuItem = Gtk.ImageMenuItem(label=_("Clonar consola"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_COPY_X, Gtk.IconSize.MENU))
+        self.popupMenuTab.mnuClone = menuItem = Gtk.MenuItem(label=_("Clonar consola"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'CC')
         menuItem.show()
@@ -1111,14 +1155,12 @@ class Wmain(SimpleGladeApp):
         menuItem.connect("activate", self.on_popupmenu, 'L')
         menuItem.show()
 
-        self.popupMenuTab.mnuSplitH = menuItem = Gtk.ImageMenuItem(label=_("Split H"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_NEW_X, Gtk.IconSize.MENU))
+        self.popupMenuTab.mnuSplitH = menuItem = Gtk.MenuItem(label=_("Split H"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'SPH')
         menuItem.show()
 
-        self.popupMenuTab.mnuSplitV = menuItem = Gtk.ImageMenuItem(label=_("Split V"))
-        menuItem.set_image(Gtk.Image.new_from_icon_name(STOCK_NEW_X, Gtk.IconSize.MENU))
+        self.popupMenuTab.mnuSplitV = menuItem = Gtk.MenuItem(label=_("Split V"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, 'SPV')
         menuItem.show()
@@ -1197,7 +1239,15 @@ class Wmain(SimpleGladeApp):
         wConfig = Wconfig()
 
     def on_output_written(self, terminal, data):
-        # fix #88: signal output-written (VTE >= 0.60) — reçoit les bytes bruts
+        """Callback VTE >= 0.60 : capture la sortie brute du terminal pour le logging.
+
+        Remplace le signal 'contents-changed' (obsolete sur VTE >= 0.60 / Ubuntu 24.04+).
+        Le signal 'output-written' fournit les bytes bruts ecrits dans le PTY.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source du signal.
+            data (GLib.Bytes): Bytes bruts recus du processus enfant.
+        """
         if hasattr(terminal, 'log') and terminal.log:
             try:
                 text = data.get_data().decode('utf-8', errors='replace') if hasattr(data, 'get_data') else bytes(data).decode('utf-8', errors='replace')
@@ -1207,7 +1257,14 @@ class Wmain(SimpleGladeApp):
                 pass
 
     def on_contents_changed(self, terminal):
-        col,row = terminal.get_cursor_position()
+        """Callback VTE < 0.60 : capture les changements de contenu pour le logging.
+
+        Fallback utilise quand 'output-written' n'est pas disponible.
+        Lit le texte entre la derniere position loggee et la position courante.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source du signal.
+        """
         if terminal.last_logged_row != row:
             text,b = terminal.get_text_range(terminal.last_logged_row, terminal.last_logged_col, row, col, None, None)
             terminal.last_logged_row = row
@@ -1215,6 +1272,19 @@ class Wmain(SimpleGladeApp):
             terminal.log.write(text[:-1])
 
     def set_terminal_logger(self, terminal, enable_logging=True):
+        """Active ou desactive le logging de session pour un terminal VTE.
+
+        Cree un fichier log horodate dans le dossier configure (conf.LOG_PATH).
+        Utilise le signal 'output-written' (VTE >= 0.60) ou 'contents-changed' (fallback).
+
+        Args:
+            terminal (Vte.Terminal): Terminal VTE cible.
+            enable_logging (bool, optional): True pour activer, False pour desactiver.
+                Defaults to True.
+
+        Returns:
+            bool: True si l'operation a reussi, False en cas d'erreur (ex: fichier non writable).
+        """
         if enable_logging:
             terminal.last_logged_col, terminal.last_logged_row = terminal.get_cursor_position()
             if hasattr(terminal, "log_handler_id"):
@@ -1644,8 +1714,7 @@ class Wmain(SimpleGladeApp):
 
                 menu = self.get_folder_menu(self.menuServers, '', path)
                 if menu == None:
-                    menu = Gtk.ImageMenuItem(label=folder)
-                    menu.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_DIRECTORY, Gtk.IconSize.MENU))
+                    menu = Gtk.MenuItem(label=folder)
                     menuNode.prepend(menu)
                     menuNode = Gtk.Menu()
                     menu.set_submenu(menuNode)
@@ -1656,8 +1725,7 @@ class Wmain(SimpleGladeApp):
             groups[grupo].sort(key=operator.attrgetter('name'))
             for host in groups[grupo]:
                 self.treeModel.append(group, [host.name, host, iconHost, '#fff'])
-                mnuItem = Gtk.ImageMenuItem(label=host.name)
-                mnuItem.set_image(Gtk.Image.new_from_icon_name(Gtk.STOCK_NETWORK, Gtk.IconSize.MENU))
+                mnuItem = Gtk.MenuItem(label=host.name)
                 mnuItem.show()
                 mnuItem.connect("activate", lambda arg, nb, h: self.addTab(nb, h), self.nbConsole, host)
                 menuNode.append(mnuItem)
@@ -1670,7 +1738,14 @@ class Wmain(SimpleGladeApp):
         #custom method to get alternating row colors in treeview, as that is not possible with gtk3
         if not node:
             self.color_index = 0
-            rgba = self.treeServers.get_style_context().get_background_color(Gtk.StateFlags.NORMAL)
+            # fix: get_background_color deprecie — utiliser lookup_color() avec fallback
+            sc = self.treeServers.get_style_context()
+            found, rgba = sc.lookup_color('theme_bg_color')
+            if not found:
+                found, rgba = sc.lookup_color('bg_color')
+            if not found:
+                rgba = Gdk.RGBA()
+                rgba.parse('#ffffff')
             self.color_back1 = color_to_hex(rgba)
             self.color_back2 = color_to_hex(rgba, -14)
             i = self.treeModel.get_iter_first()
@@ -1944,8 +2019,8 @@ class Wmain(SimpleGladeApp):
 
     def show_save_buffer(self, terminal):
         dlg = Gtk.FileChooserDialog(title=_("Guardar como"), parent=self.wMain, action=Gtk.FileChooserAction.SAVE)
-        dlg.add_button(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)
-        dlg.add_button(Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
+        dlg.add_button(_('Annuler'), Gtk.ResponseType.CANCEL)
+        dlg.add_button(_('Enregistrer'), Gtk.ResponseType.OK)
         dlg.set_do_overwrite_confirmation(True)
         dlg.set_current_name( os.path.basename("gcm-buffer-%s.txt" % (time.strftime("%Y%m%d%H%M%S")) ))
         if not hasattr(self,'lastPath'):
@@ -3440,14 +3515,14 @@ class EntryDialog( Gtk.Dialog):
         box.pack_start(self.entry, True, True, 0)
         self.entry.show()
         self.entry.grab_focus()
-        button = Gtk.Button(stock=Gtk.STOCK_OK)
+        button = Gtk.Button(label=_('OK'))
         button.connect("clicked", self.click)
         self.entry.connect("activate", self.click)
         button.set_can_default(True)
         self.action_area.pack_start(button, True, True, 0)
         button.show()
         button.grab_default()
-        button = Gtk.Button(stock=Gtk.STOCK_CANCEL)
+        button = Gtk.Button(label=_('Annuler'))
         button.connect("clicked", self.quit)
         button.set_can_default(True)
         self.action_area.pack_start(button, True, True, 0)
