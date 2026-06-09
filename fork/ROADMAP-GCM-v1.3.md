@@ -18,7 +18,11 @@
 | 4 | Intégration patch Import Libvirt v2 | ✅ Terminé | Moyen |
 | 5 | Intégration patch RDP (processus externe) | ✅ Terminé | Moyen |
 | 6 | xfreerdp embarqué via GtkSocket/XEmbed | ✅ Terminé | Complexe |
-| 7 | Packaging et release v1.3 | ✅ Terminé | Facile |
+| 7 | Packaging et release v1.3.0 | ✅ Terminé | Facile |
+| 8 | v1.3.1 — bugfixes + 16 langues + VNC/SPICE/Serial | ✅ Terminé | Moyen |
+| 9 | Serial RS-232/485 + templates constructeurs (11) | ✅ Terminé | Moyen |
+| 10 | Suite tests unitaires pytest (379 tests) | ✅ Terminé | Moyen |
+| 11 | Documentation utilisateur + README | ✅ Terminé | Facile |
 
 ---
 
@@ -30,85 +34,104 @@
 
 | Issue | Titre | Description du problème | Correction prévue |
 |---|---|---|---|
-| [#81](https://github.com/kuthulux/gnome-connection-manager/issues/81) | Crash au démarrage — `style.css` manquant | `provider.load_from_path(BASE_PATH + "/style.css")` lève une `GLib.GError` fatale si le fichier n'existe pas | Entourer d'un `try/except`, afficher un warning non-bloquant |
-| [#82](https://github.com/kuthulux/gnome-connection-manager/issues/82) | Clone impossible quand un mot de passe est défini | Le 2e onglet reste noir avec curseur clignotant. Le mécanisme `expect` SSH ne rejoue pas correctement le mot de passe chiffré lors d'un clone | Débugger la logique `sendPassword` + `clone()` dans `addTab()` |
-| [#88](https://github.com/kuthulux/gnome-connection-manager/issues/88) | Logging cassé sur Ubuntu 24.04 / GTK 3.24+ | Le log de session VTE ne capture que l'en-tête, le contenu suivant est vide + lag extrême. Lié à un changement d'API VTE (`contents-changed` vs `output-written`) | Migrer vers `vte.connect("output-written", ...)` (API VTE 2.91+) |
-| [#89](https://github.com/kuthulux/gnome-connection-manager/issues/89) | Passphrase SSH redemandée à chaque nouvel onglet | GCM ne transmet pas `SSH_AUTH_SOCK` à chaque sous-processus SSH → l'agent gnome-keyring/ssh-agent n'est pas utilisé | Injecter `SSH_AUTH_SOCK` dans l'env du processus VTE, ou passer `-o AddKeysToAgent=yes` |
-| [#87](https://github.com/kuthulux/gnome-connection-manager/issues/87) | Freeze SSH avec équipements MikroTik | GCM envoie des centaines de paquets `window-change` SSH en boucle, ce qui gèle la session sur certains équipements (RouterOS, équipements réseau) | Throttler les envois `window-change` : debounce de 200ms sur `on_terminal_size_allocate` |
-| [#64](https://github.com/kuthulux/gnome-connection-manager/issues/64) | Double-clic dans Midnight Commander ouvre un nouvel onglet | Bug de coordonnées dans `on_terminal_click` : `event.y + widget.get_allocation().y` ne distingue pas le clic dans la barre d'onglets vs dans le terminal lorsque MC est actif | Ajouter une vérification `posY < tab_bar_height` avant d'ouvrir un onglet |
-| [#67](https://github.com/kuthulux/gnome-connection-manager/issues/67) | Surlignage jaune cluster ne disparaît pas | Quand on ajoute/supprime une connexion cluster, les marquages jaunes des onglets ne se réinitialisent pas | Forcer un `queue_draw()` sur tous les onglets lors du changement de cluster |
-| [#66](https://github.com/kuthulux/gnome-connection-manager/issues/66) | Port du tunnel SSH perdu à la sauvegarde | Le champ `tunnel_remote_host` avec port (`host:port`) n'est pas persisté correctement → perdu à la réouverture | Corriger la sérialisation/désérialisation du champ `tunnel_host` |
+| [#81](https://github.com/kuthulux/gnome-connection-manager/issues/81) | ✅ Crash au démarrage — `style.css` manquant | `provider.load_from_path` fatal → `try/except` non-bloquant | **Corrigé — commit 1b** |
+| [#82](https://github.com/kuthulux/gnome-connection-manager/issues/82) | ✅ Clone impossible avec mot de passe | `sendPassword()` + `clone()` revu dans `addTab()` | **Corrigé — commit 1b** |
+| [#88](https://github.com/kuthulux/gnome-connection-manager/issues/88) | ✅ Logging cassé sur Ubuntu 24.04 / GTK 3.24+ | Migré vers `output-written` (VTE 2.91+) | **Corrigé — commit 1b** |
+| [#89](https://github.com/kuthulux/gnome-connection-manager/issues/89) | ✅ Passphrase SSH redemandée à chaque onglet | `SSH_AUTH_SOCK` injecté dans l'env VTE (`vte_run()`) | **Corrigé — commit 1b** |
+| [#87](https://github.com/kuthulux/gnome-connection-manager/issues/87) | ✅ Freeze SSH MikroTik (`window-change` flood) | Debounce 200ms sur `on_terminal_size_allocate` | **Corrigé — commit 1b** |
+| [#64](https://github.com/kuthulux/gnome-connection-manager/issues/64) | ✅ Double-clic dans Midnight Commander | Vérification `posY < tab_bar_height` dans `on_terminal_click` | **Corrigé — commit 1b** |
+| [#67](https://github.com/kuthulux/gnome-connection-manager/issues/67) | ✅ Surlignage jaune cluster persiste | `queue_draw()` forcé sur tous les onglets au changement cluster | **Corrigé — commit 1b** |
+| [#66](https://github.com/kuthulux/gnome-connection-manager/issues/66) | ✅ Port tunnel SSH perdu à la sauvegarde | Sérialisation `host:port` corrigée (split max 2) | **Corrigé — commit 1b** |
 
-### 🟡 Issues de packaging — à régler pour la release
+### 🟡 Issues de packaging — réglées pour la release
 
 | Issue | Titre | Action |
 |---|---|---|
-| [#71](https://github.com/kuthulux/gnome-connection-manager/issues/71) | `style.css` absent du paquet .deb | Corrigé dans le code source (commit 9886cc2) mais jamais livré dans un tag/release. Sera résolu par la release v1.3 |
+| [#71](https://github.com/kuthulux/gnome-connection-manager/issues/71) | ✅ `style.css` absent du paquet .deb | Livré dans release v1.3.0 |
 
 ### 🟢 Bonnes idées — futures évolutions (post v1.3)
 
 | Issue | Titre | Note |
 |---|---|---|
-| [#80](https://github.com/kuthulux/gnome-connection-manager/issues/80) | Chemin de config en argument CLI (`--config /path/to/config`) | Simple à implémenter avec `argparse` |
-| [#79](https://github.com/kuthulux/gnome-connection-manager/issues/79) | Zoom in/out dans les terminaux | `terminal.set_font(...)` + `Ctrl++/Ctrl+-` |
-| [#78](https://github.com/kuthulux/gnome-connection-manager/issues/78) | Couleurs de terminal personnalisables | Palette de couleurs dans les préférences |
-| [#77](https://github.com/kuthulux/gnome-connection-manager/issues/77) | Fermeture automatique de l'onglet à la déconnexion SSH | Option par host ou globale |
-| [#74](https://github.com/kuthulux/gnome-connection-manager/issues/74) | Import depuis d'autres formats (CSV, PuTTY, etc.) | Complémentaire avec notre import libvirt |
-| [#76](https://github.com/kuthulux/gnome-connection-manager/issues/76) | Traductions manquantes/incorrectes | Mettre à jour les fichiers `.po` |
-| [#100](https://github.com/MathilDec/gnome-connection-manager/issues/100) | Traduction pour nos amis UKRAINIENS |creer le fichier `.po` |
-| [#101](https://github.com/MathilDec/gnome-connection-manager/issues/101) | Connexion eux machine virtuelle de libvirt/Qemu | Amélioration de l'import libvirt pour détecter les VM Windows et proposer une connexion RDP/VNC/SPICE au lieu de SSH |
-| [#102]()  || Support de VNC et SPICE en plus de RDP | Extension du protocole dans la classe `Host` + nouveaux onglets dédiés |
-| [#103]()  || Intégration d'un terminal web (xterm.js) pour les connexions SSH | Remplacement de VTE par un composant web embarqué avec xterm.js pour une meilleure compatibilité et plus de fonctionnalités (copier-coller, etc.) |
-| [#104]()  || Support de Wayland (via XWayland ou natif) | Adapter le code pour fonctionner sous Wayland, notamment pour l'intégration de xfreerdp et la gestion des fenêtres |
-| [#105]()  || Application mobile Android/iOS | Portage de GCM en application mobile avec une interface adaptée et support des protocoles SSH/RDP/VNC |
-| [#106]()  || Intégration d'une API REST pour contrôler GCM à distance | Permettre de lancer des connexions, récupérer l'état des sessions, etc. via une API HTTP sécurisée |
-| [#107]()  || Support de plugins pour ajouter des fonctionnalités personnalisées | Architecture de plugin pour permettre à la communauté de développer des extensions (ex : intégration Ansible, monitoring, etc.) |
-| [#108]()  || Interface de gestion des clés SSH intégrée | Permettre de gérer les clés SSH directement depuis GCM, avec génération, import/export, etc. |
-| [#109]()  || Système de notifications pour les événements importants (déconnexion, erreurs, etc.) | Intégrer un système de notifications desktop pour informer l'utilisateur des événements liés à ses connexions |
-| [#110]()  ||ajoute doctring/avec les arguments facon google|
-| [#111]()  ||ajoute des tests unitaires pour les fonctions critiques| Utiliser `unittest` ou `pytest` pour couvrir les fonctions de parsing, de connexion, etc. |
-| [#112]()  ||refactor le code pour séparer la logique métier de l'interface graphique| Adopter une architecture MVC ou similaire pour améliorer la maintenabilité du code |
-| [#113]()  ||ajoute un mode sombre pour l'interface| Thème sombre optionnel pour les utilisateurs qui préfèrent |
-| [#114]()  ||ajoute une fonctionnalité de recherche dans les onglets ouverts| Permettre de rechercher du texte dans les sessions ouvertes |
-| [#115]()  ||ajoute une fonctionnalité de partage de session| Permettre à plusieurs utilisateurs de partager une session SSH en temps réel |
-| [#116]()  ||ajoute une fonctionnalité de scripting pour automatiser les tâches| Permettre d'exécuter des scripts personnalisés avant/après la connexion, ou sur des événements spécifiques |
-|
+| [#76](https://github.com/kuthulux/gnome-connection-manager/issues/76) | ✅ Traductions manquantes/incorrectes | **16 langues** : de/en/fr/it/ko/pl/pt/ru + uk/ja/ar/tr/nl/cs/sv/nb — commit `08a48a1` |
+| [#100](https://github.com/MathilDec/gnome-connection-manager/issues/100) | ✅ Traduction ukrainienne | `lang/uk_UA/` compilé et inclus — commit `08a48a1` |
+| [#101](https://github.com/MathilDec/gnome-connection-manager/issues/101) | ✅ Connexion VMs libvirt/QEMU | Détection heuristique Windows → protocol=rdp, import libvirt v2 — étape 4 |
+| [#102]() | ✅ Support VNC et SPICE | `VncTab` + `SpiceTab` — commit `1394da1` |
+| [#110]() | ✅ Docstrings Google | 188 fonctions documentées — étape 2 |
+| [#111]() | ✅ Tests unitaires (pytest) | **379 tests**, 0 échec — commit `1394da1` |
+| [#80](https://github.com/kuthulux/gnome-connection-manager/issues/80) | 🔲 Config CLI `--config` | `argparse` — post v1.3 |
+| [#79](https://github.com/kuthulux/gnome-connection-manager/issues/79) | 🔲 Zoom terminal Ctrl++/- | post v1.3 |
+| [#78](https://github.com/kuthulux/gnome-connection-manager/issues/78) | 🔲 Couleurs personnalisables | post v1.3 |
+| [#77](https://github.com/kuthulux/gnome-connection-manager/issues/77) | 🔲 Fermeture automatique onglet | post v1.3 |
+| [#74](https://github.com/kuthulux/gnome-connection-manager/issues/74) | 🔲 Import CSV / PuTTY | post v1.3 |
+| [#103]() | 🔲 Terminal web xterm.js | Remplacement VTE par xterm.js embarqué |
+| [#104]() | 🔲 Wayland natif | Adapter XEmbed / xfreerdp pour Wayland |
+| [#105]() | 🔲 Application mobile Android/iOS | Portage avec interface adaptée SSH/RDP/VNC |
+| [#106]() | 🔲 API REST de contrôle GCM | Lancer connexions + état sessions via HTTP sécurisé |
+| [#107]() | 🔲 Architecture plugins | Extensions communauté (Ansible, monitoring…) |
+| [#108]() | 🔲 Gestion des clés SSH intégrée | Génération / import / export clés SSH dans GCM |
+| [#109]() | 🔲 Notifications desktop | Alértes déconnexion / erreurs via le système de notifications |
+| [#112]() | 🔲 Refactor MVC | Séparer logique métier et UI |
+| [#113]() | 🔲 Mode sombre | Thème sombre optionnel |
+| [#114]() | 🔲 Recherche dans onglets | Chercher du texte dans les sessions ouvertes |
+| [#115]() | 🔲 Partage de session | Multi-utilisateurs sur une même session SSH |
+| [#116]() | 🔲 Scripting avant/après connexion | Scripts personnalisés sur événements |
 
-#TODO
-# - ayuda
-# - drag'n drop hosts entre grupos
-# - sftp
-# - master password (al iniciar la aplicacion)
-# - guardar estado de consolas abiertas (y estado de split)
-# - sortcut para moverse entre notebooks
-# - quitar los "accelerator" del archivo .glade (o dejarlos opcionales)
-# - soporte picocom (o minicom, o pyserial, ser2net) para comunicación serial
-# - Permitir modificar combinacion para cerrar aplicacion CTRL+Q
-# - Icono en system tray
-# - Quitar shortcut ALT+F para archivo
-# - Permitir deshabilitar shortcuts
-# - soporte proxy socks/http para ssh
-# - cluster mode: would be nice to have a drop-down list on the cluster button and once selected \"the text to send to hosts box\" should be activated on the right of the cluster button. The box should stay on the toolbar and not over the terminal window
-# - hide chars** in cluster mode (un checkbox para mostrar/ocultar entrada)
-# - seleccionar varios hosts y conectarse
-# - seleccionar varios hosts y editarlos
-# - permitir establecer colores a nivel de grupos
-# - permitir cambiar nombre de grupo
-# - overwrite colors (like putty)
-# - Cambiar charset en consola o en propiedades del host
-# - One "nice to have" would be the ability for GCM to use my existing PuTTY sessions instead of entering everything a second time. External script for that that parses ~/putty/session files
-# - Enter passwords in commands and hide them, #P=password (Angelo Corsaro). TextView doesnt support masking text, it needs a different implementation. Pending.
-# - Persist history of cluster commands. is it really necessary?
-# - Option to disable shortcuts
+### TODO upstream original — état détaillé
 
-### ⚪ Issues hors-scope / questions utilisateurs
+| Item | Statut | Notes |
+|---|---|---|
+| ayuda (aide contextuelle) | 🔲 post v1.3 | Tooltip / page d'aide intégrée |
+| drag'n drop hosts entre groupes | 🔲 post v1.3 | DnD Gtk.TreeView |
+| **sftp** | 🔲 post v1.3 | Navigateur de fichiers via paramiko SFTP |
+| master password au démarrage | 🔲 post v1.3 | Chiffrement du keyring local |
+| sauvegarder état des onglets ouverts | 🔲 post v1.3 | Restaurer sessions au redémarrage |
+| shortcut navigation entre notebooks | 🔲 post v1.3 | Ctrl+Tab / Alt+1..9 |
+| retirer les accelerators du .glade | 🔲 post v1.3 | ou les rendre optionnels |
+| **soporte picocom / minicom / serial** | ✅ **Fait v1.3.1** | `SerialTab` + 11 templates constructeurs |
+| Modifier CTRL+Q fermeture app | 🔲 post v1.3 | Préférences raccourcis |
+| icône system tray | 🔲 post v1.3 | `Gtk.StatusIcon` / `libappindicator` |
+| supprimer shortcut ALT+F | 🔲 post v1.3 | Ou option pour le désactiver |
+| proxy socks/http pour SSH | 🔲 post v1.3 | `-o ProxyCommand` |
+| cluster mode — liste déroulante | 🔲 post v1.3 | UX améliorée |
+| masquer saisie en mode cluster | 🔲 post v1.3 | Checkbox afficher/masquer |
+| sélectionner plusieurs hosts | 🔲 post v1.3 | Multi-sélection TreeView |
+| édition multiple hosts | 🔲 post v1.3 | Modifier port/groupe en lot |
+| couleurs par groupe | 🔲 post v1.3 | Comme PuTTY |
+| renommer un groupe | 🔲 post v1.3 | |
+| import sessions PuTTY | 🔲 post v1.3 | Parser `~/.putty/sessions/` |
+| masquer passwords dans les commandes | 🔲 post v1.3 | `#P=password` (Angelo Corsaro) |
+| historique commandes cluster | 🔲 post v1.3 | Persistance optionnelle |
+| désactiver les shortcuts | 🔲 post v1.3 | Option dans préférences |
+| charset dynamique en console | 🔲 post v1.3 | Option par host |
 
-| Issue | Raison d'exclusion |
+### 🔲 Prochaines évolutions planifiées (post v1.3.1)
+
+| Priorité | Feature | Détails |
+|---|---|---|
+| ⭐⭐⭐ | **libvirt_inventory** | Script / module d'inventaire des VMs libvirt exporté en CSV/JSON/Ansible, indépendant de l'UI GCM |
+| ⭐⭐⭐ | **ssh_deploy** | Déploiement de clés SSH / fichiers / commandes sur une sélection de hosts GCM en mode batch |
+| ⭐⭐ | Zoom terminal Ctrl++/- (#79) | `terminal.set_font()` ajusté |
+| ⭐⭐ | Fermeture auto onglet (#77) | Option par host ou globale |
+| ⭐⭐ | Config CLI `--config` (#80) | `argparse` |
+| ⭐⭐ | Import CSV / PuTTY (#74) | |
+| ⭐ | Terminal web xterm.js (#103) | |
+| ⭐ | Wayland natif (#104) | |
+| ⭐ | API REST (#106) | |
+| ⭐ | Architecture plugins (#107) | |
+| ⭐ | Gestion clés SSH (#108) | |
+| ⭐ | Notifications desktop (#109) | |
+| ⭐ | Mode sombre (#113) | |
+| ⭐ | Recherche dans onglets (#114) | |
+| ⭐ | Refactor MVC (#112) | |
+
+### ⚪ Issues dans scope / questions utilisateurs
+
+| Issue | Statut |
 |---|---|
-
-| [#90](https://github.com/kuthulux/gnome-connection-manager/issues/90) | Packaging openSUSE/debian/Redhat/Rocky  |
-| [#58](https://github.com/kuthulux/gnome-connection-manager/issues/58) | Probablement résolu par fix GTK étape 2 |
-| [#68](https://github.com/kuthulux/gnome-connection-manager/issues/68) | Documentation — sera couvert par README v1.3 |
+| [#90](https://github.com/kuthulux/gnome-connection-manager/issues/90) | ✅ Packaging Makefile deb+rpm inclus dans le repo |
+| [#58](https://github.com/kuthulux/gnome-connection-manager/issues/58) | ✅ Résolu par fix GTK étape 2 |
+| [#68](https://github.com/kuthulux/gnome-connection-manager/issues/68) | ✅ Documentation-fr.md + README.md mis à jour v1.3.1 |
 
 ---
 
@@ -812,17 +835,28 @@ gh release create v1.3.0 --title "GCM v1.3.0" --notes-file CHANGELOG.md
 
 ## Suivi de progression
 
-| # | Étape | Responsable | Statut |
-|---|---|---|---|
-| 0 | Fork GitHub + config remotes | Mathilde + Claude | ✅ |
-| 1 | Bug Python 3.13 (`xrange`, `__future__`) | Claude | 🔄 (corrections faites, commit pending) |
-| 1b | Bugs upstream issues #81 #82 #87 #88 #89 #64 #67 #66 | Claude | 🔲 |
-| 2 | APIs GTK3 dépréciées (71 occurrences) | Claude | 🔲 |
-| 3 | Remplacement SimpleGladeApp | Claude | 🔲 |
-| 4 | Patch import libvirt v2 | Claude | 🔲 |
-| 5 | Patch RDP externe | Claude | 🔲 |
-| 6 | RDP XEmbed GtkSocket | Claude | 🔲 |
-| 7 | Release v1.3.0 | Claude | 🔲 |
+| # | Étape | Responsable | Statut | Commit |
+|---|---|---|---|---|
+| 0 | Fork GitHub + config remotes | Mathilde + Claude | ✅ | — |
+| 1 | Bugs Python 3.13 (`xrange`, `__future__`) | Claude | ✅ | `init` |
+| 1b | Bugs upstream #81 #82 #87 #88 #89 #64 #67 #66 | Claude | ✅ | `1b` |
+| 2 | APIs GTK3 dépréciées + 188 docstrings (#110) | Claude | ✅ | étape 2 |
+| 3 | Remplacement SimpleGladeApp → GCMBase | Claude | ✅ | `c169a90` |
+| 4 | Import libvirt v2 + détection Windows | Claude | ✅ | étape 4 |
+| 5 | RDP externe (xfreerdp subprocess) | Claude | ✅ | étape 5 |
+| 6 | RDP XEmbed GtkSocket (`/parent-window`) | Claude | ✅ | `8db68fa` |
+| 7 | Release v1.3.0 (tag + gh release) | Claude | ✅ | `cdec80e` / `v1.3.0` |
+| 8 | Cleanup kuthulu/donate/SimpleGladeApp | Claude | ✅ | `f44b388` |
+| 9 | Fix `_rdp_socket_available()` Wayland | Claude | ✅ | `f44b388` |
+| 10 | v1.3.1 bugfixes (vte_feed, RDP signal, RDP opts) | Claude | ✅ | `08a48a1` |
+| 11 | 16 langues i18n (uk/ja/ar/tr/nl/cs/sv/nb) (#76 #100) | Claude | ✅ | `08a48a1` |
+| 12 | VncTab + SpiceTab (#102) | Claude | ✅ | `1394da1` |
+| 13 | SerialTab RS-232/485 + 11 templates constructeurs | Claude | ✅ | `1394da1` |
+| 14 | 379 tests unitaires pytest (#111) | Claude | ✅ | `1394da1` |
+| 15 | Fix save_host_to_ini TypeError Python 3 | Claude | ✅ | `1394da1` |
+| 16 | Fix encrypt_old/decrypt_old Python 3 bytes | Claude | ✅ | `1394da1` |
+| 17 | Documentation-fr.md + README.md | Claude | ✅ | en cours |
+| 18 | Release v1.3.1 | Claude | 🔲 | — |
 
 **Légende :** 🔲 À faire · 🔄 En cours · ✅ Terminé · ❌ Bloqué
 

@@ -1177,13 +1177,17 @@ class TestSerialTabBuildCmd(unittest.TestCase):
         self._with_picocom(_)
 
     def test_picocom_no_opts(self):
-        """Sans options, la commande ne contient pas de flags superflus."""
+        """Sans options libres, les flags série standards sont toujours présents via les combos."""
 
         def _():
             tab = self._make_tab("/dev/ttyUSB0", "9600", "")
             cmd = tab._build_cmd()
-            self.assertNotIn("--flow", cmd)
-            self.assertNotIn("--parity", cmd)
+            # Nouveau comportement : --flow/--parity/--databits/--stopbits lus depuis les combos
+            self.assertIn("--baud", cmd)
+            self.assertIn("--flow", cmd)
+            self.assertIn("--parity", cmd)
+            self.assertIn("--databits", cmd)
+            self.assertIn("--stopbits", cmd)
 
         self._with_picocom(_)
 
@@ -2385,20 +2389,26 @@ class TestSerialTabTemplates(unittest.TestCase):
         self.assertEqual(t.host.type, "Aruba AOS-S / AOS-CX")
 
     def test_picocom_opts_include_flow(self):
+        """Cisco IOS configure flow=n, vérifié dans la commande _build_cmd."""
         t = self._tab()
         self._apply(t, "Cisco IOS / IOS-XE / NX-OS")
-        self.assertIn("--flow", t._entry_opts.get_text())
+        cmd = t._build_cmd()
+        self.assertIn("--flow", cmd)
 
     def test_picocom_opts_include_parity(self):
+        """Cisco IOS configure parity=n, vérifié dans la commande _build_cmd."""
         t = self._tab()
         self._apply(t, "Cisco IOS / IOS-XE / NX-OS")
-        self.assertIn("--parity", t._entry_opts.get_text())
+        cmd = t._build_cmd()
+        self.assertIn("--parity", cmd)
 
     def test_minicom_opts_include_databits(self):
+        """minicom : --databits est passé dans la commande générée."""
         gcm.SERIAL_BIN = "minicom"
         t = self._tab()
         self._apply(t, "Cisco IOS / IOS-XE / NX-OS")
-        self.assertIn("--databits", t._entry_opts.get_text())
+        cmd = t._build_cmd()
+        self.assertIn("--databits", cmd)
 
     def test_fortinet_sets_9600(self):
         t = self._tab()
@@ -2514,9 +2524,14 @@ class TestSerialTabBuildCmdAll(unittest.TestCase):
         self.assertIn("n", cmd)
 
     def test_picocom_no_opts_no_flow(self):
+        """Sans extra opts, --flow est toujours présent (lu depuis les combos série)."""
         gcm.SERIAL_BIN = "picocom"
         cmd = self._tab(opts="")._build_cmd()
-        self.assertNotIn("--flow", cmd)
+        # Nouveau comportement : flags toujours inclus depuis les combos dédiés
+        self.assertIn("--flow", cmd)
+        self.assertIn("--parity", cmd)
+        self.assertIn("--databits", cmd)
+        self.assertIn("--stopbits", cmd)
 
     def test_picocom_fallback_device(self):
         gcm.SERIAL_BIN = "picocom"

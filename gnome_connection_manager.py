@@ -200,7 +200,7 @@ import pyAES
 import urlregex
 
 app_name = "Gnome Connection Manager"
-app_version = "1.3.0"
+app_version = "1.3.1"
 app_web = "https://github.com/MathildeDec/gnome-connection-manager"
 app_fileversion = "1"
 
@@ -1561,36 +1561,61 @@ class SerialTab(Gtk.Box):
     Lance picocom (ou minicom / screen) dans le widget VTE intégré.
     Supporte des templates constructeur (Cisco, HP Comware, Aruba…).
 
+    Paramètres série complets exposés dans l'UI :
+        - Port série (/dev/ttyUSBx, /dev/ttySx…)
+        - Débit (baud rate) : 300 → 921600
+        - Bits de données : 5 / 6 / 7 / 8
+        - Parité : Aucune / Paire / Impaire
+        - Bits de stop : 1 / 2
+        - Contrôle de flux : Aucun / XON-XOFF / RTS-CTS / DSR-DTR
+
     Args:
         host (Host): Hôte avec protocol='serial'.
-            - host.host      : chemin du port (/dev/ttyUSB0, /dev/ttyS0…)
-            - host.port      : débit en bauds (9600, 115200…)
-            - host.extra_params : options picocom supplémentaires
-            - host.type      : clé template (ex. 'Cisco IOS / IOS-XE / NX-OS')
+            - host.host         : chemin du port
+            - host.port         : débit en bauds
+            - host.extra_params : options libres supplémentaires
+            - host.type         : clé template
     """
+
+    # Correspondances valeur interne → label UI
+    _FLOW_LABELS = [
+        ("n", "Aucun"),
+        ("x", "XON/XOFF (soft)"),
+        ("h", "RTS/CTS (hard)"),
+        ("d", "DSR/DTR"),
+    ]
+    _PARITY_LABELS = [
+        ("n", "Aucune (N)"),
+        ("e", "Paire (E)"),
+        ("o", "Impaire (O)"),
+    ]
+    _DATABITS_VALUES = ("5", "6", "7", "8")
+    _STOPBITS_VALUES = ("1", "2")
 
     def __init__(self, host):
         """Initialise le widget SerialTab."""
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.host = host
 
-        # ── barre supérieure ────────────────────────────────────────────────
-        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb.set_margin_start(6)
-        hb.set_margin_end(6)
-        hb.set_margin_top(4)
+        # ── ligne 1 : appareil + débit + template ───────────────────────────
+        hb1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb1.set_margin_start(6)
+        hb1.set_margin_end(6)
+        hb1.set_margin_top(4)
 
-        # Appareil
+        # Port série
         lbl_dev = Gtk.Label(label=_("Port série :"))
         lbl_dev.set_xalign(1.0)
         self._entry_dev = Gtk.Entry()
         self._entry_dev.set_text(
             getattr(host, "host", "/dev/ttyUSB0") or "/dev/ttyUSB0"
         )
-        self._entry_dev.set_tooltip_text(_("Ex : /dev/ttyUSB0, /dev/ttyS0"))
+        self._entry_dev.set_tooltip_text(
+            _("Ex : /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0")
+        )
         self._entry_dev.set_hexpand(True)
 
-        # Débit
+        # Débit (baud rate)
         lbl_baud = Gtk.Label(label=_("Débit :"))
         lbl_baud.set_xalign(1.0)
         self._cmb_baud = Gtk.ComboBoxText()
@@ -1609,37 +1634,102 @@ class SerialTab(Gtk.Box):
             "921600",
         ):
             self._cmb_baud.append_text(b)
+        self._cmb_baud.set_tooltip_text(_("Vitesse de transmission en bauds"))
         baud = str(getattr(host, "port", "9600") or "9600")
-        model = self._cmb_baud.get_model()
-        i = model.get_iter_first()
-        while i is not None:
-            if model[i][0] == baud:
-                self._cmb_baud.set_active_iter(i)
-                break
-            i = model.iter_next(i)
-        if self._cmb_baud.get_active() < 0:
-            self._cmb_baud.set_active(4)  # 9600 par défaut
+        self._cmb_select(self._cmb_baud, baud, 4)  # défaut 9600 (idx 4)
 
-        # Template
+        # Template constructeur
         lbl_tpl = Gtk.Label(label=_("Template :"))
         lbl_tpl.set_xalign(1.0)
         self._cmb_tpl = Gtk.ComboBoxText()
         for tpl_name in _SERIAL_TEMPLATES:
             self._cmb_tpl.append_text(tpl_name)
-        self._cmb_tpl.set_active(10)  # Libre (manuel) par défaut
-        self._cmb_tpl.connect("changed", self._on_template_changed)
-        # pré-sélectionner le template sauvegardé
+        self._cmb_tpl.set_tooltip_text(
+            _("Charge les paramètres série recommandés par le constructeur")
+        )
         tpl_saved = getattr(host, "type", "") or ""
-        if tpl_saved in _SERIAL_TEMPLATES:
-            tpl_list = list(_SERIAL_TEMPLATES.keys())
-            self._cmb_tpl.set_active(tpl_list.index(tpl_saved))
+        tpl_list = list(_SERIAL_TEMPLATES.keys())
+        tpl_idx = tpl_list.index(tpl_saved) if tpl_saved in tpl_list else 10
+        self._cmb_tpl.set_active(tpl_idx)
+        self._cmb_tpl.connect("changed", self._on_template_changed)
 
-        # Options supplémentaires
+        for w in (
+            lbl_dev,
+            self._entry_dev,
+            lbl_baud,
+            self._cmb_baud,
+            lbl_tpl,
+            self._cmb_tpl,
+        ):
+            hb1.pack_start(w, False, False, 0)
+
+        # ── ligne 2 : paramètres série (databits, parity, stopbits, flow) ──
+        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb2.set_margin_start(6)
+        hb2.set_margin_end(6)
+
+        # Bits de données
+        lbl_data = Gtk.Label(label=_("Bits données :"))
+        lbl_data.set_xalign(1.0)
+        self._cmb_databits = Gtk.ComboBoxText()
+        for d in self._DATABITS_VALUES:
+            self._cmb_databits.append_text(d)
+        self._cmb_databits.set_tooltip_text(
+            _("Nombre de bits de données par octet (8 = standard)")
+        )
+        self._cmb_databits.set_active(3)  # 8 par défaut
+
+        # Parité
+        lbl_par = Gtk.Label(label=_("Parité :"))
+        lbl_par.set_xalign(1.0)
+        self._cmb_parity = Gtk.ComboBoxText()
+        for _code, _label in self._PARITY_LABELS:
+            self._cmb_parity.append_text(_label)
+        self._cmb_parity.set_tooltip_text(
+            _("Bit de parité : Aucune (N) = standard, Paire (E), Impaire (O)")
+        )
+        self._cmb_parity.set_active(0)  # None par défaut
+
+        # Bits de stop
+        lbl_stop = Gtk.Label(label=_("Stop :"))
+        lbl_stop.set_xalign(1.0)
+        self._cmb_stopbits = Gtk.ComboBoxText()
+        for s in self._STOPBITS_VALUES:
+            self._cmb_stopbits.append_text(s)
+        self._cmb_stopbits.set_tooltip_text(
+            _("Bits de stop : 1 = standard, 2 = RS-485 / ancien matériel")
+        )
+        self._cmb_stopbits.set_active(0)  # 1 par défaut
+
+        # Contrôle de flux
+        lbl_flow = Gtk.Label(label=_("Flux :"))
+        lbl_flow.set_xalign(1.0)
+        self._cmb_flow = Gtk.ComboBoxText()
+        for _code, _label in self._FLOW_LABELS:
+            self._cmb_flow.append_text(_label)
+        self._cmb_flow.set_tooltip_text(
+            _(
+                "Contrôle de flux :\n"
+                "  Aucun = standard console\n"
+                "  XON/XOFF = logiciel (Ctrl-Q/Ctrl-S)\n"
+                "  RTS/CTS = matériel (câble complet)\n"
+                "  DSR/DTR = matériel legacy"
+            )
+        )
+        self._cmb_flow.set_active(0)  # Aucun par défaut
+
+        # Options libres
         lbl_opts = Gtk.Label(label=_("Options :"))
         lbl_opts.set_xalign(1.0)
         self._entry_opts = Gtk.Entry()
         self._entry_opts.set_text(getattr(host, "extra_params", "") or "")
-        self._entry_opts.set_tooltip_text(_("Options picocom supplémentaires"))
+        self._entry_opts.set_tooltip_text(
+            _(
+                "Options brutes supplémentaires passées au binaire\n"
+                "Ex : --logfile /tmp/serial.log  (picocom)\n"
+                "     -o -x  (minicom)"
+            )
+        )
 
         # Boutons
         self._btn_connect = Gtk.Button(label=_("Connecter"))
@@ -1649,31 +1739,31 @@ class SerialTab(Gtk.Box):
         self._btn_disconnect.connect("clicked", self._on_disconnect)
 
         for w in (
-            lbl_dev,
-            self._entry_dev,
-            lbl_baud,
-            self._cmb_baud,
-            lbl_tpl,
-            self._cmb_tpl,
+            lbl_data,
+            self._cmb_databits,
+            lbl_par,
+            self._cmb_parity,
+            lbl_stop,
+            self._cmb_stopbits,
+            lbl_flow,
+            self._cmb_flow,
             lbl_opts,
             self._entry_opts,
             self._btn_connect,
             self._btn_disconnect,
         ):
-            hb.pack_start(w, False, False, 0)
+            hb2.pack_start(w, False, False, 0)
 
-        # Binaire détecté
+        # ── infos + terminal ────────────────────────────────────────────────
         lbl_bin = Gtk.Label()
         lbl_bin.set_markup(f"<small><i>Binaire détecté : {SERIAL_BIN}</i></small>")
         lbl_bin.set_xalign(0.0)
         lbl_bin.set_margin_start(6)
 
-        # Statut
         self._lbl_status = Gtk.Label(label=_("Non connecté"))
         self._lbl_status.set_xalign(0.0)
         self._lbl_status.set_margin_start(6)
 
-        # Terminal VTE embarqué
         self._terminal = Vte.Terminal()
         self._terminal.set_scrollback_lines(5000)
         sw = Gtk.ScrolledWindow()
@@ -1682,67 +1772,137 @@ class SerialTab(Gtk.Box):
         sw.set_vexpand(True)
         sw.set_hexpand(True)
 
-        self.pack_start(hb, False, False, 0)
+        self.pack_start(hb1, False, False, 0)
+        self.pack_start(hb2, False, False, 0)
         self.pack_start(lbl_bin, False, False, 0)
         self.pack_start(self._lbl_status, False, False, 0)
         self.pack_start(sw, True, True, 0)
         self.show_all()
 
+        # Appliquer le template après construction de l'UI
+        if tpl_saved in _SERIAL_TEMPLATES:
+            self._apply_template(tpl_saved)
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _cmb_select(cmb, value, default_idx=0):
+        """Sélectionne l'entrée dont le texte == value, sinon default_idx."""
+        model = cmb.get_model()
+        it = model.get_iter_first()
+        while it is not None:
+            if model[it][0] == value:
+                cmb.set_active_iter(it)
+                return
+            it = model.iter_next(it)
+        cmb.set_active(default_idx)
+
+    def _flow_code(self):
+        idx = self._cmb_flow.get_active()
+        return self._FLOW_LABELS[idx][0] if 0 <= idx < len(self._FLOW_LABELS) else "n"
+
+    def _parity_code(self):
+        idx = self._cmb_parity.get_active()
+        return (
+            self._PARITY_LABELS[idx][0] if 0 <= idx < len(self._PARITY_LABELS) else "n"
+        )
+
+    def _databits(self):
+        return self._cmb_databits.get_active_text() or "8"
+
+    def _stopbits(self):
+        return self._cmb_stopbits.get_active_text() or "1"
+
     # ── template ────────────────────────────────────────────────────────────
 
-    def _on_template_changed(self, cmb):
-        """Applique le template sélectionné (débit, flow, parity…)."""
-        name = cmb.get_active_text()
+    def _apply_template(self, name):
+        """Applique les paramètres d'un template aux combos de l'UI."""
         if name not in _SERIAL_TEMPLATES:
             return
         baud, flow, parity, databits, stopbits = _SERIAL_TEMPLATES[name]
-        # mettre à jour le combo débit
-        model = self._cmb_baud.get_model()
-        it = model.get_iter_first()
-        while it is not None:
-            if model[it][0] == baud:
-                self._cmb_baud.set_active_iter(it)
-                break
-            it = model.iter_next(it)
-        # mettre à jour les options picocom correspondantes
-        if os.path.basename(SERIAL_BIN) == "picocom":
-            opts = (
-                f"--flow {flow} --parity {parity}"
-                f" --databits {databits} --stopbits {stopbits}"
-            )
-        elif os.path.basename(SERIAL_BIN) == "minicom":
-            opts = f"--databits {databits} --stopbits {stopbits}"
-        else:
-            opts = ""
-        self._entry_opts.set_text(opts)
-        # sauvegarder le nom du template dans host.type
+        self._cmb_select(self._cmb_baud, baud, 4)
+        # flow
+        flow_codes = [c for c, _ in self._FLOW_LABELS]
+        self._cmb_flow.set_active(flow_codes.index(flow) if flow in flow_codes else 0)
+        # parity
+        parity_codes = [c for c, _ in self._PARITY_LABELS]
+        self._cmb_parity.set_active(
+            parity_codes.index(parity) if parity in parity_codes else 0
+        )
+        # databits / stopbits
+        self._cmb_select(self._cmb_databits, databits, 3)
+        self._cmb_select(self._cmb_stopbits, stopbits, 0)
         self.host.type = name
+
+    def _on_template_changed(self, cmb):
+        """Applique le template sélectionné sur tous les combos."""
+        name = cmb.get_active_text()
+        self._apply_template(name)
 
     # ── construction de la commande ─────────────────────────────────────────
 
     def _build_cmd(self):
         """Construit la liste d'arguments pour le sous-processus série.
 
+        Les paramètres (débit, databits, parity, stopbits, flow) sont lus
+        directement depuis les combos dédiés, pas depuis une chaîne brute.
+
         Returns:
             list[str]: Commande prête pour vte_run().
         """
         device = self._entry_dev.get_text().strip() or "/dev/ttyUSB0"
         baud = self._cmb_baud.get_active_text() or "9600"
-        opts_str = self._entry_opts.get_text().strip()
+        flow = self._flow_code()
+        parity = self._parity_code()
+        databits = self._databits()
+        stopbits = self._stopbits()
+        extra = self._entry_opts.get_text().strip()
         bin_name = os.path.basename(SERIAL_BIN)
+
         if bin_name == "picocom":
-            cmd = [SERIAL_BIN, "--baud", baud]
-            if opts_str:
-                cmd += shlex.split(opts_str)
+            cmd = [
+                SERIAL_BIN,
+                "--baud",
+                baud,
+                "--flow",
+                flow,
+                "--parity",
+                parity,
+                "--databits",
+                databits,
+                "--stopbits",
+                stopbits,
+            ]
+            if extra:
+                cmd += shlex.split(extra)
             cmd.append(device)
         elif bin_name == "minicom":
-            cmd = [SERIAL_BIN, "-b", baud, "-D", device]
-            if opts_str:
-                cmd += shlex.split(opts_str)
-        else:  # screen
-            cmd = [SERIAL_BIN, device, baud]
-            if opts_str:
-                cmd += shlex.split(opts_str)
+            # minicom : -b baud  -D device  --databits  --stopbits
+            # flow via --8bit / -f (xon) / --rtscts (rts/cts)
+            cmd = [
+                SERIAL_BIN,
+                "-b",
+                baud,
+                "-D",
+                device,
+                "--databits",
+                databits,
+                "--stopbits",
+                stopbits,
+            ]
+            if flow == "x":
+                cmd += ["-f", "on"]
+            elif flow == "h":
+                cmd += ["--rtscts"]
+            if extra:
+                cmd += shlex.split(extra)
+        else:  # screen : device baud [databits[parity[stopbits]]]
+            # screen accepte 8n1, 7e1, etc. comme troisième argument
+            parity_map = {"n": "n", "e": "e", "o": "o"}
+            combo = f"{databits}{parity_map.get(parity, 'n')}{stopbits}"
+            cmd = [SERIAL_BIN, device, baud, combo]
+            if extra:
+                cmd += shlex.split(extra)
         return cmd
 
     # ── connexion / déconnexion ──────────────────────────────────────────────
