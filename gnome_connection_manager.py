@@ -47,7 +47,17 @@ import tempfile
 import traceback
 import re
 import shlex
+import subprocess
+import threading
+from urllib.parse import urlparse
 import cairo
+
+try:
+    import paramiko
+
+    _PARAMIKO_OK = True
+except ImportError:
+    _PARAMIKO_OK = False
 
 try:
     import gi
@@ -757,6 +767,540 @@ def vte_run(terminal, command, arg=None):
         )
 
 
+# ─── LIBVIRT IMPORT (étape 4) ───────────────────────────────────────────────
+
+LIBVIRT_DEFAULT_USER = "root"  # écrasé par config["libvirt_default_user"]
+
+
+def _vm_name_split(vm_name):
+    """Segmente le nom d'une VM en (groupe, nom_court).
+
+    Le premier token (séparateur _, - ou espace) devient le groupe en
+    MAJUSCULES ; le reste est le nom court affiché. Sans séparateur, le
+    groupe vaut "LIBVIRT".
+
+    Args:
+        vm_name (str): Nom brut de la VM libvirt.
+
+    Returns:
+        tuple[str, str]: (groupe, nom_court).
+    """
+    m = re.match(r"^([^_\-\s]+)[_\-\s](.*)", vm_name)
+    if m:
+        return m.group(1).upper(), m.group(2)
+    return "LIBVIRT", vm_name
+
+
+def _collect_ssh_keys():
+    """Liste les clés privées SSH de ~/.ssh, Ed25519 en premier puis RSA.
+
+    Returns:
+        list[str]: Chemins absolus vers les fichiers de clé privée.
+    """
+    ssh_dir = os.path.expanduser("~/.ssh")
+    if not os.path.isdir(ssh_dir):
+        return []
+    order = {"ed25519": 0, "rsa": 1}
+    keys = []
+    for fname in os.listdir(ssh_dir):
+        if fname.endswith(".pub") or fname in (
+            "known_hosts",
+            "known_hosts.old",
+            "config",
+            "authorized_keys",
+        ):
+            continue
+        full = os.path.join(ssh_dir, fname)
+        if not os.path.isfile(full):
+            continue
+        try:
+            head = open(full, "rb").read(80).decode(errors="replace")
+            if "PRIVATE KEY" not in head:
+                continue
+        except OSError:
+            continue
+        kt = "other"
+        if "ed25519" in fname.lower() or "ED25519" in head:
+            kt = "ed25519"
+        elif "rsa" in fname.lower() or "RSA" in head:
+            kt = "rsa"
+        keys.append((order.get(kt, 2), full))
+    keys.sort(key=lambda x: x[0])
+    return [k for _, k in keys]
+
+
+def _paramiko_connect(hostname, port, username, log_fn=None):
+    """Etablit une connexion SSH par clé (Ed25519 > RSA > agent).
+
+    Args:
+        hostname (str): Adresse de l'hôte SSH.
+        port (int): Port SSH.
+        username (str): Utilisateur SSH.
+        log_fn (callable, optional): Fonction de log.
+
+    Returns:
+        paramiko.SSHClient or None: Client connecté ou None si echec.
+    """
+    if not _PARAMIKO_OK:
+        if log_fn:
+            log_fn("ERREUR : paramiko non installé → pip install paramiko")
+        return None
+    keys = _collect_ssh_keys()
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    for key_path in keys:
+        pkey = None
+        for cls in (
+            paramiko.Ed25519Key,
+            paramiko.RSAKey,
+            paramiko.ECDSAKey,
+            paramiko.DSSKey,
+        ):
+            try:
+                pkey = cls.from_private_key_file(key_path)
+                break
+            except Exception:
+                continue
+        if pkey is None:
+            continue
+        try:
+            client.connect(
+                hostname=hostname,
+                port=port,
+                username=username,
+                pkey=pkey,
+                timeout=10,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+            if log_fn:
+                log_fn(
+                    f"  SSH OK → {username}@{hostname}:{port} [{os.path.basename(key_path)}]"
+                )
+            return client
+        except paramiko.AuthenticationException:
+            continue
+        except Exception as e:
+            if log_fn:
+                log_fn(f"  Erreur clé {os.path.basename(key_path)} : {e}")
+    try:
+        client.connect(
+            hostname=hostname,
+            port=port,
+            username=username,
+            timeout=10,
+            look_for_keys=False,
+            allow_agent=True,
+        )
+        if log_fn:
+            log_fn(f"  SSH OK → {username}@{hostname}:{port} [agent]")
+        return client
+    except Exception as e:
+        if log_fn:
+            log_fn(f"  ERREUR SSH (toutes clés échouées) : {e}")
+        return None
+
+
+def _libvirt_get_uris_from_dconf():
+    """Lit les URIs libvirt configurées dans dconf (virt-manager).
+
+    Returns:
+        list[str]: Liste d'URIs libvirt.
+    """
+    try:
+        r = subprocess.run(
+            ["dconf", "read", "/org/virt-manager/virt-manager/connections/uris"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        raw = r.stdout.strip()
+        if not raw or raw == "@as []":
+            return []
+        return re.findall(r"'([^']+)'", raw)
+    except Exception:
+        return []
+
+
+def _libvirt_ssh_run(client, cmd, timeout=30):
+    """Execute une commande sur un client SSH paramiko.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        cmd (str): Commande shell à exécuter.
+        timeout (int, optional): Timeout en secondes. Defaults to 30.
+
+    Returns:
+        str: Sortie standard de la commande.
+    """
+    _, stdout, _ = client.exec_command(cmd, timeout=timeout)
+    return stdout.read().decode(errors="replace").strip()
+
+
+def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
+    """Collecte les VMs libvirt via SSH sur les hyperviseurs donnés.
+
+    Pour chaque URI : connexion SSH par clé, virsh list, résolution IP
+    (domifaddr → DHCP leases → ARP noyau), segmentation nom VM.
+
+    Args:
+        uris (list[str]): URIs libvirt (qemu+ssh://...).
+        ssh_user (str): Utilisateur SSH pour les VMs.
+        log_fn (callable): Fonction de log.
+        progress_fn (callable): Fonction de progression (frac, texte).
+
+    Returns:
+        list[dict]: Hôtes importés avec clés name/host/user/port/group/etc.
+    """
+    if not _PARAMIKO_OK:
+        log_fn("ERREUR : paramiko non installé → pip install paramiko")
+        return []
+    results = []
+    total = len(uris)
+    for idx, uri in enumerate(uris):
+        log_fn(f"\n── Hyperviseur : {uri}")
+        progress_fn(idx / total, f"Connexion à {uri}…")
+        parsed = urlparse(uri)
+        scheme = parsed.scheme
+        transport = (
+            scheme.split("+")[1]
+            if "+" in scheme
+            else ("tcp" if parsed.hostname else "local")
+        )
+        hv_host = parsed.hostname or "localhost"
+        hv_port = parsed.port or 22
+        hv_user = parsed.username or "root"
+        if transport == "local":
+            log_fn("  → URI locale ignorée (qemu:///system).")
+            continue
+        client = _paramiko_connect(hv_host, hv_port, hv_user, log_fn)
+        if client is None:
+            continue
+        try:
+            vm_names = [
+                n
+                for n in _libvirt_ssh_run(
+                    client, "virsh list --all --name"
+                ).splitlines()
+                if n.strip()
+            ]
+            log_fn(f"  {len(vm_names)} VM(s) trouvée(s)")
+            arp = {}
+            for line in _libvirt_ssh_run(
+                client, "ip neigh show 2>/dev/null || arp -n 2>/dev/null"
+            ).splitlines():
+                m = re.search(
+                    r"(\d+\.\d+\.\d+\.\d+).*?([0-9a-f]{2}(?::[0-9a-f]{2}){5})",
+                    line,
+                    re.I,
+                )
+                if m:
+                    arp[m.group(2).lower()] = m.group(1)
+            dhcp = {}
+            for net in _libvirt_ssh_run(client, "virsh net-list --name").splitlines():
+                net = net.strip()
+                if not net:
+                    continue
+                for line in _libvirt_ssh_run(
+                    client, f"virsh net-dhcp-leases {net} 2>/dev/null"
+                ).splitlines():
+                    parts = line.split()
+                    if len(parts) >= 4 and ":" in parts[1]:
+                        ip_raw = parts[3].split("/")[0]
+                        if re.match(r"\d+\.\d+\.\d+\.\d+", ip_raw):
+                            dhcp[parts[1].lower()] = ip_raw
+            for vm_name in vm_names:
+                state = _libvirt_ssh_run(client, f"virsh domstate {vm_name}").strip()
+                xml = _libvirt_ssh_run(client, f"virsh dumpxml {vm_name}")
+                ip_addr = ""
+                for block in re.findall(r"<interface.*?</interface>", xml, re.DOTALL):
+                    mac_m = re.search(r"<mac address=['\"]([^'\"]+)['\"]", block)
+                    if not mac_m:
+                        continue
+                    mac = mac_m.group(1).lower()
+                    if state == "running":
+                        for src in ("agent", "arp"):
+                            out = _libvirt_ssh_run(
+                                client,
+                                f"virsh domifaddr {vm_name} --source {src} 2>/dev/null",
+                            )
+                            for ln in out.splitlines():
+                                if mac in ln.lower():
+                                    m2 = re.search(r"(\d+\.\d+\.\d+\.\d+)", ln)
+                                    if m2:
+                                        ip_addr = m2.group(1)
+                                        break
+                            if ip_addr:
+                                break
+                    if not ip_addr:
+                        ip_addr = dhcp.get(mac) or arp.get(mac) or ""
+                    if ip_addr:
+                        break
+                host_val = ip_addr if ip_addr else vm_name
+                grp, short = _vm_name_split(vm_name)
+                results.append(
+                    {
+                        "name": short,
+                        "host": host_val,
+                        "user": ssh_user,
+                        "port": 22,
+                        "password": "",
+                        "description": f"[{state}] {vm_name} via {hv_host} (libvirt)",
+                        "group": grp,
+                        "hypervisor": hv_host,
+                    }
+                )
+                log_fn(
+                    f"  + [{grp}] {short:28s}  {host_val or '(IP inconnue)':16s}  [{state}]"
+                )
+        finally:
+            client.close()
+        progress_fn((idx + 1) / total, f"{idx + 1}/{total} hyperviseurs traités")
+    return results
+
+
+class LibvirtImportDialog:
+    """Dialogue GTK3 d'import de VMs depuis les hyperviseurs libvirt.
+
+    Propose la sélection des URIs, le user SSH, un log en temps réel
+    et une barre de progression pendant le worker en arrière-plan.
+    """
+
+    def __init__(self, parent_window, on_done_callback, default_user="root"):
+        """Initialise le dialogue d'import libvirt.
+
+        Args:
+            parent_window (Gtk.Window): Fenêtre parente.
+            on_done_callback (callable): Appelée avec list[dict] à la fin.
+            default_user (str, optional): User SSH par défaut. Defaults to 'root'.
+        """
+        self.parent = parent_window
+        self.on_done = on_done_callback
+        self.default_user = default_user
+        self._build_ui()
+
+    def _build_ui(self):
+        """Construit l'interface du dialogue GTK."""
+        dlg = Gtk.Dialog(
+            title=_("Importer depuis libvirt"), transient_for=self.parent, modal=True
+        )
+        dlg.set_default_size(620, 500)
+        dlg.add_button(_("_Annuler"), Gtk.ResponseType.CANCEL)
+        self._btn_import = dlg.add_button(_("_Importer"), Gtk.ResponseType.OK)
+        self._btn_import.get_style_context().add_class("suggested-action")
+        box = dlg.get_content_area()
+        box.set_spacing(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb.pack_start(Gtk.Label(label=_("User SSH pour les VMs :")), False, False, 0)
+        self._entry_user = Gtk.Entry()
+        self._entry_user.set_text(self.default_user)
+        hb.pack_start(self._entry_user, False, False, 0)
+        box.pack_start(hb, False, False, 0)
+        box.pack_start(
+            Gtk.Label(label=_("Hyperviseurs (virt-manager / dconf) :")), False, False, 2
+        )
+        self._uri_store = Gtk.ListStore(bool, str)
+        tv = Gtk.TreeView(model=self._uri_store)
+        tv.set_headers_visible(True)
+        cr = Gtk.CellRendererToggle()
+        cr.connect("toggled", self._on_uri_toggled)
+        tv.append_column(Gtk.TreeViewColumn("", cr, active=0))
+        tv.append_column(
+            Gtk.TreeViewColumn(_("URI libvirt"), Gtk.CellRendererText(), text=1)
+        )
+        sw = Gtk.ScrolledWindow()
+        sw.set_min_content_height(80)
+        sw.add(tv)
+        box.pack_start(sw, False, False, 0)
+        lbl = Gtk.Label()
+        lbl.set_markup(
+            "<i><small>"
+            "Groupes automatiques : premier token du nom VM (_, -, espace) → groupe en MAJUSCULES\n"
+            '"prod-web-01" → PROD / "web-01"  ·  '
+            '"standalone" → LIBVIRT / "standalone"'
+            "</small></i>"
+        )
+        lbl.set_xalign(0)
+        box.pack_start(lbl, False, False, 0)
+        self._log_buf = Gtk.TextBuffer()
+        lv = Gtk.TextView(buffer=self._log_buf)
+        lv.set_editable(False)
+        lv.set_monospace(True)
+        lv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        sw_log = Gtk.ScrolledWindow()
+        sw_log.set_min_content_height(130)
+        sw_log.add(lv)
+        box.pack_start(sw_log, True, True, 0)
+        self._log_view = lv
+        self._progress = Gtk.ProgressBar()
+        self._progress.set_show_text(True)
+        self._progress.set_text(_("En attente…"))
+        box.pack_start(self._progress, False, False, 0)
+        self._dlg = dlg
+        dlg.show_all()
+        self._populate_uris()
+        dlg.connect("response", self._on_response)
+
+    def _populate_uris(self):
+        """Remplit la liste des URIs depuis dconf."""
+        uris = _libvirt_get_uris_from_dconf()
+        if not uris:
+            self._log(
+                _("Aucune URI trouvée dans dconf (virt-manager non configuré ?).")
+            )
+            self._uri_store.append([True, "qemu+ssh://root@hyperviseur/system"])
+            return
+        for uri in uris:
+            self._uri_store.append([bool(urlparse(uri).hostname), uri])
+
+    def _on_uri_toggled(self, renderer, path):
+        """Bascule la sélection d'une URI.
+
+        Args:
+            renderer (Gtk.CellRendererToggle): Renderer source.
+            path (str): Chemin dans le ListStore.
+        """
+        self._uri_store[path][0] = not self._uri_store[path][0]
+
+    def _log(self, msg):
+        """Ajoute un message dans le TextView de log (thread-safe).
+
+        Args:
+            msg (str): Message à afficher.
+        """
+
+        def _do():
+            self._log_buf.insert(self._log_buf.get_end_iter(), msg + "\n")
+            adj = self._log_view.get_vadjustment()
+            adj.set_value(adj.get_upper())
+
+        GLib.idle_add(_do)
+
+    def _set_progress(self, frac, text):
+        """Met à jour la barre de progression (thread-safe).
+
+        Args:
+            frac (float): Fraction entre 0.0 et 1.0.
+            text (str): Texte affiché sur la barre.
+        """
+        GLib.idle_add(
+            lambda: (
+                self._progress.set_fraction(frac),
+                self._progress.set_text(text),
+            )
+        )
+
+    def _on_response(self, dlg, response_id):
+        """Gestionnaire de réponse du dialogue.
+
+        Args:
+            dlg (Gtk.Dialog): Dialogue source.
+            response_id (int): Identifiant de la réponse GTK.
+        """
+        if response_id == Gtk.ResponseType.OK:
+            self._run_import()
+        else:
+            dlg.destroy()
+
+    def _run_import(self):
+        """Lance l'import en arrière-plan (thread worker)."""
+        self._btn_import.set_sensitive(False)
+        uris = [row[1] for row in self._uri_store if row[0]]
+        if not uris:
+            self._log(_("Aucune URI sélectionnée."))
+            self._btn_import.set_sensitive(True)
+            return
+        user = self._entry_user.get_text().strip() or "root"
+
+        def worker():
+            results = _libvirt_fetch_hosts(uris, user, self._log, self._set_progress)
+            GLib.idle_add(self._finish, results)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish(self, host_dicts):
+        """Finalise l'import et appelle le callback.
+
+        Args:
+            host_dicts (list[dict]): Hôtes importés.
+        """
+        self._set_progress(1.0, f"{len(host_dicts)} hôte(s) importé(s)")
+        self._log(f"\nTerminé — {len(host_dicts)} hôte(s) prêts.")
+        self.on_done(host_dicts)
+        self._btn_import.set_label(_("Fermer"))
+        self._btn_import.set_sensitive(True)
+        self._dlg.disconnect_by_func(self._on_response)
+        self._dlg.connect("response", lambda d, r: d.destroy())
+
+
+class LibvirtPrefsTab:
+    """Onglet 'Libvirt' pour le Gtk.Notebook des préférences GCM."""
+
+    def __init__(self, notebook, config):
+        """Construit et ajoute l'onglet Libvirt au notebook des prefs.
+
+        Args:
+            notebook (Gtk.Notebook): Notebook des préférences.
+            config (dict): Configuration globale GCM.
+        """
+        self._config = config
+        self._build(notebook)
+
+    def _build(self, notebook):
+        """Construit le contenu de l'onglet.
+
+        Args:
+            notebook (Gtk.Notebook): Notebook cible.
+        """
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_start(14)
+        box.set_margin_end(14)
+        box.set_margin_top(14)
+        box.set_margin_bottom(14)
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        hb.pack_start(
+            Gtk.Label(label=_("Utilisateur SSH par défaut (VMs) :")), False, False, 0
+        )
+        self._entry_user = Gtk.Entry()
+        self._entry_user.set_text(
+            self._config.get("libvirt_default_user", LIBVIRT_DEFAULT_USER)
+        )
+        self._entry_user.set_width_chars(22)
+        hb.pack_start(self._entry_user, False, False, 0)
+        box.pack_start(hb, False, False, 0)
+        lbl = Gtk.Label()
+        lbl.set_markup(
+            "<b>Authentification SSH</b>\n"
+            "<i>Clés testées dans l'ordre : Ed25519 → RSA → autres → agent système\n"
+            "Répertoire : ~/.ssh   —   Aucun mot de passe demandé</i>\n\n"
+            "<b>Groupes automatiques</b>\n"
+            "<i>Premier token du nom VM (_, -, espace) → groupe MAJUSCULES\n"
+            "Sans séparateur → groupe LIBVIRT</i>"
+        )
+        lbl.set_xalign(0)
+        box.pack_start(lbl, False, False, 0)
+        box.show_all()
+        notebook.append_page(box, Gtk.Label(label=_("Libvirt")))
+
+    def apply(self, config):
+        """Applique les changements de l'onglet à la configuration.
+
+        Args:
+            config (dict): Configuration globale GCM à mettre à jour.
+        """
+        user = self._entry_user.get_text().strip() or "root"
+        config["libvirt_default_user"] = user
+        global LIBVIRT_DEFAULT_USER
+        LIBVIRT_DEFAULT_USER = user
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 class Wmain(GCMBase):
 
     def __init__(
@@ -764,7 +1308,7 @@ class Wmain(GCMBase):
         path="gnome-connection-manager.glade",
         root="wMain",
         domain=domain_name,
-        **kwargs
+        **kwargs,
     ):
         """Initialise l'instance.
 
@@ -1581,6 +2125,79 @@ class Wmain(GCMBase):
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "SPV")
         menuItem.show()
+
+        # Import libvirt — ajout dans menuServers (barre de menu)
+        mnu_import_lv = Gtk.MenuItem(label=_("Importer depuis libvirt…"))
+        mnu_import_lv.connect("activate", self.on_mnu_import_libvirt_activate)
+        mnu_import_lv.show()
+        if hasattr(self, "menuServers") and self.menuServers is not None:
+            self.menuServers.append(mnu_import_lv)
+
+    def on_mnu_import_libvirt_activate(self, widget):
+        """Ouvre le dialogue d'import de VMs depuis libvirt.
+
+        Args:
+            widget (Gtk.MenuItem): Element de menu declencheur.
+        """
+        default_user = conf.__dict__.get("LIBVIRT_DEFAULT_USER", LIBVIRT_DEFAULT_USER)
+
+        def on_done(host_dicts):
+            if not host_dicts:
+                msgbox(_("Aucun hôte importé."))
+                return
+            added_by_group = {}
+            for d in host_dicts:
+                gname = d["group"]
+                if gname not in groups:
+                    groups[gname] = []
+                group_iter = None
+                for i in range(self.treeModel.iter_n_children(None)):
+                    it = self.treeModel.iter_nth_child(None, i)
+                    if self.treeModel.get_value(it, 0) == gname:
+                        group_iter = it
+                        break
+                if group_iter is None:
+                    group_iter = self.treeModel.append(
+                        None, [gname, None, self.get_widget("imgDir"), "#fff"]
+                    )
+                if d["name"] in [h.name for h in groups[gname]]:
+                    continue
+                h = Host()
+                h.name = d["name"]
+                h.host = d["host"]
+                h.user = d["user"]
+                h.port = d["port"]
+                h.password = ""
+                h.description = d["description"]
+                h.log = False
+                h.tunnel = ""
+                h.options = ""
+                h.X11 = False
+                h.agent = True
+                h.compression = False
+                h.compressionLevel = 6
+                h.term = ""
+                h.keepAlive = 0
+                h.tabColor = ""
+                h.fontColor = ""
+                h.backColor = ""
+                h.font = ""
+                h.lineColor = ""
+                groups[gname].append(h)
+                self.treeModel.append(
+                    group_iter, [h.name, h, self.get_widget("imgHost"), "#fff"]
+                )
+                added_by_group[gname] = added_by_group.get(gname, 0) + 1
+            self.writeConfig()
+            if added_by_group:
+                summary = ", ".join(
+                    f"{n} dans {g}" for g, n in sorted(added_by_group.items())
+                )
+                msgbox(_(f"Import terminé : {summary}."))
+            else:
+                msgbox(_("Aucun nouvel hôte (doublons ignorés)."))
+
+        LibvirtImportDialog(self.window, on_done, default_user)
 
     def createMenuItem(self, shortcut, label):
         """Cree un Gtk.MenuItem avec etiquette et action.
@@ -3767,7 +4384,7 @@ class Whost(GCMBase):
         path="gnome-connection-manager.glade",
         root="wHost",
         domain=domain_name,
-        **kwargs
+        **kwargs,
     ):
         """Initialise l'instance.
 
@@ -4362,7 +4979,7 @@ class Wabout(GCMBase):
         path="gnome-connection-manager.glade",
         root="wAbout",
         domain=domain_name,
-        **kwargs
+        **kwargs,
     ):
         """Initialise l'instance.
 
@@ -4552,6 +5169,11 @@ class Wconfig(GCMBase):
                 self.treeModel2.append(None, [s[1], s[0]])
 
         self.treeModel2.append(None, ["", ""])
+
+        # Onglet Libvirt dans les préférences
+        nb = self.tblGeneral.get_parent().get_parent()
+        if isinstance(nb, Gtk.Notebook):
+            self._lv_prefs = LibvirtPrefsTab(nb, conf.__dict__)
 
     # -- Wconfig.new }
 
@@ -4751,6 +5373,10 @@ class Wconfig(GCMBase):
 
         # Recrear menu de comandos personalizados
         wMain.populateCommandsMenu()
+        # Sauvegarder prefs Libvirt
+        if hasattr(self, "_lv_prefs"):
+            self._lv_prefs.apply(conf.__dict__)
+
         wMain.writeConfig()
 
         self.get_widget("wConfig").destroy()
@@ -4842,7 +5468,7 @@ class Wcluster(GCMBase):
         root="wCluster",
         domain=domain_name,
         terms=None,
-        **kwargs
+        **kwargs,
     ):
         """Initialise l'instance.
 
