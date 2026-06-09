@@ -38,7 +38,6 @@
 # - Persist history of cluster commands. is it really necessary?
 # - Option to disable shortcuts
 
-from __future__ import with_statement
 import os
 import operator
 import sys
@@ -312,7 +311,7 @@ def initialise_encyption_key():
 def xor(pw, str1):
     c = 0
     liste = []
-    for k in xrange(len(str1)):
+    for k in range(len(str1)):
         if c > len(pw)-1:
             c = 0
         fi = ord(pw[c])
@@ -355,19 +354,35 @@ def decrypt(passw, string):
     return s
 
 def vte_feed(terminal, data):
+    # fix #82: écriture directe sur le fd PTY (fiable toutes versions VTE)
+    data_bytes = data.encode('utf-8') if isinstance(data, str) else data
+    try:
+        pty = terminal.get_pty()
+        if pty is not None:
+            import os as _os
+            _os.write(pty.get_fd(), data_bytes)
+            return
+    except Exception:
+        pass
+    # fallback feed_child pour VTE anciens
     if TERMINAL_V048 or (Vte.MAJOR_VERSION, Vte.MINOR_VERSION) >= (0, 42):
         try:
-            terminal.feed_child(data.encode('utf-8'))
-        except TypeError as e:
-            # https://bugs.launchpad.net/ubuntu/+source/ubuntu-release-upgrader/+bug/1780501
-            # The doc does not say clearly at which version the feed_child* function has lost # the "len" parameter :(
+            terminal.feed_child(data_bytes)
+        except TypeError:
             terminal.feed_child(data, len(data))
     else:
         terminal.feed_child(data, len(data))
 
 def vte_run(terminal, command, arg=None):
     term_type = terminal.host.term if hasattr(terminal, 'host') and terminal.host.term else conf.TERM or os.getenv("TERM") or DEFAULT_TERM_TYPE
+    # fix #89: transmettre SSH_AUTH_SOCK et vars essentielles au processus VTE
     envv = [ 'PATH=%s' % os.getenv("PATH"), 'TERM=%s' % term_type ]
+    for _ekey in ('SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'DISPLAY', 'WAYLAND_DISPLAY',
+                  'HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'XDG_RUNTIME_DIR',
+                  'DBUS_SESSION_BUS_ADDRESS', 'GNOME_KEYRING_CONTROL'):
+        _eval = os.getenv(_ekey)
+        if _eval:
+            envv.append('%s=%s' % (_ekey, _eval))
     args = []
     args.append(command)
     if arg:
@@ -460,10 +475,13 @@ class Wmain(SimpleGladeApp):
         if conf.CHECK_UPDATES:
             GLib.timeout_add(2000, lambda: self.check_updates())
 
-        #load style.css
+        #load style.css — fix #81: non-fatal if style.css is missing
         screen = Gdk.Screen.get_default()
         provider = Gtk.CssProvider()
-        provider.load_from_path(BASE_PATH + "/style.css")
+        try:
+            provider.load_from_path(BASE_PATH + "/style.css")
+        except Exception:
+            pass  # style.css absent — UI continues without custom theme
         Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
@@ -1178,6 +1196,16 @@ class Wmain(SimpleGladeApp):
     def on_menuSettings_activate(self, widget):
         wConfig = Wconfig()
 
+    def on_output_written(self, terminal, data):
+        # fix #88: signal output-written (VTE >= 0.60) — reçoit les bytes bruts
+        if hasattr(terminal, 'log') and terminal.log:
+            try:
+                text = data.get_data().decode('utf-8', errors='replace') if hasattr(data, 'get_data') else bytes(data).decode('utf-8', errors='replace')
+                terminal.log.write(text)
+                terminal.log.flush()
+            except Exception:
+                pass
+
     def on_contents_changed(self, terminal):
         col,row = terminal.get_cursor_position()
         if terminal.last_logged_row != row:
@@ -1191,9 +1219,17 @@ class Wmain(SimpleGladeApp):
             terminal.last_logged_col, terminal.last_logged_row = terminal.get_cursor_position()
             if hasattr(terminal, "log_handler_id"):
                 if terminal.log_handler_id == 0:
-                    terminal.log_handler_id = terminal.connect('contents-changed', self.on_contents_changed)
+                    # fix #88: préférer output-written (VTE >= 0.60) pour un logging fiable
+                    if (Vte.MAJOR_VERSION, Vte.MINOR_VERSION) >= (0, 60):
+                        terminal.log_handler_id = terminal.connect('output-written', self.on_output_written)
+                    else:
+                        terminal.log_handler_id = terminal.connect('contents-changed', self.on_contents_changed)
                 return True
-            terminal.log_handler_id = terminal.connect('contents-changed', self.on_contents_changed)
+            # fix #88: idem pour la connexion initiale
+            if (Vte.MAJOR_VERSION, Vte.MINOR_VERSION) >= (0, 60):
+                terminal.log_handler_id = terminal.connect('output-written', self.on_output_written)
+            else:
+                terminal.log_handler_id = terminal.connect('contents-changed', self.on_contents_changed)
             p = terminal.get_parent()
             title = p.get_parent().get_tab_label(p).get_text().strip()
             LOG_PATH = os.path.expanduser(conf.LOG_PATH)
@@ -2074,6 +2110,9 @@ class Wmain(SimpleGladeApp):
             if isinstance(widget, Gtk.Notebook):
                 pos = event.x + widget.get_allocation().x
                 size = widget.get_tab_label(widget.get_nth_page(widget.get_n_pages()-1)).get_allocation()
+                # fix #64: vérifier aussi Y — si clic sous la barre d'onglets, c'est dans le terminal (MC, etc.)
+                if event.y > size.height + 8:
+                    return False
                 if pos <= size.x + size.width + 8 or event.x >= widget.get_allocation().width - widget.style_get_property("scroll-arrow-hlength"):
                     return True
             if isinstance(widget, Gtk.Toolbar) and widget.get_drop_index(event.x,event.y) < widget.get_n_items():
@@ -3306,6 +3345,7 @@ class NotebookTabLabel(Gtk.HBox):
             self.get_style_context().add_class("selected")
         else:
             self.get_style_context().remove_class("selected")
+        self.queue_draw()  # fix #67: forcer le redraw immédiat du label d'onglet
 
     def on_close_tab(self, widget, notebook, *args):
         if conf.CONFIRM_ON_CLOSE_TAB and msgconfirm("%s [%s]?" % ( _("Cerrar consola"), self.label.get_text().strip()) ) != Gtk.ResponseType.OK:
