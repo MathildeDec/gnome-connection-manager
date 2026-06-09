@@ -9,34 +9,10 @@
 # They are required to keep user's code
 
 # Gnome Connection Manager
-# Renzo Bertuzzi (kuthulu@gmail.com) - CHILE
+# Renzo Bertuzzi - CHILE
 #
 # TODO
-# - ayuda
-# - drag'n drop hosts entre grupos
-# - sftp
-# - master password (al iniciar la aplicacion)
-# - guardar estado de consolas abiertas (y estado de split)
-# - sortcut para moverse entre notebooks
-# - quitar los "accelerator" del archivo .glade (o dejarlos opcionales)
-# - soporte picocom (o minicom, o pyserial, ser2net) para comunicación serial
-# - Permitir modificar combinacion para cerrar aplicacion CTRL+Q
-# - Icono en system tray
-# - Quitar shortcut ALT+F para archivo
-# - Permitir deshabilitar shortcuts
-# - soporte proxy socks/http para ssh
-# - cluster mode: would be nice to have a drop-down list on the cluster button and once selected \"the text to send to hosts box\" should be activated on the right of the cluster button. The box should stay on the toolbar and not over the terminal window
-# - hide chars** in cluster mode (un checkbox para mostrar/ocultar entrada)
-# - seleccionar varios hosts y conectarse
-# - seleccionar varios hosts y editarlos
-# - permitir establecer colores a nivel de grupos
-# - permitir cambiar nombre de grupo
-# - overwrite colors (like putty)
-# - Cambiar charset en consola o en propiedades del host
-# - One "nice to have" would be the ability for GCM to use my existing PuTTY sessions instead of entering everything a second time. External script for that that parses ~/putty/session files
-# - Enter passwords in commands and hide them, #P=password (Angelo Corsaro). TextView doesnt support masking text, it needs a different implementation. Pending.
-# - Persist history of cluster commands. is it really necessary?
-# - Option to disable shortcuts
+
 
 import os
 import operator
@@ -332,7 +308,6 @@ class conf:
     WINDOW_WIDTH = -1
     WINDOW_HEIGHT = -1
     FONT = ""
-    HIDE_DONATE = False
     DISABLE_HOSTS_STRIPES = False
     AUTO_COPY_SELECTION = 0
     LOG_PATH = CONFIG_DIR + "/logs"
@@ -1792,9 +1767,6 @@ class Wmain(GCMBase):
         # a veces no se posiciona correctamente con 400 ms, asi que se repite el llamado
         GLib.timeout_add(400, lambda: self.hpMain.set_position(conf.LEFT_PANEL_WIDTH))
         GLib.timeout_add(900, lambda: self.hpMain.set_position(conf.LEFT_PANEL_WIDTH))
-
-        if conf.HIDE_DONATE:
-            self.get_widget("btnDonate").hide()
 
         if conf.CHECK_UPDATES:
             GLib.timeout_add(2000, lambda: self.check_updates())
@@ -3282,7 +3254,6 @@ class Wmain(GCMBase):
             conf.WINDOW_WIDTH = cp.getint("window", "window-width")
             conf.WINDOW_HEIGHT = cp.getint("window", "window-height")
             conf.FONT = cp.get("options", "font")
-            conf.HIDE_DONATE = cp.getboolean("options", "donate")
             conf.DISABLE_HOSTS_STRIPES = cp.getboolean(
                 "options", "disable-hosts-stripes"
             )
@@ -3574,7 +3545,6 @@ class Wmain(GCMBase):
         cp.set("options", "confirm-close-tab-middle", conf.CONFIRM_ON_CLOSE_TAB_MIDDLE)
         cp.set("options", "check-updates", conf.CHECK_UPDATES)
         cp.set("options", "font", conf.FONT)
-        cp.set("options", "donate", conf.HIDE_DONATE)
         cp.set("options", "disable-hosts-stripes", conf.DISABLE_HOSTS_STRIPES)
         cp.set("options", "auto-copy-selection", conf.AUTO_COPY_SELECTION)
         cp.set("options", "log-path", conf.LOG_PATH)
@@ -4412,30 +4382,6 @@ class Wmain(GCMBase):
         wConfig = Wconfig()
 
     # -- Wmain.on_btnConfig_clicked }
-
-    # -- Wmain.on_btnDonate_clicked {
-    def on_btnDonate_clicked(self, widget, *args):
-        """Gestionnaire du bouton Don.
-
-        Args:
-            widget (Gtk.Button): Bouton clique.
-        """
-        with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
-            f.write(b'<html> \
-                     <body onload="document.forms[0].submit()"> \
-                     <form action="https://www.paypal.com/cgi-bin/webscr" method="post"> \
-                     <input type="hidden" name="cmd" value="_s-xclick"> \
-                     <input type="hidden" name="hosted_button_id" value="10257762"> \
-                     </form> \
-                     </body> \
-                     </html>')
-            f.flush()
-            if os.name == "nt":
-                os.filestart(f.name)
-            elif os.name == "posix":
-                os.system("/usr/bin/xdg-open %s" % (f.name))
-
-    # -- Wmain.on_btnDonate_clicked }
 
     # -- Wmain.on_btnSearchBack_clicked {
     def on_btnSearchBack_clicked(self, widget, *args):
@@ -5593,7 +5539,6 @@ class Wconfig(GCMBase):
         )
         self.addParam(_("Confirmar al salir"), "conf.CONFIRM_ON_EXIT", bool)
         self.addParam(_("Comprobar actualizaciones"), "conf.CHECK_UPDATES", bool)
-        self.addParam(_("Ocultar botón donar"), "conf.HIDE_DONATE", bool)
         self.addParam(
             _("Deshabilitar franjas alternas en la ventana de hosts"),
             "conf.DISABLE_HOSTS_STRIPES",
@@ -5866,13 +5811,6 @@ class Wconfig(GCMBase):
                 scuts[x[1]] = x[0]
         global shortcuts
         shortcuts = scuts
-
-        # Boton donate
-        global wMain
-        if conf.HIDE_DONATE:
-            wMain.get_widget("btnDonate").hide()
-        else:
-            wMain.get_widget("btnDonate").show()
 
         # Update servers window colors
         wMain.updateTree()
@@ -6561,7 +6499,9 @@ class CheckUpdates(Thread):
             import urllib.request as urllib, socket
 
             socket.setdefaulttimeout(5)
-            web = urllib.urlopen("http://kuthulu.com/gcm/_current.html")
+            web = urllib.urlopen(
+                "https://raw.githubusercontent.com/MathildeDec/gnome-connection-manager/develop/_current.html"
+            )
             if web.getcode() == 200:
                 new_version = web.readline().strip().decode("utf-8")
                 if len(new_version) > 0 and new_version > app_version:
@@ -6571,7 +6511,7 @@ class CheckUpdates(Thread):
                         "%s\n\nCURRENT VERSION: %s\nNEW VERSION: %s"
                         % (
                             _(
-                                "Hay una nueva version disponible en http://kuthulu.com/gcm/?module=download"
+                                "Une nouvelle version est disponible : https://github.com/MathildeDec/gnome-connection-manager/releases"
                             ),
                             app_version,
                             new_version,
