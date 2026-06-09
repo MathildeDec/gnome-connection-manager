@@ -11,14 +11,14 @@
 | # | Étape | Statut | Complexité |
 |---|---|---|---|
 | 0 | Mise en place du fork GitHub | ✅ Terminé | Facile |
-| 1 | Corrections bugs Python 3.13 | 🔄 En cours | Facile |
-| 1b | Corrections bugs upstream (issues GitHub) | 🔲 À faire | Moyen |
-| 2 | Modernisation APIs GTK3 | 🔲 À faire | Moyen |
-| 3 | Remplacement SimpleGladeApp | 🔲 À faire | Complexe |
-| 4 | Intégration patch Import Libvirt v2 | 🔲 À faire | Moyen |
-| 5 | Intégration patch RDP (processus externe) | 🔲 À faire | Moyen |
-| 6 | xfreerdp embarqué via GtkSocket/XEmbed | 🔲 À faire | Complexe |
-| 7 | Packaging et release v1.3 | 🔲 À faire | Facile |
+| 1 | Corrections bugs Python 3.13 | ✅ Terminé | Facile |
+| 1b | Corrections bugs upstream (issues GitHub) | ✅ Terminé | Moyen |
+| 2 | Modernisation APIs GTK3 + docstrings Google (#110) | ✅ Terminé | Moyen |
+| 3 | Remplacement SimpleGladeApp → GCMBase natif | ✅ Terminé | Complexe |
+| 4 | Intégration patch Import Libvirt v2 | ✅ Terminé | Moyen |
+| 5 | Intégration patch RDP (processus externe) | ✅ Terminé | Moyen |
+| 6 | xfreerdp embarqué via GtkSocket/XEmbed | ✅ Terminé | Complexe |
+| 7 | Packaging et release v1.3 | ✅ Terminé | Facile |
 
 ---
 
@@ -57,13 +57,56 @@
 | [#76](https://github.com/kuthulux/gnome-connection-manager/issues/76) | Traductions manquantes/incorrectes | Mettre à jour les fichiers `.po` |
 | [#100](https://github.com/MathilDec/gnome-connection-manager/issues/100) | Traduction pour nos amis UKRAINIENS |creer le fichier `.po` |
 | [#101](https://github.com/MathilDec/gnome-connection-manager/issues/101) | Connexion eux machine virtuelle de libvirt/Qemu | Amélioration de l'import libvirt pour détecter les VM Windows et proposer une connexion RDP/VNC/SPICE au lieu de SSH |
+| [#102]()  || Support de VNC et SPICE en plus de RDP | Extension du protocole dans la classe `Host` + nouveaux onglets dédiés |
+| [#103]()  || Intégration d'un terminal web (xterm.js) pour les connexions SSH | Remplacement de VTE par un composant web embarqué avec xterm.js pour une meilleure compatibilité et plus de fonctionnalités (copier-coller, etc.) |
+| [#104]()  || Support de Wayland (via XWayland ou natif) | Adapter le code pour fonctionner sous Wayland, notamment pour l'intégration de xfreerdp et la gestion des fenêtres |
+| [#105]()  || Application mobile Android/iOS | Portage de GCM en application mobile avec une interface adaptée et support des protocoles SSH/RDP/VNC |
+| [#106]()  || Intégration d'une API REST pour contrôler GCM à distance | Permettre de lancer des connexions, récupérer l'état des sessions, etc. via une API HTTP sécurisée |
+| [#107]()  || Support de plugins pour ajouter des fonctionnalités personnalisées | Architecture de plugin pour permettre à la communauté de développer des extensions (ex : intégration Ansible, monitoring, etc.) |
+| [#108]()  || Interface de gestion des clés SSH intégrée | Permettre de gérer les clés SSH directement depuis GCM, avec génération, import/export, etc. |
+| [#109]()  || Système de notifications pour les événements importants (déconnexion, erreurs, etc.) | Intégrer un système de notifications desktop pour informer l'utilisateur des événements liés à ses connexions |
+| [#110]()  ||ajoute doctring/avec les arguments facon google|
+| [#111]()  ||ajoute des tests unitaires pour les fonctions critiques| Utiliser `unittest` ou `pytest` pour couvrir les fonctions de parsing, de connexion, etc. |
+| [#112]()  ||refactor le code pour séparer la logique métier de l'interface graphique| Adopter une architecture MVC ou similaire pour améliorer la maintenabilité du code |
+| [#113]()  ||ajoute un mode sombre pour l'interface| Thème sombre optionnel pour les utilisateurs qui préfèrent |
+| [#114]()  ||ajoute une fonctionnalité de recherche dans les onglets ouverts| Permettre de rechercher du texte dans les sessions ouvertes |
+| [#115]()  ||ajoute une fonctionnalité de partage de session| Permettre à plusieurs utilisateurs de partager une session SSH en temps réel |
+| [#116]()  ||ajoute une fonctionnalité de scripting pour automatiser les tâches| Permettre d'exécuter des scripts personnalisés avant/après la connexion, ou sur des événements spécifiques |
+|
+
+#TODO
+# - ayuda
+# - drag'n drop hosts entre grupos
+# - sftp
+# - master password (al iniciar la aplicacion)
+# - guardar estado de consolas abiertas (y estado de split)
+# - sortcut para moverse entre notebooks
+# - quitar los "accelerator" del archivo .glade (o dejarlos opcionales)
+# - soporte picocom (o minicom, o pyserial, ser2net) para comunicación serial
+# - Permitir modificar combinacion para cerrar aplicacion CTRL+Q
+# - Icono en system tray
+# - Quitar shortcut ALT+F para archivo
+# - Permitir deshabilitar shortcuts
+# - soporte proxy socks/http para ssh
+# - cluster mode: would be nice to have a drop-down list on the cluster button and once selected \"the text to send to hosts box\" should be activated on the right of the cluster button. The box should stay on the toolbar and not over the terminal window
+# - hide chars** in cluster mode (un checkbox para mostrar/ocultar entrada)
+# - seleccionar varios hosts y conectarse
+# - seleccionar varios hosts y editarlos
+# - permitir establecer colores a nivel de grupos
+# - permitir cambiar nombre de grupo
+# - overwrite colors (like putty)
+# - Cambiar charset en consola o en propiedades del host
+# - One "nice to have" would be the ability for GCM to use my existing PuTTY sessions instead of entering everything a second time. External script for that that parses ~/putty/session files
+# - Enter passwords in commands and hide them, #P=password (Angelo Corsaro). TextView doesnt support masking text, it needs a different implementation. Pending.
+# - Persist history of cluster commands. is it really necessary?
+# - Option to disable shortcuts
 
 ### ⚪ Issues hors-scope / questions utilisateurs
 
 | Issue | Raison d'exclusion |
 |---|---|
-| [#86](https://github.com/kuthulux/gnome-connection-manager/issues/86) | Question usage shell, pas un bug GCM |
-| [#90](https://github.com/kuthulux/gnome-connection-manager/issues/90) | Packaging openSUSE — hors périmètre |
+
+| [#90](https://github.com/kuthulux/gnome-connection-manager/issues/90) | Packaging openSUSE/debian/Redhat/Rocky  |
 | [#58](https://github.com/kuthulux/gnome-connection-manager/issues/58) | Probablement résolu par fix GTK étape 2 |
 | [#68](https://github.com/kuthulux/gnome-connection-manager/issues/68) | Documentation — sera couvert par README v1.3 |
 

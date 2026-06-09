@@ -224,8 +224,8 @@ import pyAES
 import urlregex
 
 app_name = "Gnome Connection Manager"
-app_version = "1.2.1"
-app_web = "http://www.kuthulu.com/gcm"
+app_version = "1.3.0"
+app_web = "https://github.com/MathildeDec/gnome-connection-manager"
 app_fileversion = "1"
 
 BASE_PATH = os.path.dirname(os.path.abspath(sys.argv[0]))

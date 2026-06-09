@@ -1,89 +1,92 @@
-# Gnome Connection Manager or GCM
+# Gnome Connection Manager (GCM) — v1.3.0
 
-Gnome Connection Manager or GCM is a tabbed ssh connection manager for gtk+ environments.
-Starting with version 1.2.0 it **only** supports python3 and GTK 3 so it should run fine on any modern desktop environment.
+**Fork de [kuthulux/gnome-connection-manager](https://github.com/kuthulux/gnome-connection-manager)**
+maintenu par [MathildeDec](https://github.com/MathildeDec/gnome-connection-manager).
 
-If you can't update to python/gtk 3 and only have python2/gtk2, then keep using GCM version v1.1.0 from [kuthulu.com](http://kuthulu.com/gcm/download.html)
+Gnome Connection Manager (GCM) est un gestionnaire de connexions SSH avec onglets pour les environnements GTK+.  
+À partir de la **version 1.3.0**, il supporte également les connexions **RDP** (via `xfreerdp`) et l'**import de VMs libvirt**.
+
+> **Requires** : Python 3.x · GTK 3 · VTE 2.91
+
+---
+
+## Nouveautés v1.3.0
+
+- **RDP intégré** : connexion RDP directement dans l'onglet GCM via XEmbed (`Gtk.Socket` + `xfreerdp /parent-window`)  
+  — bascule automatique sur fenêtre externe si Wayland pur
+- **Import libvirt** : importe les VMs d'un hyperviseur libvirt (SSH ou local) dans votre liste de connexions
+- **GCMBase** : remplacement de `SimpleGladeApp` par un wrapper `Gtk.Builder` natif, sans dépendance tierce
+- **Bugs upstream corrigés** : issues #64, #66, #67, #81, #82, #87, #88, #89
+- **Docstrings Google** (#110) : 188 fonctions documentées
+- Code Python 3.13 compatible, reformatté avec `black`
+
+---
 
 ## Installation
 
-### From binary package
-The easiest way to install GCM is to download the deb or rpm package from [releases](https://github.com/kuthulux/gnome-connection-manager/releases) or from [kuthulu.com](http://kuthulu.com/gcm/download.html) and install it using the package manager
+### Depuis les sources
 
-#### Debian/Ubuntu
-`sudo dpkg -i gnome-connection-manager_1.2.0_all.deb`
-
-#### Fedora/Redhat
-`sudo yum install gnome-connection-manager-1.2.0.noarch.rpm`
-
-
-
-### From Sources
-Download or clone the repository and execute the file `gnome_connection_manager.py`
-
-
-```
-git clone git://github.com/kuthulux/gnome-connection-manager
+```bash
+git clone https://github.com/MathildeDec/gnome-connection-manager
 cd gnome-connection-manager
 ./gnome_connection_manager.py
 ```
 
-#### Dependencies:
-* expect
-* python3
-* python3-gi and gir1.2-vte-2.91 (debian) / python3-gobject (fedora)
-
----
-
-## Language
-GCM should use the default OS language, but if for any reason you want to use another language, then start GCM this way:
+### Dépendances (Debian/Ubuntu)
 
 ```bash
-LANG=en_US.UTF.8 ./gnome_connection_manager.py
+sudo apt install python3 python3-gi gir1.2-vte-2.91 gir1.2-gtk-3.0 expect
+# Pour RDP :
+sudo apt install freerdp2-x11   # ou freerdp3-x11
+# Pour libvirt :
+sudo apt install python3-libvirt
 ```
-replace en_US.UTF-8 with the language of your choice.
+
+### Dépendances (Fedora/RHEL)
+
+```bash
+sudo dnf install python3 python3-gobject vte291 expect
+# Pour RDP :
+sudo dnf install freerdp
+# Pour libvirt :
+sudo dnf install python3-libvirt
+```
 
 ---
 
-## Packaging
+## Langue
 
-To create a deb or rpm package from source you have to follow these steps:
+GCM utilise la langue par défaut de l'OS. Pour forcer une langue :
 
-1. install basic tools
-
-Debian/Ubuntu
+```bash
+LANG=en_US.UTF-8 ./gnome_connection_manager.py
 ```
+
+---
+
+## Packaging (deb / rpm)
+
+```bash
+# Installer fpm
 sudo apt install git ruby ruby-dev build-essential gettext
 sudo gem install fpm
-```
-Fedora/Redhat
-```bash
-sudo yum install git ruby ruby-devel make gcc gcc-c++ redhat-rpm-config getext rpm-build
-sudo gem install fpm
-```
 
-2. download or clone the respository
-
-```bash
-git clone git://github.com/kuthulux/gnome-connection-manager
+# Cloner et packager
+git clone https://github.com/MathildeDec/gnome-connection-manager
 cd gnome-connection-manager
+make        # deb + rpm
+make deb    # deb seulement
+make rpm    # rpm seulement
 ```
 
-3. make the desired package:
-```bash
-#make deb and rpm
-make
+---
 
-#make deb package only
-make deb
+## Contribuer
 
-#make rpm package only
-make rpm
-```
+Les pull requests sont les bienvenues.  
+Pour les changements importants, ouvrez d'abord une issue pour discuter de ce que vous souhaitez modifier.
 
-## Contributing
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+## Licence
 
-
-## License
 [GPLv3](https://www.gnu.org/licenses/gpl-3.0.html)
+
