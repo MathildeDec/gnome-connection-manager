@@ -931,15 +931,23 @@ class RdpTab(Gtk.Box):
 
 
 def _rdp_socket_available():
-    """Teste si Gtk.Socket est utilisable (X11 disponible).
+    """Teste si Gtk.Socket (XEmbed) est utilisable.
+
+    XEmbed necessite un serveur X11. On verifie :
+      1. La variable d'environnement DISPLAY est definie (X11 ou XWayland).
+      2. Le backend Gdk actif est bien X11 (GdkX11Display), pas Wayland pur.
 
     Returns:
-        bool: True si XEmbed est possible, False sous Wayland pur.
+        bool: True si XEmbed est possible (X11 / XWayland), False sous Wayland pur.
     """
+    if not os.environ.get("DISPLAY"):
+        return False
     try:
-        s = Gtk.Socket()
-        # realize() n'est pas appelé ici — juste vérifier l'instanciation
-        return s is not None
+        display = Gdk.Display.get_default()
+        if display is None:
+            return False
+        # Sous Wayland pur le type est GdkWaylandDisplay
+        return "Wayland" not in type(display).__name__
     except Exception:
         return False
 
