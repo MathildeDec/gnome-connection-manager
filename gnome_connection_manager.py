@@ -47,6 +47,7 @@ import tempfile
 import traceback
 import re
 import shlex
+import shutil
 import subprocess
 import threading
 from urllib.parse import urlparse
@@ -231,6 +232,7 @@ BASE_PATH = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 SSH_BIN = "ssh"
 TEL_BIN = "telnet"
+RDP_BIN = shutil.which("xfreerdp") or shutil.which("xfreerdp3") or "xfreerdp"
 SHELL = os.environ["SHELL"]
 DEFAULT_TERM_TYPE = "xterm-256color"
 
@@ -767,6 +769,189 @@ def vte_run(terminal, command, arg=None):
         )
 
 
+# ─── RDP (étape 5) ──────────────────────────────────────────────────────────
+
+
+class RdpTab(Gtk.Box):
+    """Widget affiche dans le Gtk.Notebook pour les connexions RDP.
+
+    Lance xfreerdp en fenetre externe, affiche le statut, le log stderr
+    et un champ d'options modifiable a la volee.
+    """
+
+    def __init__(self, host, get_password_fn):
+        """Initialise le panneau RDP.
+
+        Args:
+            host (Host): Objet Host GCM avec protocol='rdp'.
+            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
+        """
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.host = host
+        self._get_password = get_password_fn
+        self._proc = None
+        self.set_margin_start(16)
+        self.set_margin_end(16)
+        self.set_margin_top(16)
+        self.set_margin_bottom(16)
+        self._build_ui()
+
+    def _build_ui(self):
+        """Construit l'interface du panneau RDP."""
+        h = self.host
+        port = getattr(h, "port", 3389) or 3389
+        title = Gtk.Label()
+        title.set_markup(
+            f"<b>RDP \u2014 {h.name}</b><small>   {h.user}@{h.host}:{port}</small>"
+        )
+        title.set_xalign(0)
+        self.pack_start(title, False, False, 0)
+        if h.description:
+            d = Gtk.Label(label=h.description)
+            d.set_xalign(0)
+            d.get_style_context().add_class("dim-label")
+            self.pack_start(d, False, False, 0)
+        self.pack_start(Gtk.Separator(), False, False, 4)
+        self._lbl_status = Gtk.Label(label=_("En attente\u2026"))
+        self._lbl_status.set_xalign(0)
+        self.pack_start(self._lbl_status, False, False, 0)
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect.get_style_context().add_class("suggested-action")
+        self._btn_connect.connect("clicked", self._on_connect)
+        hb.pack_start(self._btn_connect, False, False, 0)
+        self._btn_disconnect = Gtk.Button(label=_("Deconnecter"))
+        self._btn_disconnect.set_sensitive(False)
+        self._btn_disconnect.connect("clicked", self._on_disconnect)
+        hb.pack_start(self._btn_disconnect, False, False, 0)
+        self.pack_start(hb, False, False, 0)
+        self.pack_start(Gtk.Separator(), False, False, 4)
+        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb2.pack_start(Gtk.Label(label=_("Options xfreerdp :")), False, False, 0)
+        self._entry_opts = Gtk.Entry()
+        self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
+        self._entry_opts.set_tooltip_text(
+            "Parametres additionnels xfreerdp\n"
+            "Ex : /drive:home,/home/user  /sound:sys:alsa  /multimon  +clipboard"
+        )
+        hb2.pack_start(self._entry_opts, True, True, 0)
+        self.pack_start(hb2, False, False, 0)
+        self.pack_start(Gtk.Label(label=_("Journal xfreerdp :")), False, False, 2)
+        self._log_buf = Gtk.TextBuffer()
+        lv = Gtk.TextView(buffer=self._log_buf)
+        lv.set_editable(False)
+        lv.set_monospace(True)
+        lv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        sw = Gtk.ScrolledWindow()
+        sw.set_min_content_height(160)
+        sw.add(lv)
+        self.pack_start(sw, True, True, 0)
+        self._log_view = lv
+        self.show_all()
+
+    def _build_cmd(self):
+        """Construit la commande xfreerdp a executer.
+
+        Returns:
+            list[str]: Liste d'arguments pour subprocess.Popen.
+        """
+        h = self.host
+        port = getattr(h, "port", 3389) or 3389
+        pwd = self._get_password() or ""
+        opts = self._entry_opts.get_text().strip()
+        user = h.user
+        if "\\" in user:
+            domain, uname = user.split("\\", 1)
+            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/d:{domain}", f"/u:{uname}"]
+        else:
+            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/u:{user}"]
+        if pwd:
+            cmd.append(f"/p:{pwd}")
+        cmd += ["/cert:ignore", "/dynamic-resolution"]
+        if opts:
+            cmd += shlex.split(opts)
+        return cmd
+
+    def _on_connect(self, widget):
+        """Lance la connexion xfreerdp.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur (peut etre None).
+        """
+        if self._proc is not None and self._proc.poll() is None:
+            return
+        cmd = self._build_cmd()
+        cmd_display = ["****" if a.startswith("/p:") else a for a in cmd]
+        self._log(f"$ {' '.join(cmd_display)}\n")
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except FileNotFoundError:
+            self._log(
+                f"ERREUR : xfreerdp introuvable ({RDP_BIN})\n"
+                "  sudo apt install freerdp2-x11\n"
+            )
+            self._set_status(_("xfreerdp introuvable"))
+            return
+        self._set_status(_("Connexion en cours\u2026"))
+        self._btn_connect.set_sensitive(False)
+        self._btn_disconnect.set_sensitive(True)
+        threading.Thread(target=self._read_output, daemon=True).start()
+
+    def _on_disconnect(self, widget):
+        """Termine le processus xfreerdp.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur.
+        """
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+        self._set_status(_("Deconnecte"))
+        self._btn_connect.set_sensitive(True)
+        self._btn_disconnect.set_sensitive(False)
+
+    def _read_output(self):
+        """Lit la sortie de xfreerdp en arriere-plan et l'affiche dans le log."""
+        try:
+            for line in self._proc.stdout:
+                GLib.idle_add(self._log, line)
+        except Exception:
+            pass
+        rc = self._proc.wait()
+        if rc == 0:
+            GLib.idle_add(self._set_status, _("Session terminee"))
+        else:
+            GLib.idle_add(self._set_status, _("Termine avec code {rc}").format(rc=rc))
+        GLib.idle_add(self._btn_connect.set_sensitive, True)
+        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
+
+    def _log(self, text):
+        """Ajoute du texte dans le TextView de log.
+
+        Args:
+            text (str): Texte a afficher.
+        """
+        self._log_buf.insert(self._log_buf.get_end_iter(), text)
+        adj = self._log_view.get_vadjustment()
+        adj.set_value(adj.get_upper())
+
+    def _set_status(self, text):
+        """Met a jour le label de statut.
+
+        Args:
+            text (str): Nouveau statut.
+        """
+        self._lbl_status.set_text(text)
+
+    def connect_rdp(self):
+        """Lance la connexion RDP automatiquement (appele depuis addTab)."""
+        self._on_connect(None)
+
+
 # ─── LIBVIRT IMPORT (étape 4) ───────────────────────────────────────────────
 
 LIBVIRT_DEFAULT_USER = "root"  # écrasé par config["libvirt_default_user"]
@@ -1038,20 +1223,32 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
                         break
                 host_val = ip_addr if ip_addr else vm_name
                 grp, short = _vm_name_split(vm_name)
+                # Détection automatique Windows → RDP (#101)
+                is_windows = bool(
+                    re.search(
+                        r"win|w(?:2k|2019|2022|2016|2012|srv|dc|server)",
+                        vm_name,
+                        re.IGNORECASE,
+                    )
+                )
+                vm_protocol = "rdp" if is_windows else "ssh"
+                vm_port = 3389 if is_windows else 22
+                vm_user = "Administrator" if is_windows else ssh_user
                 results.append(
                     {
                         "name": short,
                         "host": host_val,
-                        "user": ssh_user,
-                        "port": 22,
+                        "user": vm_user,
+                        "port": vm_port,
                         "password": "",
                         "description": f"[{state}] {vm_name} via {hv_host} (libvirt)",
                         "group": grp,
                         "hypervisor": hv_host,
+                        "protocol": vm_protocol,
                     }
                 )
                 log_fn(
-                    f"  + [{grp}] {short:28s}  {host_val or '(IP inconnue)':16s}  [{state}]"
+                    f"  + [{grp}] {short:28s}  {host_val or '(IP inconnue)':16s}  [{state}]  [{vm_protocol}]"
                 )
         finally:
             client.close()
@@ -2133,6 +2330,35 @@ class Wmain(GCMBase):
         if hasattr(self, "menuServers") and self.menuServers is not None:
             self.menuServers.append(mnu_import_lv)
 
+    def _open_rdp_tab(self, notebook, host):
+        """Ouvre un onglet RDP (xfreerdp externe) dans le notebook GCM.
+
+        Args:
+            notebook (Gtk.Notebook): Notebook cible.
+            host (Host): Hote avec protocol='rdp'.
+
+        Returns:
+            Gtk.ScrolledWindow: Widget ajoute au notebook.
+        """
+
+        def get_pwd():
+            try:
+                return decrypt(get_password(), host.password)
+            except Exception:
+                return ""
+
+        rdp_widget = RdpTab(host, get_pwd)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw.add(rdp_widget)
+        sw.show_all()
+        tab_label = NotebookTabLabel(" %s " % host.name, notebook, sw, self)
+        notebook.append_page(sw, tab_label)
+        notebook.set_tab_reorderable(sw, True)
+        notebook.set_current_page(notebook.get_n_pages() - 1)
+        rdp_widget.connect_rdp()
+        return sw
+
     def on_mnu_import_libvirt_activate(self, widget):
         """Ouvre le dialogue d'import de VMs depuis libvirt.
 
@@ -2183,6 +2409,8 @@ class Wmain(GCMBase):
                 h.backColor = ""
                 h.font = ""
                 h.lineColor = ""
+                h.protocol = d.get("protocol", "ssh")
+                h.port = str(d.get("port", 22))
                 groups[gname].append(h)
                 self.treeModel.append(
                     group_iter, [h.name, h, self.get_widget("imgHost"), "#fff"]
@@ -2512,6 +2740,10 @@ class Wmain(GCMBase):
             nb (Gtk.Notebook): Notebook cible.
             host (Host): Hote a connecter.
         """
+        # ── RDP : onglet dédié si protocol=="rdp"
+        if isinstance(host, Host) and getattr(host, "protocol", "ssh") == "rdp":
+            return self._open_rdp_tab(notebook, host)
+
         try:
             v = Vte.Terminal()
             v.set_word_char_exceptions(conf.WORD_SEPARATORS)
@@ -4184,6 +4416,7 @@ class Host:
             self.backspace_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
             self.delete_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
             self.term = self.get_arg(args, "")
+            self.protocol = self.get_arg(args, "ssh")
         except:
             pass
 
@@ -4251,6 +4484,7 @@ class Host:
             self.backspace_key,
             self.delete_key,
             self.term,
+            getattr(self, "protocol", "ssh"),
         )
 
 
@@ -4316,6 +4550,7 @@ class HostUtils:
             HostUtils.get_val(cp, section, "delete-key", int(Vte.EraseBinding.AUTO))
         )
         term = HostUtils.get_val(cp, section, "term", "")
+        protocol = HostUtils.get_val(cp, section, "protocol", "ssh")
         h = Host(
             group,
             name,
@@ -4340,7 +4575,9 @@ class HostUtils:
             backspace_key,
             delete_key,
             term,
+            protocol,
         )
+        h.protocol = protocol
         return h
 
     @staticmethod
@@ -4375,6 +4612,7 @@ class HostUtils:
         cp.set(section, "backspace-key", host.backspace_key)
         cp.set(section, "delete-key", host.delete_key)
         cp.set(section, "term", host.term)
+        cp.set(section, "protocol", getattr(host, "protocol", "ssh"))
 
 
 class Whost(GCMBase):
@@ -4490,9 +4728,28 @@ class Whost(GCMBase):
         self.cmbBackspace.set_active(0)
         self.cmbDelete.set_active(0)
 
+        # ComboBox Protocol (RDP/SSH/telnet/local)
+        self.cmbProtocol = Gtk.ComboBoxText()
+        for p in ("ssh", "telnet", "rdp", "local"):
+            self.cmbProtocol.append_text(p)
+        self.cmbProtocol.set_active(0)
+        self.cmbProtocol.connect("changed", self._on_proto_changed)
+
     # -- Whost.new }
 
     # -- Whost custom methods {
+    def _on_proto_changed(self, cmb):
+        """Adapte le port par defaut au protocole selectionne.
+
+        Args:
+            cmb (Gtk.ComboBoxText): ComboBox modifie.
+        """
+        proto = cmb.get_active_text()
+        defaults = {"ssh": "22", "telnet": "23", "rdp": "3389", "local": ""}
+        current = self.txtPort.get_text()
+        if current in ("22", "23", "3389", ""):
+            self.txtPort.set_text(defaults.get(proto, ""))
+
     def init(self, group, host=None):
         """Initialise les parametres de configuration avec les valeurs par defaut.
 
@@ -4522,6 +4779,10 @@ class Whost(GCMBase):
         self.txtPass.set_text(host.password)
         self.txtPrivateKey.set_text(host.private_key)
         self.txtPort.set_text(host.port)
+        # Protocole
+        proto = getattr(host, "protocol", "ssh")
+        protos = ["ssh", "telnet", "rdp", "local"]
+        self.cmbProtocol.set_active(protos.index(proto) if proto in protos else 0)
         for t in host.tunnel:
             if t != "":
                 # fix #66: split sur max 2 ":" pour preserver les hotes avec port (host:port)
@@ -4664,6 +4925,11 @@ class Whost(GCMBase):
             return
 
         term = self.txtTerm.get_text()
+        protocol = (
+            self.cmbProtocol.get_active_text()
+            if hasattr(self, "cmbProtocol")
+            else "ssh"
+        )
 
         host = Host(
             group,
@@ -4689,7 +4955,9 @@ class Whost(GCMBase):
             backspace_key,
             delete_key,
             term,
+            protocol,
         )
+        host.protocol = protocol
 
         try:
             # Guardar
