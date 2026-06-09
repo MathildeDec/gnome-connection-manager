@@ -952,6 +952,227 @@ class RdpTab(Gtk.Box):
         self._on_connect(None)
 
 
+# ─── RDP EMBEDDED (étape 6) — XEmbed via Gtk.Socket ─────────────────────────
+
+
+def _rdp_socket_available():
+    """Teste si Gtk.Socket est utilisable (X11 disponible).
+
+    Returns:
+        bool: True si XEmbed est possible, False sous Wayland pur.
+    """
+    try:
+        s = Gtk.Socket()
+        # realize() n'est pas appelé ici — juste vérifier l'instanciation
+        return s is not None
+    except Exception:
+        return False
+
+
+class RdpEmbeddedTab(Gtk.Box):
+    """Widget RDP avec session xfreerdp embarquee via XEmbed (Gtk.Socket).
+
+    La fenetre xfreerdp s'affiche directement dans l'onglet GCM.
+    Necessite X11 (Wayland+XWayland ou Xorg). Fallback: RdpTab.
+    """
+
+    def __init__(self, host, get_password_fn):
+        """Initialise le panneau RDP embarque.
+
+        Args:
+            host (Host): Objet Host GCM avec protocol='rdp'.
+            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
+        """
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.host = host
+        self._get_password = get_password_fn
+        self._proc = None
+        self._xid = None
+        self._build_ui()
+
+    def _build_ui(self):
+        """Construit la barre d'outils et la zone XEmbed."""
+        h = self.host
+        port = getattr(h, "port", 3389) or 3389
+
+        # Barre d'outils compacte
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        toolbar.set_margin_start(6)
+        toolbar.set_margin_end(6)
+        toolbar.set_margin_top(4)
+        toolbar.set_margin_bottom(4)
+
+        title = Gtk.Label()
+        title.set_markup(f"<b>RDP</b> <small>{h.user}@{h.host}:{port}</small>")
+        title.set_xalign(0)
+        toolbar.pack_start(title, True, True, 0)
+
+        self._lbl_status = Gtk.Label(label=_("En attente…"))
+        self._lbl_status.get_style_context().add_class("dim-label")
+        toolbar.pack_start(self._lbl_status, False, False, 8)
+
+        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect.get_style_context().add_class("suggested-action")
+        self._btn_connect.connect("clicked", self._on_connect)
+        toolbar.pack_start(self._btn_connect, False, False, 0)
+
+        self._btn_disconnect = Gtk.Button(label=_("Déconnecter"))
+        self._btn_disconnect.set_sensitive(False)
+        self._btn_disconnect.connect("clicked", self._on_disconnect)
+        toolbar.pack_start(self._btn_disconnect, False, False, 0)
+
+        self.pack_start(toolbar, False, False, 0)
+        self.pack_start(Gtk.Separator(), False, False, 0)
+
+        # Zone XEmbed
+        self._socket = Gtk.Socket()
+        self._socket.connect("plug-removed", self._on_plug_removed)
+        self._socket.connect("plug-added", self._on_plug_added)
+        self._socket.connect("realize", self._on_socket_realized)
+        self._socket.set_hexpand(True)
+        self._socket.set_vexpand(True)
+        self.pack_start(self._socket, True, True, 0)
+
+        self.show_all()
+
+    def _on_socket_realized(self, widget):
+        """Recupere le XID apres realisation du socket.
+
+        Args:
+            widget (Gtk.Socket): Socket GTK.
+        """
+        self._xid = self._socket.get_id()
+
+    def _on_plug_added(self, widget):
+        """Signale que xfreerdp s'est connecte au socket XEmbed.
+
+        Args:
+            widget (Gtk.Socket): Socket GTK.
+        """
+        GLib.idle_add(self._set_status, _("Connecté"))
+        GLib.idle_add(self._btn_connect.set_sensitive, False)
+        GLib.idle_add(self._btn_disconnect.set_sensitive, True)
+
+    def _on_plug_removed(self, widget):
+        """Signale que xfreerdp s'est deconnecte du socket XEmbed.
+
+        Args:
+            widget (Gtk.Socket): Socket GTK.
+
+        Returns:
+            bool: True pour garder le socket en vie.
+        """
+        GLib.idle_add(self._set_status, _("Session terminée"))
+        GLib.idle_add(self._btn_connect.set_sensitive, True)
+        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
+        self._proc = None
+        return True  # conserver le socket (ne pas le détruire)
+
+    def _build_cmd(self):
+        """Construit la commande xfreerdp avec /parent-window pour XEmbed.
+
+        Returns:
+            list[str]: Arguments pour subprocess.Popen.
+        """
+        h = self.host
+        port = getattr(h, "port", 3389) or 3389
+        pwd = self._get_password() or ""
+        opts = getattr(h, "extra_params", "") or ""
+        user = h.user
+
+        if "\\" in user:
+            domain, uname = user.split("\\", 1)
+            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/d:{domain}", f"/u:{uname}"]
+        else:
+            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/u:{user}"]
+
+        if pwd:
+            cmd.append(f"/p:{pwd}")
+
+        xid = self._xid or self._socket.get_id()
+        cmd += [
+            "/cert:ignore",
+            "/dynamic-resolution",
+            f"/parent-window:{hex(xid)}",
+        ]
+
+        if opts:
+            cmd += shlex.split(opts)
+
+        return cmd
+
+    def _on_connect(self, widget):
+        """Lance xfreerdp en mode XEmbed.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur (peut etre None).
+        """
+        if self._proc is not None and self._proc.poll() is None:
+            return
+        # S'assurer que le socket est realize
+        if not self._socket.get_realized():
+            self._socket.realize()
+        self._xid = self._socket.get_id()
+
+        cmd = self._build_cmd()
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            self._set_status(_("xfreerdp introuvable"))
+            return
+        self._set_status(_("Connexion en cours…"))
+        self._btn_connect.set_sensitive(False)
+        threading.Thread(target=self._wait_proc, daemon=True).start()
+
+    def _wait_proc(self):
+        """Attend la fin du processus xfreerdp en arriere-plan."""
+        if self._proc:
+            rc = self._proc.wait()
+            if rc != 0:
+                GLib.idle_add(
+                    self._set_status,
+                    _("Terminé (code {rc})").format(rc=rc),
+                )
+        GLib.idle_add(self._btn_connect.set_sensitive, True)
+        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
+        self._proc = None
+
+    def _on_disconnect(self, widget):
+        """Termine la session xfreerdp.
+
+        Args:
+            widget (Gtk.Button): Bouton declencheur.
+        """
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+        self._set_status(_("Déconnecté"))
+        self._btn_connect.set_sensitive(True)
+        self._btn_disconnect.set_sensitive(False)
+
+    def _set_status(self, text):
+        """Met a jour le label de statut.
+
+        Args:
+            text (str): Nouveau statut.
+        """
+        self._lbl_status.set_text(text)
+
+    def connect_rdp(self):
+        """Lance la connexion RDP automatiquement (appele depuis addTab)."""
+        # Attendre que le socket soit realise avant de lancer xfreerdp
+        if self._socket.get_realized():
+            self._on_connect(None)
+        else:
+            self._socket.connect(
+                "realize",
+                lambda w: GLib.idle_add(self._on_connect, None),
+            )
+
+
 # ─── LIBVIRT IMPORT (étape 4) ───────────────────────────────────────────────
 
 LIBVIRT_DEFAULT_USER = "root"  # écrasé par config["libvirt_default_user"]
@@ -2331,7 +2552,10 @@ class Wmain(GCMBase):
             self.menuServers.append(mnu_import_lv)
 
     def _open_rdp_tab(self, notebook, host):
-        """Ouvre un onglet RDP (xfreerdp externe) dans le notebook GCM.
+        """Ouvre un onglet RDP dans le notebook GCM.
+
+        Tente d'abord XEmbed via Gtk.Socket (RdpEmbeddedTab).
+        Si X11/Gtk.Socket non disponible, bascule sur la fenetre externe (RdpTab).
 
         Args:
             notebook (Gtk.Notebook): Notebook cible.
@@ -2347,17 +2571,31 @@ class Wmain(GCMBase):
             except Exception:
                 return ""
 
-        rdp_widget = RdpTab(host, get_pwd)
-        sw = Gtk.ScrolledWindow()
-        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        sw.add(rdp_widget)
-        sw.show_all()
-        tab_label = NotebookTabLabel(" %s " % host.name, notebook, sw, self)
-        notebook.append_page(sw, tab_label)
-        notebook.set_tab_reorderable(sw, True)
-        notebook.set_current_page(notebook.get_n_pages() - 1)
-        rdp_widget.connect_rdp()
-        return sw
+        # Etape 6 : XEmbed si Gtk.Socket disponible (X11 / XWayland)
+        # Fallback sur fenetre externe si Wayland pur
+        if _rdp_socket_available():
+            rdp_widget = RdpEmbeddedTab(host, get_pwd)
+            # RdpEmbeddedTab contient deja le socket — pas de ScrolledWindow
+            rdp_widget.show_all()
+            tab_label = NotebookTabLabel(" %s " % host.name, notebook, rdp_widget, self)
+            notebook.append_page(rdp_widget, tab_label)
+            notebook.set_tab_reorderable(rdp_widget, True)
+            notebook.set_current_page(notebook.get_n_pages() - 1)
+            rdp_widget.connect_rdp()
+            return rdp_widget
+        else:
+            # Fallback etape 5 : fenetre externe + log
+            rdp_widget = RdpTab(host, get_pwd)
+            sw = Gtk.ScrolledWindow()
+            sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            sw.add(rdp_widget)
+            sw.show_all()
+            tab_label = NotebookTabLabel(" %s " % host.name, notebook, sw, self)
+            notebook.append_page(sw, tab_label)
+            notebook.set_tab_reorderable(sw, True)
+            notebook.set_current_page(notebook.get_n_pages() - 1)
+            rdp_widget.connect_rdp()
+            return sw
 
     def on_mnu_import_libvirt_activate(self, widget):
         """Ouvre le dialogue d'import de VMs depuis libvirt.
