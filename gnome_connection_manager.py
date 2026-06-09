@@ -2603,9 +2603,12 @@ class Whost(SimpleGladeApp):
         self.txtPort.set_text(host.port)
         for t in host.tunnel:
             if t!="":
-                tun = t.split(":")
+                # fix #66: split sur max 2 ":" pour preserver les hotes avec port (host:port)
+                tun = t.split(":", 2)
+                if len(tun) < 3:
+                    tun += [''] * (3 - len(tun))
                 tun.append(t)
-                self.treeModel.append(  tun )
+                self.treeModel.append(tun)
         self.txtCommands.set_sensitive(False)
         self.chkCommands.set_active(False)
         if host.commands!='' and host.commands!=None:
@@ -2845,6 +2848,16 @@ class Whost(SimpleGladeApp):
         if self.chkDynamic.get_active():
             host = '*'
             remote = '*'
+
+        # fix #66: si l'utilisateur a saisi "host:port" dans le champ remote host,
+        # extraire le port et le placer dans remote port automatiquement
+        if not self.chkDynamic.get_active() and ':' in host and remote == '':
+            parts = host.rsplit(':', 1)
+            if parts[1].isdigit():
+                host = parts[0]
+                remote = parts[1]
+                self.txtRemoteHost.set_text(host)
+                self.txtRemotePort.set_text(remote)
 
         #Validar datos del tunel
         if host == "":
