@@ -244,6 +244,13 @@ def inputbox(title, text, default='', password=False):
     return response
 
 def show_font_dialog(parent, title, button):
+    """Ouvre une boite de dialogue de selection de police GTK.
+
+    Args:
+        parent: Parametre parent.
+        title: Parametre title.
+        button: Parametre button.
+    """
     if not hasattr(parent, 'dlgFont'):
         parent.dlgFont = None
 
@@ -301,13 +308,39 @@ def parse_color_rgba(spec):
     return rgba
 
 def parse_color(spec):
+    """Parse une chaine couleur CSS/Gdk en composantes RGBA.
+
+    Args:
+        color_str (str): Chaine couleur (ex: '#rrggbb' ou 'rgba(r,g,b,a)').
+
+    Returns:
+        tuple: Tuple (r, g, b, a) normalise entre 0.0 et 1.0.
+    """
     return parse_color_rgba(spec).to_color()
 
 def color_to_hex(rgba, diff=0):
+    """Convertit des composantes RGBA en chaine hexadecimale CSS.
+
+    Args:
+        r (float): Rouge entre 0.0 et 1.0.
+        g (float): Vert entre 0.0 et 1.0.
+        b (float): Bleu entre 0.0 et 1.0.
+
+    Returns:
+        str: Chaine '#rrggbb'.
+    """
     return "#%x%x%x" % (int(rgba.red*255+diff),int(rgba.green*255+diff),int(rgba.blue*255+diff))
 
 
 def get_key_name(event):
+    """Retourne le nom lisible d'une touche clavier GTK.
+
+    Args:
+        keyval (int): Valeur de touche Gdk.
+
+    Returns:
+        str: Nom de la touche.
+    """
     name = ""
     if event.state & Gdk.ModifierType.CONTROL_MASK:
         name = name + "CTRL+"
@@ -320,12 +353,27 @@ def get_key_name(event):
     return name + Gdk.keyval_name(event.keyval).upper()
 
 def get_username():
+    """Retourne le nom d'utilisateur de la session courante.
+
+    Returns:
+        str: Nom d'utilisateur.
+    """
     return os.getenv('USER') or os.getenv('LOGNAME') or os.getenv('USERNAME')
 
 def get_password():
+    """Retourne le mot de passe associe a une entree depuis le trousseau.
+
+    Returns:
+        str: Mot de passe ou chaine vide si absent.
+    """
     return get_username() + enc_passwd
 
 def load_encryption_key():
+    """Charge ou genere la cle de chiffrement locale.
+
+    Returns:
+        bytes: Cle de chiffrement.
+    """
     global enc_passwd
     try:
         if os.path.exists(KEY_FILE):
@@ -338,6 +386,7 @@ def load_encryption_key():
         enc_passwd = ''
 
 def initialise_encyption_key():
+    """Initialise la cle AES pour le chiffrement des mots de passe."""
     global enc_passwd
     import random
     x = int(str(random.random())[2:])
@@ -351,6 +400,15 @@ def initialise_encyption_key():
 
 ## funciones para encryptar passwords - no son muy seguras, pero impiden que los pass se guarden en texto plano
 def xor(pw, str1):
+    """Applique un XOR octet-a-octet entre deux sequences.
+
+    Args:
+        data (bytes): Donnees a chiffrer.
+        key (bytes): Cle XOR.
+
+    Returns:
+        bytes: Resultat du XOR.
+    """
     c = 0
     liste = []
     for k in range(len(str1)):
@@ -364,6 +422,14 @@ def xor(pw, str1):
     return liste
 
 def encrypt_old(passw, string):
+    """Chiffre une chaine avec l'ancien algorithme XOR (compatibilite).
+
+    Args:
+        plaintext (str): Texte en clair.
+
+    Returns:
+        str: Texte chiffre encode.
+    """
     try:
         ret = xor(passw, string)
         s = base64.b64encode("".join(ret))
@@ -372,6 +438,14 @@ def encrypt_old(passw, string):
     return s
 
 def decrypt_old(passw, string):
+    """Dechiffre une chaine chiffree avec l'ancien algorithme XOR.
+
+    Args:
+        ciphertext (str): Texte chiffre encode.
+
+    Returns:
+        str: Texte en clair.
+    """
     try:
         ret = xor(passw, base64.b64decode(string))
         s = "".join(ret)
@@ -380,6 +454,14 @@ def decrypt_old(passw, string):
     return s
 
 def encrypt(passw, string):
+    """Chiffre une chaine avec AES.
+
+    Args:
+        plaintext (str): Texte en clair.
+
+    Returns:
+        str: Texte chiffre encode en base64.
+    """
     try:
         s = pyAES.encrypt(string, passw)
     except:
@@ -388,6 +470,14 @@ def encrypt(passw, string):
     return s
 
 def decrypt(passw, string):
+    """Dechiffre une chaine chiffree avec AES.
+
+    Args:
+        ciphertext (str): Texte chiffre base64.
+
+    Returns:
+        str: Texte en clair.
+    """
     try:
         s = decrypt_old(passw, string) if conf.VERSION == 0 else pyAES.decrypt(string, passw)
     except:
@@ -473,6 +563,13 @@ class Wmain(SimpleGladeApp):
     def __init__(self, path="gnome-connection-manager.glade",
                  root="wMain",
                  domain=domain_name, **kwargs):
+        """Initialise l'instance.
+
+        Args:
+            path: Parametre path.
+            root: Parametre root.
+            domain: Parametre domain.
+        """
         path = os.path.join(glade_dir, path)
         SimpleGladeApp.__init__(self, path, root, domain, **kwargs)
 
@@ -561,6 +658,7 @@ class Wmain(SimpleGladeApp):
             self.addTab(self.nbConsole,'local')
 
     def update_visual(self):
+        """Met a jour les proprietes visuelles de la fenetre principale."""
         window = self.get_widget("wMain")
         screen = window.get_screen()
         visual = screen.get_rgba_visual()
@@ -585,6 +683,11 @@ class Wmain(SimpleGladeApp):
         #the key is to set the alpha channel of the window's background color to 0.9999, in that way the window is opaque but still allows transparent children
 
         #remove previously addded css to get the background color from the current gtk theme
+        """Active ou desactive la transparence de la fenetre si le compositeur le permet.
+
+        Args:
+            window: Parametre window.
+        """
         if hasattr(window, "style_provider") and window.style_provider:
             Gtk.StyleContext.remove_provider_for_screen(
                 Gdk.Screen.get_default(),
@@ -619,6 +722,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.new {
     def new(self):
+        """Cree et retourne une nouvelle instance depuis le fichier Glade.
+
+        Returns:
+            instance: Nouvelle instance de la classe.
+        """
         self.hpMain = self.get_widget("hpMain")
         self.hpMainWindow = Gtk.Window()
         self.hpMainWindow.add(self.hpMain)
@@ -636,10 +744,17 @@ class Wmain(SimpleGladeApp):
     #   Write your own methods here
 
     def check_updates(self):
+        """Verifie la disponibilite d'une mise a jour en ligne."""
         checker = CheckUpdates(self)
         checker.start()
 
     def on_terminal_click(self, widget, event, *args):
+        """Gestionnaire de clic sur un terminal VTE.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source.
+            event (Gdk.EventButton): Evenement souris.
+        """
         if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 3:
             if conf.PASTE_ON_RIGHT_CLICK:
                 widget.paste_clipboard()
@@ -672,6 +787,12 @@ class Wmain(SimpleGladeApp):
 
     def on_terminal_keypress(self, widget, event, *args):
         #if shortcuts.has_key(get_key_name(event)):
+        """Gestionnaire de touche pressee dans un terminal VTE.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source.
+            event (Gdk.EventKey): Evenement clavier.
+        """
         if get_key_name(event) in shortcuts:
             cmd = shortcuts[get_key_name(event)]
             if type(cmd) == list:
@@ -772,12 +893,23 @@ class Wmain(SimpleGladeApp):
         return False
 
     def on_terminal_selection(self, widget, *args):
+        """Gestionnaire de changement de selection dans un terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source.
+        """
         if conf.AUTO_COPY_SELECTION:
             if widget.get_has_selection():
                 self.terminal_copy(widget)
         return True
 
     def find_word(self, backwards=False):
+        """Recherche un mot dans le terminal actif.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+            word (str): Mot a rechercher.
+        """
         if not self.search:
             return
 
@@ -810,6 +942,7 @@ class Wmain(SimpleGladeApp):
 
 
     def init_search(self):
+        """Initialise la barre de recherche dans le terminal."""
         if hasattr(self, 'search') and self.search and self.get_widget('txtSearch').get_text() == self.search['word'] and self.current == self.search['terminal']:
             return  True
 
@@ -859,9 +992,24 @@ class Wmain(SimpleGladeApp):
         return True
 
     def chunkstring(self, string, length):
+        """Decoupe une chaine en morceaux de taille fixe.
+
+        Args:
+            string (str): Chaine a decouper.
+            length (int): Taille de chaque morceau.
+
+        Returns:
+            list[str]: Liste de sous-chaines.
+        """
         return (string[0+i:length+i] for i in range(0, len(string), length))
 
     def on_popupmenu(self, widget, item, *args):
+        """Affiche le menu contextuel du terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source.
+            event (Gdk.EventButton): Evenement souris.
+        """
         if item == 'V': #PASTE
             self.terminal_paste(self.popupMenu.terminal)
             return True
@@ -1166,6 +1314,15 @@ class Wmain(SimpleGladeApp):
         menuItem.show()
 
     def createMenuItem(self, shortcut, label):
+        """Cree un Gtk.MenuItem avec etiquette et action.
+
+        Args:
+            label (str): Texte de l'element.
+            callback (callable): Fonction appelee a l'activation.
+
+        Returns:
+            Gtk.MenuItem: Element de menu cree.
+        """
         menuItem = Gtk.MenuItem(label='')
         text = "[%s] %s" % (shortcut, label)
         attrs = Pango.parse_markup("<span foreground='blue'  size='x-small'>[%s]</span> %s" % (GLib.markup_escape_text(shortcut, -1), GLib.markup_escape_text(label, -1)), -1, "0")
@@ -1175,6 +1332,7 @@ class Wmain(SimpleGladeApp):
         return menuItem
 
     def populateCommandsMenu(self):
+        """Remplit le sous-menu des commandes personnalisees."""
         self.popupMenu.mnuCommands.foreach(lambda x: self.popupMenu.mnuCommands.remove(x))
         self.menuCustomCommands.foreach(lambda x: self.menuCustomCommands.remove(x))
         for x in shortcuts:
@@ -1188,54 +1346,115 @@ class Wmain(SimpleGladeApp):
                 menuItem.connect("activate", self.on_menuCustomCommands_activate, shortcuts[x])
 
     def on_menuCustomCommands_activate(self, widget, command):
+        """Gestionnaire d'activation d'une commande personnalisee.
+
+        Args:
+            widget (Gtk.MenuItem): Element active.
+            command (str): Commande a envoyer.
+        """
         terminal = self.find_active_terminal(self.hpMain)
         if terminal:
             vte_feed(terminal, command)
 
     def terminal_copy(self, terminal):
+        """Copie la selection du terminal dans le presse-papiers.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source.
+        """
         terminal.copy_clipboard_format(Vte.Format.TEXT)
 
     def terminal_paste(self, terminal):
+        """Colle le presse-papiers dans le terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+        """
         terminal.paste_clipboard()
 
     def terminal_copy_paste(self, terminal):
+        """Copie puis colle la selection dans le terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+        """
         terminal.copy_clipboard_format(Vte.Format.TEXT)
         terminal.paste_clipboard()
 
     def terminal_select_all(self, terminal):
+        """Selectionne tout le contenu du terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+        """
         terminal.select_all()
 
     def terminal_copy_all(self, terminal):
+        """Copie tout le contenu du terminal dans le presse-papiers.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+        """
         terminal.select_all()
         terminal.copy_clipboard_format(Vte.Format.TEXT)
         terminal.select_none()
 
     def on_menuCopy_activate(self, widget):
+        """Gestionnaire du menu Copier.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         terminal = self.find_active_terminal(self.hpMain)
         if terminal:
             self.terminal_copy(terminal)
 
     def on_menuPaste_activate(self, widget):
+        """Gestionnaire du menu Coller.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         terminal = self.find_active_terminal(self.hpMain)
         if terminal:
             self.terminal_paste(terminal)
 
     def on_menuCopyPaste_activate(self, widget):
+        """Gestionnaire du menu Copier-Coller.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         terminal = self.find_active_terminal(self.hpMain)
         if terminal:
             self.terminal_copy_paste(terminal)
 
     def on_menuSelectAll_activate(self, widget):
+        """Gestionnaire du menu Tout selectionner.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         terminal = self.find_active_terminal(self.hpMain)
         if terminal:
             self.terminal_select_all(terminal)
 
     def on_menuCopyAll_activate(self, widget):
+        """Gestionnaire du menu Tout copier.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         terminal = self.find_active_terminal(self.hpMain)
         if terminal:
             self.terminal_copy_all(terminal)
 
     def on_menuSettings_activate(self, widget):
+        """Gestionnaire du menu Parametres.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         wConfig = Wconfig()
 
     def on_output_written(self, terminal, data):
@@ -1335,11 +1554,22 @@ class Wmain(SimpleGladeApp):
         return True
 
     def registerUrlRegexes(self, terminal):
+        """Enregistre les expressions regulieres d'URLs dans le terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+        """
         terminal.tag_direct = self.registerUrlRegex(terminal, urlregex.DIRECT)
         terminal.tag_url = self.registerUrlRegex(terminal, urlregex.URL)
         terminal.tag_email = self.registerUrlRegex(terminal, urlregex.EMAIL)
 
     def registerUrlRegex(self, terminal, regex):
+        """Enregistre une expression reguliere d'URL dans le terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+            regex (str): Expression reguliere.
+        """
         try:
             new_reg_m = Vte.Regex.new_for_match(regex, len(regex), urlregex.PCRE2_FLAGS)
             tag = terminal.match_add_regex(new_reg_m, 0)
@@ -1349,6 +1579,12 @@ class Wmain(SimpleGladeApp):
             pass
 
     def addTab(self, notebook, host):
+        """Ajoute un nouvel onglet de connexion au notebook.
+
+        Args:
+            nb (Gtk.Notebook): Notebook cible.
+            host (Host): Hote a connecter.
+        """
         try:
             v = Vte.Terminal()
             v.set_word_char_exceptions(conf.WORD_SEPARATORS)
@@ -1521,10 +1757,16 @@ class Wmain(SimpleGladeApp):
             msgbox("%s: %s" % (_("Error al conectar con servidor"), sys.exc_info()[1]))
 
     def send_data(self, terminal, data):
+        """Envoie des donnees au terminal actif.
+
+        Args:
+            data (str): Donnees a envoyer.
+        """
         vte_feed(terminal, '%s\r' % data)
         return False
 
     def initLeftPane(self):
+        """Initialise le panneau gauche avec l'arbre des serveurs."""
         global groups
 
         self.treeModel = Gtk.TreeStore(GObject.TYPE_STRING, GObject.TYPE_PYOBJECT, str, str)
@@ -1553,6 +1795,18 @@ class Wmain(SimpleGladeApp):
         self.updateTree()
 
     def on_treeServers_tooltip(self, widget, x, y, keyboard, tooltip):
+        """Gestionnaire d'affichage du tooltip de l'arbre des serveurs.
+
+        Args:
+            widget (Gtk.TreeView): Widget source.
+            x (int): Position X.
+            y (int): Position Y.
+            keyboard_mode (bool): Mode clavier.
+            tooltip (Gtk.Tooltip): Tooltip GTK.
+
+        Returns:
+            bool: True pour afficher le tooltip.
+        """
         x,y = widget.convert_widget_to_bin_window_coords(x, y)
         pos = widget.get_path_at_pos(x, y)
         if pos:
@@ -1564,12 +1818,20 @@ class Wmain(SimpleGladeApp):
         return False
 
     def add_shortcut(self, cp, scuts, command, name, default):
+        """Ajoute un raccourci clavier a la fenetre principale.
+
+        Args:
+            key (int): Code de touche.
+            mod (Gdk.ModifierType): Modificateurs.
+            callback (callable): Fonction appelee.
+        """
         try:
             scuts[cp.get("shortcuts", command)] = name
         except:
             scuts[default] = name
 
     def loadConfig(self):
+        """Charge la configuration depuis le fichier INI."""
         global groups
 
         cp= configparser.RawConfigParser(  )
@@ -1662,15 +1924,29 @@ class Wmain(SimpleGladeApp):
                 print ("%s: %s" % (_("Entrada invalida en archivo de configuracion"), sys.exc_info()[1]))
 
     def is_node_collapsed(self, model, path, iter, nodes):
+        """Indique si un noeud de l'arbre est reduit.
+
+        Args:
+            node (str): Chemin du noeud.
+
+        Returns:
+            bool: True si le noeud est reduit.
+        """
         if self.treeModel.get_value(iter, 1)==None and not self.treeServers.row_expanded(path):
              nodes.append(self.treeModel.get_string_from_iter(iter))
 
     def get_collapsed_nodes(self):
+        """Retourne la liste des noeuds reduits de l'arbre.
+
+        Returns:
+            list[str]: Chemins des noeuds reduits.
+        """
         nodes=[]
         self.treeModel.foreach(self.is_node_collapsed, nodes)
         return nodes
 
     def set_collapsed_nodes(self):
+        """Applique l'etat reduit/etendu aux noeuds de l'arbre."""
         self.treeServers.expand_all()
         if self.treeModel.get_iter_first():
             for node in conf.COLLAPSED_FOLDERS.split(","):
@@ -1678,11 +1954,17 @@ class Wmain(SimpleGladeApp):
                     self.treeServers.collapse_row(Gtk.TreePath.new_from_string(node))
 
     def servers_background_color(self):
+        """Retourne la couleur de fond de la liste des serveurs.
+
+        Returns:
+            Gdk.RGBA: Couleur de fond.
+        """
         self.color_index += 1
         unevenColor = self.color_back1 if conf.DISABLE_HOSTS_STRIPES else self.color_back2
         return self.color_back1 if self.color_index % 2 else unevenColor
 
     def updateTree(self):
+        """Met a jour l'arbre des serveurs depuis la configuration."""
         for grupo in dict(groups):
             if len(groups[grupo])==0:
                 del groups[grupo]
@@ -1736,6 +2018,11 @@ class Wmain(SimpleGladeApp):
 
     def update_row_color(self, node=None):
         #custom method to get alternating row colors in treeview, as that is not possible with gtk3
+        """Met a jour la couleur alternee des lignes de l'arbre.
+
+        Args:
+            node (Gtk.TreeIter, optional): Noeud de depart (None = racine).
+        """
         if not node:
             self.color_index = 0
             # fix: get_background_color deprecie — utiliser lookup_color() avec fallback
@@ -1764,6 +2051,14 @@ class Wmain(SimpleGladeApp):
             i = self.treeModel.iter_next(i)
 
     def get_folder(self, obj, folder, path):
+        """Retourne l'iterateur de l'arbre pour un dossier donne.
+
+        Args:
+            path (str): Chemin du dossier.
+
+        Returns:
+            Gtk.TreeIter or None: Iterateur du dossier.
+        """
         if not obj:
             return None
         for row in obj:
@@ -1774,6 +2069,16 @@ class Wmain(SimpleGladeApp):
                 return i
 
     def get_folder_menu(self, obj, folder, path):
+        """Retourne l'element de menu correspondant a un dossier.
+
+        Args:
+            menu (Gtk.Menu): Menu parent.
+            label (str): Etiquette du dossier.
+            path (str): Chemin complet.
+
+        Returns:
+            Gtk.MenuItem or None: Element de menu trouve.
+        """
         if not obj or not (isinstance(obj,Gtk.Menu) or isinstance(obj,Gtk.MenuItem)):
             return None
         for item in obj.get_children():
@@ -1784,6 +2089,7 @@ class Wmain(SimpleGladeApp):
                 return i
 
     def writeConfig(self):
+        """Sauvegarde la configuration courante dans le fichier INI."""
         global groups
 
         cp= configparser.RawConfigParser( )
@@ -1854,6 +2160,12 @@ class Wmain(SimpleGladeApp):
         # delivered a scroll direction) and an argument where to store that
         # data as an value from enum GdkScrollDirection. Code in the example
         # above uses a different syntax, and code below yet another with tuple.
+        """Gestionnaire de defilement de la molette sur les onglets.
+
+        Args:
+            widget (Gtk.Widget): Widget source.
+            event (Gdk.EventScroll): Evenement molette.
+        """
         gsdir = event.get_scroll_direction()
 
         # Note: https://api.gtkd.org/gdk.Event.Event.getScrollDeltas.html
@@ -1890,6 +2202,13 @@ class Wmain(SimpleGladeApp):
                 notebook.next_page()
 
     def on_tab_focus(self, widget, tab=None, *args):
+        """Gestionnaire de prise de focus d'un onglet.
+
+        Args:
+            nb (Gtk.Notebook): Notebook source.
+            page (Gtk.Widget): Page activee.
+            page_num (int): Numero de page.
+        """
         if isinstance(widget, Vte.Terminal):
             self.current = widget
         if conf.UPDATE_TITLE and widget != None:
@@ -1905,6 +2224,11 @@ class Wmain(SimpleGladeApp):
                 self.wMain.set_title(conf.APP_TITLE or app_name)
 
     def split_notebook(self, direction):
+        """Divise le notebook courant en deux panneaux.
+
+        Args:
+            orientation (Gtk.Orientation): Orientation de la division.
+        """
         csp = self.current.get_parent() if self.current!=None else None
         cnb = csp.get_parent() if csp!=None else None
 
@@ -1955,6 +2279,14 @@ class Wmain(SimpleGladeApp):
             self.on_tab_focus(cnb, cnb.get_nth_page(cnb.get_current_page()))
 
     def find_notebook(self, widget, exclude=None):
+        """Recherche le notebook contenant un terminal donne.
+
+        Args:
+            terminal (Vte.Terminal): Terminal a localiser.
+
+        Returns:
+            Gtk.Notebook or None: Notebook parent.
+        """
         if widget!=exclude and isinstance(widget, Gtk.Notebook):
             return widget
         else:
@@ -1967,6 +2299,14 @@ class Wmain(SimpleGladeApp):
             return None
 
     def find_active_terminal(self, widget):
+        """Retourne le terminal actif dans le notebook courant.
+
+        Args:
+            widget: Parametre widget.
+
+        Returns:
+            Vte.Terminal or None: Terminal actif.
+        """
         if isinstance(widget, Vte.Terminal) and widget.is_focus():
             return widget
         else:
@@ -1980,6 +2320,11 @@ class Wmain(SimpleGladeApp):
             return None
 
     def check_notebook_pages(self, widget):
+        """Verifie et ajuste l'etat des onglets du notebook.
+
+        Args:
+            widget: Parametre widget.
+        """
         if widget.get_n_pages()==0:
             #eliminar el notebook solo si queda otro notebook y no quedan tabs en el actual
             paned = widget.get_parent()
@@ -1999,6 +2344,13 @@ class Wmain(SimpleGladeApp):
             self.on_tab_focus(self.nbConsole, self.nbConsole.get_nth_page(p), p)
 
     def on_page_removed(self, widget, *args):
+        """Gestionnaire de suppression d'une page du notebook.
+
+        Args:
+            nb (Gtk.Notebook): Notebook source.
+            child (Gtk.Widget): Page supprimee.
+            page_num (int): Numero de page.
+        """
         self.count-=1
         if widget.get_current_page() == -1:
             self.on_tab_focus(widget, None)
@@ -2012,12 +2364,24 @@ class Wmain(SimpleGladeApp):
             self.check_notebook = widget
 
     def on_page_added(self, widget, *args):
+        """Gestionnaire d'ajout d'une page au notebook.
+
+        Args:
+            nb (Gtk.Notebook): Notebook source.
+            child (Gtk.Widget): Page ajoutee.
+            page_num (int): Numero de page.
+        """
         self.count+=1
         if hasattr(self, "check_notebook"):
             self.check_notebook_pages(self.check_notebook)
             delattr(self, "check_notebook")
 
     def show_save_buffer(self, terminal):
+        """Affiche une boite de dialogue pour sauvegarder le buffer du terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal source.
+        """
         dlg = Gtk.FileChooserDialog(title=_("Guardar como"), parent=self.wMain, action=Gtk.FileChooserAction.SAVE)
         dlg.add_button(_('Annuler'), Gtk.ResponseType.CANCEL)
         dlg.add_button(_('Enregistrer'), Gtk.ResponseType.OK)
@@ -2044,6 +2408,11 @@ class Wmain(SimpleGladeApp):
         dlg.destroy()
 
     def set_panel_visible(self, visibility):
+        """Affiche ou masque le panneau lateral.
+
+        Args:
+            visible (bool): True pour afficher.
+        """
         if visibility:
             GLib.timeout_add(200, lambda : self.hpMain.set_position(self.hpMain.previous_position if self.hpMain.previous_position>10 else 150))
         else:
@@ -2054,6 +2423,11 @@ class Wmain(SimpleGladeApp):
 
     def set_toolbar_visible(self, visibility):
         #self.get_widget("toolbar1").set_visible(visibility)
+        """Affiche ou masque la barre d'outils.
+
+        Args:
+            visible (bool): True pour afficher.
+        """
         if visibility:
             self.get_widget("toolbar1").show()
         else:
@@ -2065,12 +2439,23 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_wMain_destroy {
     def on_wMain_destroy(self, widget, *args):
+        """Gestionnaire de destruction de la fenetre principale.
+
+        Args:
+            widget (Gtk.Window): Fenetre detruite.
+        """
         self.writeConfig()
         Gtk.main_quit()
     #-- Wmain.on_wMain_destroy }
 
     #-- Wmain.on_wMain_delete_event {
     def on_wMain_delete_event(self, widget, *args):
+        """Gestionnaire d'evenement de fermeture de la fenetre principale.
+
+        Args:
+            widget (Gtk.Window): Fenetre source.
+            event (Gdk.Event): Evenement.
+        """
         (conf.WINDOW_WIDTH, conf.WINDOW_HEIGHT) = self.get_widget("wMain").get_size()
         if conf.CONFIRM_ON_EXIT and self.count>0 and msgconfirm("%s %d %s" % (_("Hay"), self.count, _("consolas abiertas, confirma que desea salir?")) ) != Gtk.ResponseType.OK:
             return True
@@ -2078,6 +2463,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_guardar_como1_activate {
     def on_guardar_como1_activate(self, widget, *args):
+        """Gestionnaire du menu Enregistrer sous.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         term = self.find_active_terminal(self.hpMain)
         if term == None:
             term = self.current
@@ -2088,6 +2478,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_importar_servidores1_activate {
     def on_importar_servidores1_activate(self, widget, *args):
+        """Gestionnaire du menu Importer des serveurs.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         filename = show_open_dialog(parent=self.wMain, title=_("Abrir"), action=Gtk.FileChooserAction.OPEN)
         if filename != None:
             password = inputbox(_('Importar Servidores'), _('Ingrese clave: '), password=True)
@@ -2130,6 +2525,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_exportar_servidores1_activate {
     def on_exportar_servidores1_activate(self, widget, *args):
+        """Gestionnaire du menu Exporter des serveurs.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         filename = show_open_dialog(parent=self.wMain, title=_("Guardar como"), action=Gtk.FileChooserAction.SAVE)
         if filename != None:
             password = inputbox(_('Exportar Servidores'), _('Ingrese clave: '), password=True)
@@ -2159,6 +2559,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_salir1_activate {
     def on_salir1_activate(self, widget, *args):
+        """Gestionnaire du menu Quitter.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         (conf.WINDOW_WIDTH, conf.WINDOW_HEIGHT) = self.get_widget("wMain").get_size()
         self.writeConfig()
         Gtk.main_quit()
@@ -2166,21 +2571,43 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_show_toolbar_activate {
     def on_show_toolbar_toggled(self, widget, *args):
+        """Gestionnaire du menu Afficher/Masquer la barre d'outils.
+
+        Args:
+            widget (Gtk.CheckMenuItem): Widget declencheur.
+        """
         self.set_toolbar_visible(widget.get_active())
     #-- Wmain.on_show_toolbar_activate }
 
     #-- Wmain.on_show_panel_activate {
     def on_show_panel_toggled(self, widget, *args):
+        """Gestionnaire du menu Afficher/Masquer le panneau.
+
+        Args:
+            widget (Gtk.CheckMenuItem): Widget declencheur.
+        """
         self.set_panel_visible(widget.get_active())
     #-- Wmain.on_show_panel_activate }
 
     #-- Wmain.on_acerca_de1_activate {
     def on_acerca_de1_activate(self, widget, *args):
+        """Gestionnaire du menu A propos.
+
+        Args:
+            widget (Gtk.MenuItem): Widget declencheur.
+        """
         w_about = Wabout()
     #-- Wmain.on_acerca_de1_activate }
 
     #-- Wmain.on_double_click {
     def on_double_click(self, widget, event, *args):
+        """Gestionnaire de double-clic sur l'arbre des serveurs.
+
+        Args:
+            widget (Gtk.TreeView): Widget source.
+            path (Gtk.TreePath): Chemin clique.
+            column (Gtk.TreeViewColumn): Colonne cliquee.
+        """
         if event.type in [Gdk.EventType._2BUTTON_PRESS, Gdk.EventType._3BUTTON_PRESS] and event.button == 1:
             if isinstance(widget, Gtk.Notebook):
                 pos = event.x + widget.get_allocation().x
@@ -2198,6 +2625,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnLocal_clicked {
     def on_btnLocal_clicked(self, widget, *args):
+        """Gestionnaire du bouton Ouvrir un terminal local.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if self.current != None and self.current.get_parent()!=None and isinstance(self.current.get_parent().get_parent(), Gtk.Notebook):
             ntbk = self.current.get_parent().get_parent()
         else:
@@ -2207,6 +2639,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnConnect_clicked {
     def on_btnConnect_clicked(self, widget, *args):
+        """Gestionnaire du bouton Se connecter.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if self.treeServers.get_selection().get_selected()[1]!=None:
             if not self.treeModel.iter_has_child(self.treeServers.get_selection().get_selected()[1]):
                 self.on_tvServers_row_activated(self.treeServers)
@@ -2225,6 +2662,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnAdd_clicked {
     def on_btnAdd_clicked(self, widget, *args):
+        """Gestionnaire du bouton Ajouter un hote.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         group=""
         if self.treeServers.get_selection().get_selected()[1]!=None:
             selected = self.treeServers.get_selection().get_selected()[1]
@@ -2241,6 +2683,14 @@ class Wmain(SimpleGladeApp):
     #-- Wmain.on_btnAdd_clicked }
 
     def get_group(self, i):
+        """Retourne le groupe (dossier) actuellement selectionne dans l'arbre.
+
+        Args:
+            i: Parametre i.
+
+        Returns:
+            str: Nom du groupe selectionne ou chaine vide.
+        """
         if self.treeModel.iter_parent(i):
             p = self.get_group(self.treeModel.iter_parent(i))
             return (p+'/' if p!='' else '') + self.treeModel.get_value(self.treeModel.iter_parent(i),0)
@@ -2249,6 +2699,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_bntEdit_clicked {
     def on_bntEdit_clicked(self, widget, *args):
+        """Gestionnaire du bouton Editer un hote.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if self.treeServers.get_selection().get_selected()[1]!=None and not self.treeModel.iter_has_child(self.treeServers.get_selection().get_selected()[1]):
             selected = self.treeServers.get_selection().get_selected()[1]
             host = self.treeModel.get_value(selected,1)
@@ -2259,6 +2714,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnDel_clicked {
     def on_btnDel_clicked(self, widget, *args):
+        """Gestionnaire du bouton Supprimer un hote.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if self.treeServers.get_selection().get_selected()[1]!=None:
             if not self.treeModel.iter_has_child(self.treeServers.get_selection().get_selected()[1]):
                 #Eliminar solo el nodo
@@ -2284,16 +2744,31 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnHSplit_clicked {
     def on_btnHSplit_clicked(self, widget, *args):
+        """Gestionnaire du bouton Division horizontale.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         self.split_notebook(HSPLIT)
     #-- Wmain.on_btnHSplit_clicked }
 
     #-- Wmain.on_btnVSplit_clicked {
     def on_btnVSplit_clicked(self, widget, *args):
+        """Gestionnaire du bouton Division verticale.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         self.split_notebook(VSPLIT)
     #-- Wmain.on_btnVSplit_clicked }
 
     #-- Wmain.on_btnUnsplit_clicked {
     def on_btnUnsplit_clicked(self, widget, *args):
+        """Gestionnaire du bouton Annuler la division.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         wid = self.find_notebook(self.hpMain, self.nbConsole)
         while wid!=None:
             #Mover los tabs al notebook principal
@@ -2313,11 +2788,21 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnConfig_clicked {
     def on_btnConfig_clicked(self, widget, *args):
+        """Gestionnaire du bouton Configuration.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         wConfig = Wconfig()
     #-- Wmain.on_btnConfig_clicked }
 
     #-- Wmain.on_btnDonate_clicked {
     def on_btnDonate_clicked(self, widget, *args):
+        """Gestionnaire du bouton Don.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f:
             f.write(b'<html> \
                      <body onload="document.forms[0].submit()"> \
@@ -2338,17 +2823,33 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnSearchBack_clicked {
     def on_btnSearchBack_clicked(self, widget, *args):
+        """Gestionnaire du bouton Recherche precedente.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if self.init_search():
             self.find_word(backwards=True)
     #-- Wmain.on_btnSearchBack_clicked }
 
     #-- Wmain.on_btnSearch_clicked {
     def on_btnSearch_clicked(self, widget, *args):
+        """Gestionnaire du bouton Recherche.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if self.init_search():
             self.find_word()
     #-- Wmain.on_btnSearch_clicked }
 
     def on_btnSearch_key_press(self, widget, event, *args):
+        """Gestionnaire de touche dans la zone de recherche.
+
+        Args:
+            widget (Gtk.Entry): Champ de saisie.
+            event (Gdk.EventKey): Evenement clavier.
+        """
         if event.state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK): return
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             if self.init_search():
@@ -2360,6 +2861,11 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_btnCluster_clicked {
     def on_btnCluster_clicked(self, widget, *args):
+        """Gestionnaire du bouton Cluster.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         create = False
         if hasattr(self, 'wCluster'):
             if not self.wCluster.get_property("visible"):
@@ -2402,6 +2908,12 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_hpMain_button_press_event {
     def on_hpMain_button_press_event(self, widget, event, *args):
+        """Gestionnaire de clic sur le separateur principal.
+
+        Args:
+            widget (Gtk.Paned): Widget source.
+            event (Gdk.EventButton): Evenement souris.
+        """
         if event.type in [Gdk.EventType._2BUTTON_PRESS] and not self.row_activated:
             p = self.hpMain.get_position()
             self.set_panel_visible(p==0)
@@ -2410,6 +2922,13 @@ class Wmain(SimpleGladeApp):
 
     #-- Wmain.on_tvServers_row_activated {
     def on_tvServers_row_activated(self, widget, *args):
+        """Gestionnaire d'activation d'une ligne de l'arbre.
+
+        Args:
+            treeview (Gtk.TreeView): TreeView source.
+            path (Gtk.TreePath): Chemin active.
+            column (Gtk.TreeViewColumn): Colonne activee.
+        """
         self.row_activated = True
         if not self.treeModel.iter_has_child(widget.get_selection().get_selected()[1]):
             selected = widget.get_selection().get_selected()[1]
@@ -2419,16 +2938,41 @@ class Wmain(SimpleGladeApp):
     #-- Wmain.on_tvServers_row_activated }
 
     def on_tvServers_row_collapsed(self, widget, *args):
+        """Gestionnaire de reduction d'un noeud de l'arbre.
+
+        Args:
+            treeview (Gtk.TreeView): TreeView source.
+            iter (Gtk.TreeIter): Noeud reduit.
+            path (Gtk.TreePath): Chemin du noeud.
+        """
         self.update_row_color()
 
     def on_tvServers_row_expanded(self, widget, *args):
+        """Gestionnaire d'expansion d'un noeud de l'arbre.
+
+        Args:
+            treeview (Gtk.TreeView): TreeView source.
+            iter (Gtk.TreeIter): Noeud etendu.
+            path (Gtk.TreePath): Chemin du noeud.
+        """
         self.update_row_color()
 
     def on_tvServers_style_updated(self, widget, *args):
+        """Gestionnaire de mise a jour du style de l'arbre des serveurs.
+
+        Args:
+            widget (Gtk.TreeView): Widget source.
+        """
         self.update_row_color()
 
     #-- Wmain.on_tvServers_button_press_event {
     def on_tvServers_button_press_event(self, widget, event, *args):
+        """Gestionnaire de clic souris sur l'arbre des serveurs.
+
+        Args:
+            widget (Gtk.TreeView): Widget source.
+            event (Gdk.EventButton): Evenement souris.
+        """
         if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 3:
             x = int(event.x)
             y = int(event.y)
@@ -2459,6 +3003,7 @@ class Wmain(SimpleGladeApp):
 
 class Host():
     def __init__(self, *args):
+        """Initialise l'instance."""
         try:
             self.i = 0
             self.group = self.get_arg(args, None)
@@ -2489,22 +3034,54 @@ class Host():
 
 
     def get_arg(self, args, default):
+        """Retourne la valeur d'un argument de connexion.
+
+        Args:
+            key (str): Nom de l'argument.
+
+        Returns:
+            str: Valeur de l'argument ou chaine vide.
+        """
         arg = args[self.i] if len(args)>self.i else default
         self.i +=1
         return arg
 
     def __repr__(self):
+        """Retourne une representation textuelle de l'hote.
+
+        Returns:
+            str: Representation de l'hote.
+        """
         return "group=[%s],\t name=[%s],\t host=[%s],\t type=[%s]" % (self.group, self.name, self.host, self.type)
 
     def tunnel_as_string(self):
+        """Retourne la definition des tunnels SSH sous forme de chaine.
+
+        Returns:
+            str: Chaine de tunnels formatee.
+        """
         return ",".join(self.tunnel)
 
     def clone(self):
+        """Cree une copie profonde de l'hote.
+
+        Returns:
+            Host: Nouvel hote identique.
+        """
         return Host(self.group, self.name, self.description, self.host, self.user, self.password, self.private_key, self.port, self.tunnel_as_string(), self.type, self.commands, self.keep_alive, self.font_color, self.back_color, self.x11, self.agent, self.compression, self.compressionLevel, self.extra_params, self.log, self.backspace_key, self.delete_key, self.term)
 
 class HostUtils:
     @staticmethod
     def get_val(cp, section, name, default):
+        """Retourne la valeur d'un champ de l'hote avec valeur par defaut.
+
+        Args:
+            key (str): Nom du champ.
+            default (str, optional): Valeur par defaut.
+
+        Returns:
+            str: Valeur du champ.
+        """
         try:
             return cp.get(section, name) if type(default)!=type(True) else cp.getboolean(section, name)
         except:
@@ -2512,6 +3089,12 @@ class HostUtils:
 
     @staticmethod
     def load_host_from_ini(cp, section, pwd=''):
+        """Charge les parametres d'un hote depuis une section INI.
+
+        Args:
+            config (configparser.ConfigParser): Objet de configuration.
+            section (str): Nom de la section.
+        """
         if pwd=='':
             pwd = get_password()
         group = cp.get(section, "group")
@@ -2542,6 +3125,11 @@ class HostUtils:
 
     @staticmethod
     def save_host_to_ini(cp, section, host, pwd=''):
+        """Sauvegarde les parametres d'un hote dans une section INI.
+
+        Args:
+            config (configparser.ConfigParser): Objet de configuration.
+        """
         if pwd=='':
             pwd = get_password()
         cp.set(section, "group", host.group)
@@ -2573,6 +3161,13 @@ class Whost(SimpleGladeApp):
     def __init__(self, path="gnome-connection-manager.glade",
                  root="wHost",
                  domain=domain_name, **kwargs):
+        """Initialise l'instance.
+
+        Args:
+            path: Parametre path.
+            root: Parametre root.
+            domain: Parametre domain.
+        """
         path = os.path.join(glade_dir, path)
         SimpleGladeApp.__init__(self, path, root, domain, parent=wMain.window)
 
@@ -2588,6 +3183,11 @@ class Whost(SimpleGladeApp):
 
     #-- Whost.new {
     def new(self):
+        """Cree et retourne une nouvelle instance depuis le fichier Glade.
+
+        Returns:
+            instance: Nouvelle instance de la classe.
+        """
         global groups
 
         self.cmbGroup = self.get_widget("cmbGroup")
@@ -2654,6 +3254,12 @@ class Whost(SimpleGladeApp):
 
     #-- Whost custom methods {
     def init(self, group, host=None):
+        """Initialise les parametres de configuration avec les valeurs par defaut.
+
+        Args:
+            group: Parametre group.
+            host: Parametre host.
+        """
         self.cmbGroup.get_child().set_text(group)
         if host == None:
             self.isNew = True
@@ -2724,6 +3330,7 @@ class Whost(SimpleGladeApp):
         self.txtTerm.set_text(host.term)
 
     def update_texttags(self, *args):
+        """Met a jour les tags de texte (couleurs, polices) dans la vue."""
         buf = self.txtCommands.get_buffer()
         text_iter = buf.get_start_iter()
         buf.remove_all_tags(text_iter, buf.get_end_iter())
@@ -2743,12 +3350,22 @@ class Whost(SimpleGladeApp):
 
     #-- Whost.on_cancelbutton1_clicked {
     def on_cancelbutton1_clicked(self, widget, *args):
+        """Gestionnaire du bouton Annuler.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         self.get_widget("wHost").destroy()
     #-- Whost.on_cancelbutton1_clicked }
 
 
     #-- Whost.on_okbutton1_clicked {
     def on_okbutton1_clicked(self, widget, *args):
+        """Gestionnaire du bouton OK / Valider.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         group = self.cmbGroup.get_active_text().strip()
         name = self.txtName.get_text().strip()
         description = self.txtDescription.get_text().strip()
@@ -2855,6 +3472,11 @@ class Whost(SimpleGladeApp):
 
     #-- Whost.on_cmbType_changed {
     def on_cmbType_changed(self, widget, *args):
+        """Gestionnaire de changement du type de connexion.
+
+        Args:
+            widget (Gtk.ComboBox): Combo modifie.
+        """
         is_local = widget.get_active_text()=="local"
         self.txtUser.set_sensitive(not is_local)
         self.txtPassword.set_sensitive(not is_local)
@@ -2895,6 +3517,11 @@ class Whost(SimpleGladeApp):
 
     #-- Whost.on_chkKeepAlive_toggled {
     def on_chkKeepAlive_toggled(self, widget, *args):
+        """Gestionnaire du toggle Keep-Alive.
+
+        Args:
+            widget (Gtk.CheckButton): Bouton bascule.
+        """
         if (widget.get_active()):
             self.txtKeepAlive.set_text('120')
         else:
@@ -2904,18 +3531,33 @@ class Whost(SimpleGladeApp):
 
     #-- Whost.on_chkCompression_toggled {
     def on_chkCompression_toggled(self, widget, *args):
+        """Gestionnaire du toggle Compression SSH.
+
+        Args:
+            widget (Gtk.CheckButton): Bouton bascule.
+        """
         self.txtCompressionLevel.set_sensitive(widget.get_active())
     #-- Whost.on_chkCompression_toggled }
 
 
     #-- Whost.on_chkDynamic_toggled {
     def on_chkDynamic_toggled(self, widget, *args):
+        """Gestionnaire du toggle Tunnel dynamique SOCKS.
+
+        Args:
+            widget (Gtk.CheckButton): Bouton bascule.
+        """
         self.txtRemoteHost.set_sensitive(not widget.get_active())
         self.txtRemotePort.set_sensitive(not widget.get_active())
     #-- Whost.on_chkDynamic_toggled }
 
     #-- Whost.on_btnAdd_clicked {
     def on_btnAdd_clicked(self, widget, *args):
+        """Gestionnaire du bouton Ajouter un hote.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         local = self.txtLocalPort.get_text().strip()
         host = self.txtRemoteHost.get_text().strip()
         remote = self.txtRemotePort.get_text().strip()
@@ -2949,33 +3591,63 @@ class Whost(SimpleGladeApp):
 
     #-- Whost.on_btnDel_clicked {
     def on_btnDel_clicked(self, widget, *args):
+        """Gestionnaire du bouton Supprimer un hote.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if self.treeTunel.get_selection().get_selected()[1]!=None:
             self.treeModel.remove(self.treeTunel.get_selection().get_selected()[1])
     #-- Whost.on_btnDel_clicked }
 
     #-- Whost.on_chkCommands_toggled {
     def on_chkCommands_toggled(self, widget, *args):
+        """Gere on chkCommands toggled.
+
+        Args:
+            widget: Parametre widget.
+        """
         self.txtCommands.set_sensitive(widget.get_active())
     #-- Whost.on_chkCommands_toggled }
 
     #-- Whost.on_btnBColor_clicked {
     def on_btnBColor_clicked(self, widget, *args):
+        """Gestionnaire du bouton couleur d'arriere-plan.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         widget.selected_color = widget.get_color().to_string()
     #-- Whost.on_btnBColor_clicked }
 
     #-- Whost.on_chkDefaultColors_toggled {
     def on_chkDefaultColors_toggled(self, widget, *args):
+        """Gestionnaire du toggle Couleurs par defaut.
+
+        Args:
+            widget (Gtk.CheckButton): Bouton bascule.
+        """
         self.btnFColor.set_sensitive(not widget.get_active())
         self.btnBColor.set_sensitive(not widget.get_active())
     #-- Whost.on_chkDefaultColors_toggled }
 
     #-- Whost.on_btnFColor_clicked {
     def on_btnFColor_clicked(self, widget, *args):
+        """Gestionnaire du bouton couleur de premier plan.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         widget.selected_color = widget.get_color().to_string()
     #-- Whost.on_btnFColor_clicked }
 
     #-- Whost.on_btnBrowse_clicked {
     def on_btnBrowse_clicked(self, widget, *args):
+        """Gestionnaire du bouton Parcourir.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         global wMain
         filename = show_open_dialog(parent=wMain.wMain, title=_("Abrir"), action=Gtk.FileChooserAction.OPEN)
         if filename != None:
@@ -2987,11 +3659,23 @@ class Wabout(SimpleGladeApp):
     def __init__(self, path="gnome-connection-manager.glade",
                  root="wAbout",
                  domain=domain_name, **kwargs):
+        """Initialise l'instance.
+
+        Args:
+            path: Parametre path.
+            root: Parametre root.
+            domain: Parametre domain.
+        """
         path = os.path.join(glade_dir, path)
         SimpleGladeApp.__init__(self, path, root, domain, parent=wMain.window)
         self.wAbout.set_icon_from_file(ICON_PATH)
     #-- Wabout.new {
     def new(self):
+        """Cree et retourne une nouvelle instance depuis le fichier Glade.
+
+        Returns:
+            instance: Nouvelle instance de la classe.
+        """
         self.wAbout.set_program_name(app_name)
         self.wAbout.set_version(app_version)
         self.wAbout.set_website(app_web)
@@ -3003,6 +3687,11 @@ class Wabout(SimpleGladeApp):
 
     #-- Wabout.on_wAbout_close {
     def on_wAbout_close(self, widget, *args):
+        """Gestionnaire de fermeture de la fenetre A propos.
+
+        Args:
+            widget (Gtk.Widget): Widget source.
+        """
         self.wAbout.destroy()
     #-- Wabout.on_wAbout_close }
 
@@ -3012,12 +3701,24 @@ class Wconfig(SimpleGladeApp):
     def __init__(self, path="gnome-connection-manager.glade",
                  root="wConfig",
                  domain=domain_name):
+        """Initialise l'instance.
+
+        Args:
+            path: Parametre path.
+            root: Parametre root.
+            domain: Parametre domain.
+        """
         path = os.path.join(glade_dir, path)
         SimpleGladeApp.__init__(self, path, root, domain, parent=wMain.window)
 
     #-- Wconfig.new {
     def new(self):
         #Agregar controles
+        """Cree et retourne une nouvelle instance depuis le fichier Glade.
+
+        Returns:
+            instance: Nouvelle instance de la classe.
+        """
         self.tblGeneral = self.get_widget("tblGeneral")
         self.btnFColor = self.get_widget("btnFColor1")
         self.btnBColor = self.get_widget("btnBColor1")
@@ -3126,6 +3827,12 @@ class Wconfig(SimpleGladeApp):
 
     #-- Wconfig custom methods {
     def addParam(self, name, field, ptype, *args):
+        """Ajoute un parametre dans le tableau de parametres.
+
+        Args:
+            key (str): Nom du parametre.
+            value (str): Valeur du parametre.
+        """
         x = self.tblGeneral.rows
         self.tblGeneral.rows += 1
         value = eval(field)
@@ -3175,6 +3882,13 @@ class Wconfig(SimpleGladeApp):
             self.tblGeneral.attach(obj, 1, 2, x, x+1, Gtk.AttachOptions.EXPAND|Gtk.AttachOptions.FILL, 0)
 
     def on_edited(self, widget, rownum, value, model, colnum):
+        """Gestionnaire de fin d'edition d'une cellule.
+
+        Args:
+            renderer (Gtk.CellRendererText): Renderer source.
+            path (str): Chemin de la cellule.
+            new_text (str): Nouveau texte.
+        """
         model[rownum][colnum] = value
         if model==self.treeModel2:
             i = self.treeModel2.get_iter_first()
@@ -3189,17 +3903,34 @@ class Wconfig(SimpleGladeApp):
                 self.capture_keys = False
 
     def on_editing_started(self, widget, entry, rownum, model, colnum):
+        """Gestionnaire de debut d'edition d'une cellule.
+
+        Args:
+            renderer (Gtk.CellRenderer): Renderer source.
+            editable (Gtk.CellEditable): Widget editable.
+            path (str): Chemin de la cellule.
+        """
         self.capture_keys = True
         entry.connect('key-press-event', self.on_treeCommands_key_press_event, model, rownum, colnum)
     #-- Wconfig custom methods }
 
     #-- Wconfig.on_cancelbutton1_clicked {
     def on_cancelbutton1_clicked(self, widget, *args):
+        """Gestionnaire du bouton Annuler.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         self.get_widget("wConfig").destroy()
     #-- Wconfig.on_cancelbutton1_clicked }
 
     #-- Wconfig.on_okbutton1_clicked {
     def on_okbutton1_clicked(self, widget, *args):
+        """Gestionnaire du bouton OK / Valider.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         for obj in self.tblGeneral:
             if hasattr(obj, "field"):
                 if isinstance(obj, Gtk.CheckButton):
@@ -3254,33 +3985,64 @@ class Wconfig(SimpleGladeApp):
 
     #-- Wconfig.on_btnBColor_clicked {
     def on_btnBColor_clicked(self, widget, *args):
+        """Gestionnaire du bouton couleur d'arriere-plan.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         widget.selected_color = widget.get_color().to_string()
     #-- Wconfig.on_btnBColor_clicked }
 
     #-- Wconfig.on_btnFColor_clicked {
     def on_btnFColor_clicked(self, widget, *args):
+        """Gestionnaire du bouton couleur de premier plan.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         widget.selected_color = widget.get_color().to_string()
     #-- Wconfig.on_btnFColor_clicked }
 
     #-- Wconfig.on_chkDefaultColors_toggled {
     def on_chkDefaultColors_toggled(self, widget, *args):
+        """Gestionnaire du toggle Couleurs par defaut.
+
+        Args:
+            widget (Gtk.CheckButton): Bouton bascule.
+        """
         self.btnFColor.set_sensitive(not widget.get_active())
         self.btnBColor.set_sensitive(not widget.get_active())
     #-- Wconfig.on_chkDefaultColors_toggled }
 
     #-- Wconfig.on_chkDefaultFont_toggled {
     def on_chkDefaultFont_toggled(self, widget, *args):
+        """Gestionnaire du toggle Police par defaut.
+
+        Args:
+            widget (Gtk.CheckButton): Bouton bascule.
+        """
         self.btnFont.set_sensitive(not widget.get_active())
         self.lblFont.set_sensitive(not widget.get_active())
     #-- Wconfig.on_chkDefaultFont_toggled }
 
     #-- Wconfig.on_btnFont_clicked {
     def on_btnFont_clicked(self, widget, *args):
+        """Gestionnaire du bouton Police.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         show_font_dialog(self, _("Seleccione la fuente"), self.btnFont)
     #-- Wconfig.on_btnFont_clicked }
 
     #-- Wconfig.on_treeCommands_key_press_event {
     def on_treeCommands_key_press_event(self, widget, event, *args):
+        """Gestionnaire de touche dans la liste des commandes.
+
+        Args:
+            widget (Gtk.TreeView): Widget source.
+            event (Gdk.EventKey): Evenement clavier.
+        """
         if self.capture_keys and len(args)==3 and (event.keyval != Gdk.KEY_Return or
                                                    event.state != 0):
             model, rownum, colnum = args
@@ -3294,12 +4056,25 @@ class Wcluster(SimpleGladeApp):
     def __init__(self, path="gnome-connection-manager.glade",
                  root="wCluster",
                  domain=domain_name, terms=None, **kwargs):
+        """Initialise l'instance.
+
+        Args:
+            path: Parametre path.
+            root: Parametre root.
+            domain: Parametre domain.
+            terms: Parametre terms.
+        """
         self.terms = terms
         path = os.path.join(glade_dir, path)
         SimpleGladeApp.__init__(self, path, root, domain, parent=wMain.window)
 
     #-- Wcluster.new {
     def new(self):
+        """Cree et retourne une nouvelle instance depuis le fichier Glade.
+
+        Returns:
+            instance: Nouvelle instance de la classe.
+        """
         self.treeHosts = self.get_widget('treeHosts')
         self.treeStore = Gtk.TreeStore( GObject.TYPE_BOOLEAN, GObject.TYPE_STRING, GObject.TYPE_OBJECT )
         for x in self.terms:
@@ -3319,10 +4094,22 @@ class Wcluster(SimpleGladeApp):
     #   Write your own methods here
 
     def on_active_toggled(self, widget, path):
+        """Gestionnaire de bascule d'activation d'un terminal cluster.
+
+        Args:
+            widget (Gtk.CheckButton): Bouton bascule.
+            path (str): Chemin dans le modele.
+        """
         self.treeStore[path][0] = not self.treeStore[path][0]
         self.change_color(self.treeStore[path][2], self.treeStore[path][0])
 
     def change_color(self, term, activate):
+        """Change la couleur d'un terminal dans la liste cluster.
+
+        Args:
+            widget (Gtk.ColorButton): Bouton couleur.
+            path (str): Chemin dans le modele.
+        """
         obj = term.get_parent()
         if obj == None:
             return
@@ -3335,16 +4122,31 @@ class Wcluster(SimpleGladeApp):
 
     #-- Wcluster.on_wCluster_destroy {
     def on_wCluster_destroy(self, widget, *args):
+        """Gestionnaire de destruction de la fenetre cluster.
+
+        Args:
+            widget (Gtk.Window): Fenetre detruite.
+        """
         self.on_btnNone_clicked(None)
     #-- Wcluster.on_wCluster_destroy }
 
     #-- Wcluster.on_cancelbutton2_clicked {
     def on_cancelbutton2_clicked(self, widget, *args):
+        """Gestionnaire du bouton Annuler (cluster).
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         self.get_widget("wCluster").destroy()
     #-- Wcluster.on_cancelbutton2_clicked }
 
     #-- Wcluster.on_btnAll_clicked {
     def on_btnAll_clicked(self, widget, *args):
+        """Gestionnaire du bouton Tout selectionner (cluster).
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         for x in self.treeStore:
             x[0] = True
             self.change_color(x[2], x[0])
@@ -3352,6 +4154,11 @@ class Wcluster(SimpleGladeApp):
 
     #-- Wcluster.on_btnNone_clicked {
     def on_btnNone_clicked(self, widget, *args):
+        """Gestionnaire du bouton Tout deselectionner (cluster).
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         for x in self.treeStore:
             x[0] = False
             self.change_color(x[2], x[0])
@@ -3359,6 +4166,11 @@ class Wcluster(SimpleGladeApp):
 
     #-- Wcluster.on_btnInvert_clicked {
     def on_btnInvert_clicked(self, widget, *args):
+        """Gestionnaire du bouton Inverser la selection (cluster).
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         for x in self.treeStore:
             x[0] = not x[0]
             self.change_color(x[2], x[0])
@@ -3366,6 +4178,12 @@ class Wcluster(SimpleGladeApp):
 
     #-- Wcluster.on_txtCommands_key_press_event {
     def on_txtCommands_key_press_event(self, widget, event, *args):
+        """Gestionnaire de touche dans la zone de commandes cluster.
+
+        Args:
+            widget (Gtk.TextView): Widget source.
+            event (Gdk.EventKey): Evenement clavier.
+        """
         if not event.state & Gdk.ModifierType.CONTROL_MASK and Gdk.keyval_name(event.keyval).upper() == 'RETURN':
            buf = widget.get_buffer()
            text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
@@ -3394,6 +4212,14 @@ class NotebookTabLabel(Gtk.HBox):
     '''Notebook tab label with close button.
     '''
     def __init__(self, title, owner_, widget_, popup_):
+        """Initialise l'instance.
+
+        Args:
+            title: Parametre title.
+            owner_: Parametre owner_.
+            widget_: Parametre widget_.
+            popup_: Parametre popup_.
+        """
         Gtk.HBox.__init__(self, homogeneous=False, spacing=0)
 
         self.title = title
@@ -3429,6 +4255,11 @@ class NotebookTabLabel(Gtk.HBox):
         self.show()
 
     def set_selected(self, sel):
+        """Marque ou demarque l'onglet comme selectionne visuellement.
+
+        Args:
+            selected (bool): True pour marquer comme selectionne.
+        """
         if sel:
             self.get_style_context().add_class("selected")
         else:
@@ -3436,12 +4267,22 @@ class NotebookTabLabel(Gtk.HBox):
         self.queue_draw()  # fix #67: forcer le redraw immédiat du label d'onglet
 
     def on_close_tab(self, widget, notebook, *args):
+        """Gestionnaire du bouton fermeture d'onglet.
+
+        Args:
+            widget (Gtk.Button): Bouton clique.
+        """
         if conf.CONFIRM_ON_CLOSE_TAB and msgconfirm("%s [%s]?" % ( _("Cerrar consola"), self.label.get_text().strip()) ) != Gtk.ResponseType.OK:
             return True
 
         self.close_tab(widget)
 
     def close_tab(self, widget):
+        """Ferme l'onglet associe au terminal.
+
+        Args:
+            widget: Parametre widget.
+        """
         notebook = self.widget_.get_parent()
         page=notebook.page_num(self.widget_)
         if page >= 0:
@@ -3451,6 +4292,7 @@ class NotebookTabLabel(Gtk.HBox):
             self.widget_.destroy()
 
     def mark_tab_as_closed(self):
+        """Marque visuellement l'onglet comme connexion fermee."""
         self.label.set_markup("<span color='darkgray' strikethrough='true'>%s</span>" % (self.label.get_text()))
         self.is_active = False
         if conf.AUTO_CLOSE_TAB != 0:
@@ -3461,13 +4303,25 @@ class NotebookTabLabel(Gtk.HBox):
             self.close_tab(self.widget_)
 
     def mark_tab_as_active(self):
+        """Marque visuellement l'onglet comme connexion active."""
         self.label.set_markup("%s" % (self.label.get_text()))
         self.is_active = True
 
     def get_text(self):
+        """Retourne le texte de l'etiquette de l'onglet.
+
+        Returns:
+            str: Texte de l'onglet.
+        """
         return self.label.get_text()
 
     def popupmenu(self, widget, event, label):
+        """Affiche le menu contextuel de l'onglet.
+
+        Args:
+            widget (Gtk.Widget): Widget source.
+            event (Gdk.EventButton): Evenement souris.
+        """
         if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 3:
             self.popup.label = self.label
             if self.is_active:
@@ -3495,6 +4349,15 @@ class NotebookTabLabel(Gtk.HBox):
 
 class EntryDialog( Gtk.Dialog):
     def __init__(self, title, message, default_text='', modal=True, mask=False):
+        """Initialise l'instance.
+
+        Args:
+            title: Parametre title.
+            message: Parametre message.
+            default_text: Parametre default_text.
+            modal: Parametre modal.
+            mask: Parametre mask.
+        """
         Gtk.Dialog.__init__(self)
         self.set_title(title)
         self.connect("destroy", self.quit)
@@ -3530,10 +4393,20 @@ class EntryDialog( Gtk.Dialog):
         self.ret = None
 
     def quit(self, w=None, event=None):
+        """Ferme la boite de dialogue.
+
+        Args:
+            widget (Gtk.Widget): Widget declencheur.
+        """
         self.hide()
         self.destroy()
 
     def click(self, button):
+        """Valide la saisie et ferme la boite de dialogue.
+
+        Args:
+            widget (Gtk.Widget): Widget declencheur.
+        """
         self.value = self.entry.get_text()
         self.response(Gtk.ResponseType.OK)
 
@@ -3548,20 +4421,37 @@ class CellTextView(Gtk.TextView, Gtk.CellEditable):
         }
 
     def do_editing_done(self, *args):
+        """Signale la fin de l'edition en ligne."""
         self.remove_widget()
 
     def do_remove_widget(self, *args):
+        """Supprime le widget d'edition en ligne."""
         pass
 
     def do_start_editing(self, *args):
+        """Demarre l'edition en ligne.
+
+        Args:
+            event (Gdk.Event): Evenement declencheur.
+        """
         pass
 
     def get_text(self):
+        """Retourne le texte de l'etiquette de l'onglet.
+
+        Returns:
+            str: Texte de l'onglet.
+        """
         text_buffer = self.get_buffer()
         bounds = text_buffer.get_bounds()
         return text_buffer.get_text(*bounds, include_hidden_chars=True)
 
     def set_text(self, text):
+        """Definit le texte de l'editeur.
+
+        Args:
+            text (str): Texte a afficher.
+        """
         self.get_buffer().set_text(text)
 
 
@@ -3570,15 +4460,28 @@ class MultilineCellRenderer(Gtk.CellRendererText):
     __gtype_name__ = "MultilineCellRenderer"
 
     def __init__(self):
+        """Initialise l'instance."""
         Gtk.CellRendererText.__init__(self)
         self._in_editor_menu = False
 
     def _on_editor_focus_out_event(self, editor, *args):
+        """Gestionnaire de perte de focus de l'editeur.
+
+        Args:
+            widget (Gtk.Widget): Widget source.
+            event (Gdk.EventFocus): Evenement focus.
+        """
         if self._in_editor_menu: return
         editor.remove_widget()
         self.emit("editing-canceled")
 
     def _on_editor_key_press_event(self, editor, event):
+        """Gestionnaire de touche dans l'editeur inline.
+
+        Args:
+            widget (Gtk.Widget): Widget source.
+            event (Gdk.EventKey): Evenement clavier.
+        """
         if event.state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK): return
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             editor.remove_widget()
@@ -3588,16 +4491,38 @@ class MultilineCellRenderer(Gtk.CellRendererText):
             self.emit("editing-canceled")
 
     def _on_editor_populate_popup(self, editor, menu):
+        """Gestionnaire de remplissage du menu contextuel de l'editeur.
+
+        Args:
+            widget (Gtk.Widget): Widget source.
+            popup (Gtk.Menu): Menu contextuel.
+        """
         self._in_editor_menu = True
         def on_menu_unmap(menu, self):
+            """Gestionnaire de fermeture du menu contextuel.
+
+            Args:
+                widget (Gtk.Menu): Menu ferme.
+            """
             self._in_editor_menu = False
         menu.connect("unmap", on_menu_unmap, self)
 
     def _on_editor_pressed(self, editor, menu):
         #avoid bug: gtk_text_mark_get_buffer: assertion 'GTK_IS_TEXT_MARK (mark)' failed
+        """Gestionnaire de clic souris dans l'editeur.
+
+        Args:
+            widget (Gtk.Widget): Widget source.
+            event (Gdk.EventButton): Evenement souris.
+        """
         return True
 
     def do_start_editing(self, event, widget, path, bg_area, cell_area, flags):
+        """Demarre l'edition en ligne.
+
+        Args:
+            event (Gdk.Event): Evenement declencheur.
+        """
         editor = CellTextView()
         editor.modify_font(self.props.font_desc)
         editor.set_text(self.props.text)
@@ -3616,10 +4541,21 @@ from threading import Thread
 class CheckUpdates(Thread):
 
     def __init__(self, p):
+        """Initialise l'instance.
+
+        Args:
+            p: Parametre p.
+        """
         Thread.__init__(self)
         self.parent = p
 
     def msg(self, text, parent):
+        """Envoie une notification.
+
+        Args:
+            title (str): Titre de la notification.
+            body (str): Corps du message.
+        """
         self.msgBox = Gtk.MessageDialog(parent=parent, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=text)
         self.msgBox.set_icon_from_file(ICON_PATH)
         self.msgBox.connect('response', self.on_clicked)
@@ -3627,9 +4563,16 @@ class CheckUpdates(Thread):
         return False
 
     def on_clicked(self, *args):
+        """Gestionnaire de clic sur la notification.
+
+        Args:
+            notification (object): Notification source.
+            action (str): Action declenchee.
+        """
         self.msgBox.destroy()
 
     def run(self):
+        """Execute la boucle de notifications."""
         try:
             import urllib.request as urllib, socket
             socket.setdefaulttimeout(5)
@@ -3644,6 +4587,7 @@ class CheckUpdates(Thread):
 #-- main {
 
 def main():
+    """Point d'entree principal de l'application GCM."""
     w_main = Wmain()
     w_main.run()
 
