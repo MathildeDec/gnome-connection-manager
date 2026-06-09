@@ -1313,3 +1313,63 @@ msgstr "Édit_er"
 #: ../gnome-connection-manager.glade:308
 msgid "_Servidores"
 msgstr "_Serveurs"
+
+
+# --- Strings ajoutés en v1.3 (RDP, libvirt, XEmbed) ---
+
+msgid "Connecter"
+msgstr "Connecter"
+
+msgid "Deconnecter"
+msgstr "Déconnecter"
+
+msgid "En attente…"
+msgstr "En attente…"
+
+msgid "Connexion en cours…"
+msgstr "Connexion en cours…"
+
+msgid "Session terminée"
+msgstr "Session terminée"
+
+msgid "xfreerdp introuvable"
+msgstr "xfreerdp introuvable"
+
+msgid "Déconnecté"
+msgstr "Déconnecté"
+
+msgid "Connecté"
+msgstr "Connecté"
+
+msgid "Terminé (code {rc})"
+msgstr "Terminé (code {rc})"
+
+msgid "Options xfreerdp :"
+msgstr "Options xfreerdp :"
+
+msgid "Journal xfreerdp :"
+msgstr "Journal xfreerdp :"
+
+msgid "Importer depuis libvirt"
+msgstr "Importer depuis libvirt"
+
+msgid "User SSH pour les VMs :"
+msgstr "Utilisateur SSH pour les VM :"
+
+msgid "Hyperviseurs (virt-manager / dconf) :"
+msgstr "Hyperviseurs (virt-manager / dconf) :"
+
+msgid "URI libvirt"
+msgstr "URI libvirt"
+
+msgid "Aucun hôte importé."
+msgstr "Aucun hôte importé."
+
+msgid "Libvirt"
+msgstr "Libvirt"
+
+msgid "Utilisateur SSH par défaut (VMs) :"
+msgstr "Utilisateur SSH par défaut (VM) :"
+
+msgid "Une nouvelle version est disponible : https://github.com/MathildeDec/gnome-connection-manager/releases"
+msgstr "Une nouvelle version est disponible : https://github.com/MathildeDec/gnome-connection-manager/releases"
