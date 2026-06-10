@@ -10,7 +10,7 @@
 
 # Gnome Connection Manager
 # Renzo Bertuzzi - CHILE
-#
+# Fork Mathilde Deuscher - FRANCE
 # TODO
 
 
@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import traceback
+from threading import Thread
 from urllib.parse import urlparse
 
 
@@ -63,6 +64,7 @@ try:
 
     gi.require_version("Gtk", "3.0")
     gi.require_version("Vte", "2.91")
+    gi.require_version("Gdk", "3.0")
     from gi.repository import Gdk, GLib, GObject, Gtk, Pango, Vte
 except Exception:
     print(
@@ -8074,7 +8076,7 @@ class MultilineCellRenderer(Gtk.CellRendererText):
         return editor
 
 
-from threading import Thread
+
 
 
 class CheckUpdates(Thread):
