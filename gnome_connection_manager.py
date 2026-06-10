@@ -47,6 +47,14 @@ except:
 
 # check Terminal version
 TERMINAL_V048 = "spawn_async" in Vte.Terminal.__dict__
+# Vérification runtime du signal 'output-written' (VTE >= 0.60)
+# GObject.signal_lookup retourne 0 si le signal n'existe pas.
+try:
+    from gi.repository import GObject as _GObj
+
+    _HAS_OUTPUT_WRITTEN = bool(_GObj.signal_lookup("output-written", Vte.Terminal))
+except Exception:
+    _HAS_OUTPUT_WRITTEN = (Vte.MAJOR_VERSION, Vte.MINOR_VERSION) >= (0, 60)
 
 # Ver si expect esta instalado
 try:
@@ -3307,13 +3315,6 @@ class Wmain(GCMBase):
         menuItem.connect("activate", self.on_popupmenu, "SPV")
         menuItem.show()
 
-        # Import libvirt — ajout dans menuServers (barre de menu)
-        mnu_import_lv = Gtk.MenuItem(label=_("Importer depuis libvirt…"))
-        mnu_import_lv.connect("activate", self.on_mnu_import_libvirt_activate)
-        mnu_import_lv.show()
-        if hasattr(self, "menuServers") and self.menuServers is not None:
-            self.menuServers.append(mnu_import_lv)
-
     def _open_rdp_tab(self, notebook, host):
         """Ouvre un onglet RDP dans le notebook GCM.
 
@@ -3724,7 +3725,7 @@ class Wmain(GCMBase):
             if hasattr(terminal, "log_handler_id"):
                 if terminal.log_handler_id == 0:
                     # fix #88: préférer output-written (VTE >= 0.60) pour un logging fiable
-                    if (Vte.MAJOR_VERSION, Vte.MINOR_VERSION) >= (0, 60):
+                    if _HAS_OUTPUT_WRITTEN:
                         terminal.log_handler_id = terminal.connect(
                             "output-written", self.on_output_written
                         )
@@ -3734,7 +3735,7 @@ class Wmain(GCMBase):
                         )
                 return True
             # fix #88: idem pour la connexion initiale
-            if (Vte.MAJOR_VERSION, Vte.MINOR_VERSION) >= (0, 60):
+            if _HAS_OUTPUT_WRITTEN:
                 terminal.log_handler_id = terminal.connect(
                     "output-written", self.on_output_written
                 )
@@ -4274,6 +4275,14 @@ class Wmain(GCMBase):
             conf.COLLAPSED_FOLDERS = ",".join(self.get_collapsed_nodes())
 
         self.menuServers.foreach(self.menuServers.remove)
+        # Ré-ajouter l'entrée "Importer depuis libvirt…" (effacée par foreach)
+        mnu_import_lv = Gtk.MenuItem(label=_("Importer depuis libvirt\u2026"))
+        mnu_import_lv.connect("activate", self.on_mnu_import_libvirt_activate)
+        mnu_import_lv.show()
+        self.menuServers.append(mnu_import_lv)
+        sep = Gtk.SeparatorMenuItem()
+        sep.show()
+        self.menuServers.append(sep)
         self.treeModel.clear()
 
         iconHost = "gtk-network"
@@ -5480,6 +5489,11 @@ class Host:
             self.delete_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
             self.term = self.get_arg(args, "")
             self.protocol = self.get_arg(args, "ssh")
+            # Paramètres série (RS-232/RS-485)
+            self.serial_databits = self.get_arg(args, "8")
+            self.serial_parity = self.get_arg(args, "n")
+            self.serial_stopbits = self.get_arg(args, "1")
+            self.serial_flow = self.get_arg(args, "n")
         except:
             pass
 
@@ -5548,6 +5562,10 @@ class Host:
             self.delete_key,
             self.term,
             getattr(self, "protocol", "ssh"),
+            getattr(self, "serial_databits", "8"),
+            getattr(self, "serial_parity", "n"),
+            getattr(self, "serial_stopbits", "1"),
+            getattr(self, "serial_flow", "n"),
         )
 
 
@@ -5614,6 +5632,10 @@ class HostUtils:
         )
         term = HostUtils.get_val(cp, section, "term", "")
         protocol = HostUtils.get_val(cp, section, "protocol", "ssh")
+        serial_databits = HostUtils.get_val(cp, section, "serial_databits", "8")
+        serial_parity = HostUtils.get_val(cp, section, "serial_parity", "n")
+        serial_stopbits = HostUtils.get_val(cp, section, "serial_stopbits", "1")
+        serial_flow = HostUtils.get_val(cp, section, "serial_flow", "n")
         h = Host(
             group,
             name,
@@ -5639,6 +5661,10 @@ class HostUtils:
             delete_key,
             term,
             protocol,
+            serial_databits,
+            serial_parity,
+            serial_stopbits,
+            serial_flow,
         )
         h.protocol = protocol
         return h
@@ -5682,6 +5708,10 @@ class HostUtils:
         cp.set(section, "delete-key", str(host.delete_key))
         cp.set(section, "term", str(host.term))
         cp.set(section, "protocol", str(getattr(host, "protocol", "ssh")))
+        cp.set(section, "serial_databits", str(getattr(host, "serial_databits", "8")))
+        cp.set(section, "serial_parity", str(getattr(host, "serial_parity", "n")))
+        cp.set(section, "serial_stopbits", str(getattr(host, "serial_stopbits", "1")))
+        cp.set(section, "serial_flow", str(getattr(host, "serial_flow", "n")))
 
 
 class Whost(GCMBase):
@@ -5900,6 +5930,32 @@ class Whost(GCMBase):
         self.cmbDelete.set_active(host.delete_key)
         self.update_texttags()
         self.txtTerm.set_text(host.term)
+        # Paramètres série
+        _parity_codes = ["n", "e", "o"]
+        _flow_codes = ["n", "x", "h", "d"]
+        _databits_vals = ["5", "6", "7", "8"]
+        _stopbits_vals = ["1", "2"]
+        _db = getattr(host, "serial_databits", "8")
+        _par = getattr(host, "serial_parity", "n")
+        _sb = getattr(host, "serial_stopbits", "1")
+        _fl = getattr(host, "serial_flow", "n")
+        self._serial_cmb_databits.set_active(
+            _databits_vals.index(_db) if _db in _databits_vals else 3
+        )
+        self._serial_cmb_parity.set_active(
+            _parity_codes.index(_par) if _par in _parity_codes else 0
+        )
+        self._serial_cmb_stopbits.set_active(
+            _stopbits_vals.index(_sb) if _sb in _stopbits_vals else 0
+        )
+        self._serial_cmb_flow.set_active(
+            _flow_codes.index(_fl) if _fl in _flow_codes else 0
+        )
+        # Afficher/masquer le frame série
+        if proto == "serial":
+            self._serial_frame.show()
+        else:
+            self._serial_frame.hide()
 
     def update_texttags(self, *args):
         """Met a jour les tags de texte (couleurs, polices) dans la vue."""
@@ -5994,6 +6050,19 @@ class Whost(GCMBase):
             if hasattr(self, "cmbProtocol")
             else "ssh"
         )
+        # Lire les paramètres série depuis les combos dédiés
+        _parity_codes = ["n", "e", "o"]
+        _flow_codes = ["n", "x", "h", "d"]
+        _databits_vals = ["5", "6", "7", "8"]
+        _stopbits_vals = ["1", "2"]
+        _si_db = self._serial_cmb_databits.get_active()
+        _si_par = self._serial_cmb_parity.get_active()
+        _si_sb = self._serial_cmb_stopbits.get_active()
+        _si_fl = self._serial_cmb_flow.get_active()
+        serial_databits = _databits_vals[_si_db] if 0 <= _si_db < 4 else "8"
+        serial_parity = _parity_codes[_si_par] if 0 <= _si_par < 3 else "n"
+        serial_stopbits = _stopbits_vals[_si_sb] if 0 <= _si_sb < 2 else "1"
+        serial_flow = _flow_codes[_si_fl] if 0 <= _si_fl < 4 else "n"
 
         host = Host(
             group,
@@ -6020,6 +6089,10 @@ class Whost(GCMBase):
             delete_key,
             term,
             protocol,
+            serial_databits,
+            serial_parity,
+            serial_stopbits,
+            serial_flow,
         )
         host.protocol = protocol
 
@@ -6154,6 +6227,13 @@ class Whost(GCMBase):
         current_port = self.txtPort.get_text()
         if current_port in known_ports:
             self.txtPort.set_text(_PROTO_DEFAULTS.get(proto, ""))
+
+        # Afficher/masquer le frame paramètres série
+        if hasattr(self, "_serial_frame"):
+            if is_serial:
+                self._serial_frame.show()
+            else:
+                self._serial_frame.hide()
 
     # -- Whost.on_cmbType_changed }
 
