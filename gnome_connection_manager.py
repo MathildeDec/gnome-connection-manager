@@ -5797,12 +5797,8 @@ class Whost(GCMBase):
         self.cmbBackspace.set_active(0)
         self.cmbDelete.set_active(0)
 
-        # ComboBox Protocol (SSH/telnet/RDP/VNC/SPICE/serial/local)
-        self.cmbProtocol = Gtk.ComboBoxText()
-        for p in ("ssh", "telnet", "rdp", "vnc", "spice", "serial", "local"):
-            self.cmbProtocol.append_text(p)
-        self.cmbProtocol.set_active(0)
-        self.cmbProtocol.connect("changed", self._on_proto_changed)
+        # cmbProtocol = alias vers cmbType (le widget glade affiché à l'utilisateur)
+        self.cmbProtocol = self.cmbType
 
     # -- Whost.new }
 
@@ -6111,47 +6107,53 @@ class Whost(GCMBase):
 
     # -- Whost.on_cmbType_changed {
     def on_cmbType_changed(self, widget, *args):
-        """Gestionnaire de changement du type de connexion.
+        """Gestionnaire de changement du protocole.
+
+        Gère la visibilité et la sensibilité des widgets selon le protocole
+        sélectionné, et met à jour le port par défaut.
 
         Args:
             widget (Gtk.ComboBox): Combo modifie.
         """
-        is_local = widget.get_active_text() == "local"
-        self.txtUser.set_sensitive(not is_local)
-        self.txtPassword.set_sensitive(not is_local)
+        proto = widget.get_active_text() or "ssh"
+        is_ssh = proto == "ssh"
+        is_local = proto == "local"
+        is_serial = proto == "serial"
+
+        # Champs désactivés pour local
+        self.txtUser.set_sensitive(not is_local and not is_serial)
+        self.txtPassword.set_sensitive(not is_local and not is_serial)
         self.txtPort.set_sensitive(not is_local)
         self.txtHost.set_sensitive(not is_local)
         self.txtExtraParams.set_sensitive(not is_local)
 
-        if widget.get_active_text() == "ssh":
-            self.get_widget("tunnelGrid").show()
-            self.txtKeepAlive.set_sensitive(True)
-            self.chkKeepAlive.set_sensitive(True)
-            self.chkX11.set_sensitive(True)
-            self.chkAgent.set_sensitive(True)
-            self.chkCompression.set_sensitive(True)
-            self.txtCompressionLevel.set_sensitive(self.chkCompression.get_active())
-            self.txtPrivateKey.set_sensitive(True)
-            self.btnBrowse.set_sensitive(True)
-            port = "22"
-        else:
-            self.get_widget("tunnelGrid").hide()
+        # Options SSH uniquement
+        self.get_widget("tunnelGrid").set_visible(is_ssh)
+        self.txtKeepAlive.set_sensitive(is_ssh)
+        self.chkKeepAlive.set_sensitive(is_ssh)
+        self.chkX11.set_sensitive(is_ssh)
+        self.chkAgent.set_sensitive(is_ssh)
+        self.chkCompression.set_sensitive(is_ssh)
+        self.txtCompressionLevel.set_sensitive(
+            is_ssh and self.chkCompression.get_active()
+        )
+        self.txtPrivateKey.set_sensitive(is_ssh)
+        self.btnBrowse.set_sensitive(is_ssh)
+        if not is_ssh:
             self.txtKeepAlive.set_text("0")
-            self.txtKeepAlive.set_sensitive(False)
-            self.chkKeepAlive.set_sensitive(False)
-            self.chkX11.set_sensitive(False)
-            self.chkAgent.set_sensitive(False)
-            self.chkCompression.set_sensitive(False)
-            self.txtCompressionLevel.set_sensitive(False)
-            self.txtPrivateKey.set_sensitive(False)
-            self.btnBrowse.set_sensitive(False)
-            port = "23"
-            if is_local:
-                self.txtUser.set_text("")
-                self.txtPassword.set_text("")
-                self.txtPort.set_text("")
-                self.txtHost.set_text("")
-        self.txtPort.set_text(port)
+
+        # Réinitialiser les champs si local
+        if is_local:
+            self.txtUser.set_text("")
+            self.txtPassword.set_text("")
+            self.txtPort.set_text("")
+            self.txtHost.set_text("")
+
+        # Port par défaut (seulement si valeur encore standard)
+        known_ports = set(_PROTO_DEFAULTS.values()) | {""}
+        current_port = self.txtPort.get_text()
+        if current_port in known_ports:
+            self.txtPort.set_text(_PROTO_DEFAULTS.get(proto, ""))
 
     # -- Whost.on_cmbType_changed }
 
