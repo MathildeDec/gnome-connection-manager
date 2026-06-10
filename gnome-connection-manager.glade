@@ -2212,6 +2212,20 @@ Ej: ##D=1000&lt;/span&gt;</property>
                   <object class="GtkMenu" id="menuServers">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
+                    <child>
+                      <object class="GtkMenuItem" id="mnu_import_libvirt">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Importer depuis libvirt…</property>
+                        <signal name="activate" handler="on_mnu_import_libvirt_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparatorMenuItem" id="mnu_sep_libvirt">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                      </object>
+                    </child>
                   </object>
                 </child>
               </object>

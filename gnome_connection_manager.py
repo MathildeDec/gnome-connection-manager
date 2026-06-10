@@ -410,7 +410,7 @@ def show_font_dialog(parent, title, button):
     if response == Gtk.ResponseType.OK:
         button.selected_font = Pango.FontDescription(fontsel.get_font_name())
         button.set_label(button.selected_font.to_string())
-        button.get_child().override_font(button.selected_font)
+        set_widget_font(button.get_child(), button.selected_font)
     parent.dlgFont.hide()
 
 
@@ -469,6 +469,21 @@ def parse_color(spec):
         tuple: Tuple (r, g, b, a) normalise entre 0.0 et 1.0.
     """
     return parse_color_rgba(spec).to_color()
+
+
+def set_widget_font(widget, font_desc):
+    """Applique une police à un widget via CssProvider (override_font est déprécié).
+
+    Args:
+        widget: Widget Gtk sur lequel appliquer la police.
+        font_desc (Pango.FontDescription): Description de la police.
+    """
+    css = ("* { font: %s; }" % font_desc.to_string()).encode()
+    provider = Gtk.CssProvider()
+    provider.load_from_data(css)
+    widget.get_style_context().add_provider(
+        provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
 
 
 def color_to_hex(rgba, diff=0):
@@ -4518,12 +4533,11 @@ class Wmain(GCMBase):
             conf.COLLAPSED_FOLDERS = ",".join(self.get_collapsed_nodes())
 
         self.menuServers.foreach(self.menuServers.remove)
-        # Ré-ajouter l'entrée "Importer depuis libvirt…" (effacée par foreach)
-        mnu_import_lv = Gtk.MenuItem(label=_("Importer depuis libvirt\u2026"))
-        mnu_import_lv.connect("activate", self.on_mnu_import_libvirt_activate)
+        # Ré-ajouter les items statiques depuis le glade (retirés par foreach)
+        mnu_import_lv = self.get_widget("mnu_import_libvirt")
         mnu_import_lv.show()
         self.menuServers.append(mnu_import_lv)
-        sep = Gtk.SeparatorMenuItem()
+        sep = self.get_widget("mnu_sep_libvirt")
         sep.show()
         self.menuServers.append(sep)
         self.treeModel.clear()
@@ -6785,7 +6799,7 @@ class Wconfig(GCMBase):
         self.btnFont.set_sensitive(not self.chkDefaultFont.get_active())
         self.btnFont.selected_font = Pango.FontDescription(conf.FONT)
         self.btnFont.set_label(self.btnFont.selected_font.to_string())
-        self.btnFont.get_child().override_font(self.btnFont.selected_font)
+        set_widget_font(self.btnFont.get_child(), self.btnFont.selected_font)
 
         # commandos
         self.treeModel = Gtk.TreeStore(GObject.TYPE_STRING, GObject.TYPE_STRING)
@@ -7403,11 +7417,12 @@ class NotebookTabLabel(Gtk.HBox):
         self.is_active = False
         if conf.AUTO_CLOSE_TAB != 0:
             if conf.AUTO_CLOSE_TAB == 2:
-                terminal = (
-                    self.widget_.get_parent()
-                    .get_nth_page(self.widget_.get_parent().page_num(self.widget_))
-                    .get_child()
-                )
+                parent_nb = self.widget_.get_parent()
+                if parent_nb is None:
+                    return
+                terminal = parent_nb.get_nth_page(
+                    parent_nb.page_num(self.widget_)
+                ).get_child()
                 if terminal.get_child_exit_status() != 0:
                     return
             self.close_tab(self.widget_)
@@ -7653,7 +7668,7 @@ class MultilineCellRenderer(Gtk.CellRendererText):
             event (Gdk.Event): Evenement declencheur.
         """
         editor = CellTextView()
-        editor.override_font(self.props.font_desc)
+        set_widget_font(editor, self.props.font_desc)
         editor.set_text(self.props.text)
         editor.set_size_request(cell_area.width, cell_area.height)
         editor.set_border_width(min(self.props.xpad, self.props.ypad))
