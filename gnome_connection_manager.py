@@ -2751,8 +2751,13 @@ class Wmain(GCMBase):
             initialise_encyption_key()
 
         settings = Gtk.Settings.get_default()
-        settings.set_property("gtk-menu-images", True)
-        settings.set_property("gtk-button-images", True)
+        # gtk-menu-images / gtk-button-images sont dépréciés depuis GTK 3.10
+        # On force via CSS à la place
+        try:
+            settings.set_property("gtk-menu-images", True)
+            settings.set_property("gtk-button-images", True)
+        except Exception:
+            pass  # ignoré sur GTK >= 3.10 sans ces propriétés
         settings.props.gtk_menu_bar_accel = None
 
         self.enable_window_transparency(self.window)
@@ -3019,14 +3024,14 @@ class Wmain(GCMBase):
                         Gtk.Window.unfullscreen(self.hpMainWindow)
                         Gtk.Window.unfullscreen(self.wMainWindow)
                         self.wMainWindow.set_decorated(True)
-                        self.wMainWindow.set_has_resize_grip(True)
+                        pass  # set_has_resize_grip déprécié GTK 3.14
                         self.get_widget("toolbar1").show()
                         self.get_widget("contextMenu").show()
                         self._current_fullscreen_state = False
                     else:
                         Gtk.Window.fullscreen(self.hpMainWindow)
                         self.wMainWindow.set_decorated(False)
-                        self.wMainWindow.set_has_resize_grip(False)
+                        pass  # set_has_resize_grip déprécié GTK 3.14
                         Gtk.Window.fullscreen(self.wMainWindow)
                         self.get_widget("toolbar1").hide()
                         self.get_widget("contextMenu").hide()
@@ -4844,7 +4849,11 @@ class Wmain(GCMBase):
         if csp != None and cnb.get_n_pages() > 1:
             # Crear un hpaned, en el hijo 0 dejar el notebook y en el hijo 1 el nuevo notebook
             # El nuevo hpaned dejarlo como hijo del actual parent
-            hp = Gtk.HPaned() if direction == HSPLIT else Gtk.VPaned()
+            hp = (
+                Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+                if direction == HSPLIT
+                else Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+            )
             nb = Gtk.Notebook()
             nb.set_group_name("11")
             nb.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
@@ -6606,7 +6615,7 @@ class Whost(GCMBase):
         Args:
             widget (Gtk.Button): Bouton clique.
         """
-        widget.selected_color = widget.get_color().to_string()
+        widget.selected_color = widget.get_rgba().to_string()
 
     # -- Whost.on_btnBColor_clicked }
 
@@ -6629,7 +6638,7 @@ class Whost(GCMBase):
         Args:
             widget (Gtk.Button): Bouton clique.
         """
-        widget.selected_color = widget.get_color().to_string()
+        widget.selected_color = widget.get_rgba().to_string()
 
     # -- Whost.on_btnFColor_clicked }
 
@@ -7063,7 +7072,7 @@ class Wconfig(GCMBase):
         Args:
             widget (Gtk.Button): Bouton clique.
         """
-        widget.selected_color = widget.get_color().to_string()
+        widget.selected_color = widget.get_rgba().to_string()
 
     # -- Wconfig.on_btnBColor_clicked }
 
@@ -7074,7 +7083,7 @@ class Wconfig(GCMBase):
         Args:
             widget (Gtk.Button): Bouton clique.
         """
-        widget.selected_color = widget.get_color().to_string()
+        widget.selected_color = widget.get_rgba().to_string()
 
     # -- Wconfig.on_btnFColor_clicked }
 
@@ -7315,7 +7324,7 @@ class Wcluster(GCMBase):
     # -- Wcluster.on_txtCommands_key_press_event }
 
 
-class NotebookTabLabel(Gtk.HBox):
+class NotebookTabLabel(Gtk.Box):
     """Notebook tab label with close button."""
 
     def __init__(self, title, owner_, widget_, popup_):
@@ -7327,7 +7336,9 @@ class NotebookTabLabel(Gtk.HBox):
             widget_: Parametre widget_.
             popup_: Parametre popup_.
         """
-        Gtk.HBox.__init__(self, homogeneous=False, spacing=0)
+        Gtk.Box.__init__(
+            self, orientation=Gtk.Orientation.HORIZONTAL, homogeneous=False, spacing=0
+        )
 
         self.title = title
         self.owner = owner_
@@ -7499,7 +7510,7 @@ class EntryDialog(Gtk.Dialog):
         self.connect("delete_event", self.quit)
         if modal:
             self.set_modal(True)
-        box = Gtk.VBox(spacing=10)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_border_width(10)
         self.vbox.pack_start(box, True, True, 0)
         box.show()
