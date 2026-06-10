@@ -1,4 +1,4 @@
-# Gnome Connection Manager (GCM) — v1.3.1
+# Gnome Connection Manager (GCM) — v1.3.2
 
 > **Le gestionnaire de connexions multi-protocoles le plus complet pour GNOME / GTK3.**
 
@@ -6,8 +6,9 @@
 [![GTK 3](https://img.shields.io/badge/GTK-3.24-green.svg)](https://gtk.org)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
 [![Tests](https://img.shields.io/badge/tests-379%20passés-brightgreen.svg)](tests/)
+[![Ruff](https://img.shields.io/badge/ruff-pass-brightgreen.svg)](pyproject.toml)
 
-**Fork de [kuthulux/gnome-connection-manager](https://github.com/kuthulux/gnome-connection-manager)**  
+**Fork de [kuthulux/gnome-connection-manager](https://github.com/kuthulux/gnome-connection-manager)**
 maintenu par [MathildeDec](https://github.com/MathildeDec/gnome-connection-manager).
 
 ---
@@ -62,17 +63,48 @@ telnet et session locale. Plus besoin de jongler entre dix outils différents.
   | RS-485 Modbus RTU | 9600 | 8N1 |
   | Libre (manuel) | configurable | configurable |
 
-### 📦 Import libvirt
-- Importe automatiquement les VMs d’un hyperviseur KVM/QEMU (via SSH ou URI locale)
-- Ségmentation des noms en groupes GCM (`prod-web-01` → groupe **PROD**)
-- Détection automatique Windows → protocole RDP
-- Résolution IP : domifaddr → leases DHCP → ARP noyau
+### 📦 Import libvirt — dialogue en 2 phases
+- **Phase 1 — Scan** : saisie des URIs libvirt, user SSH, cases à cocher SSH/SPICE/RDP, log en temps réel, barre de progression
+- **Phase 2 — Prévisualisation** : tableau des connexions découvertes (scroll, > 250 lignes) avant import
+  — colonnes : Proto | Nom VM | Groupe | IP/Hôte | État | Importé
+  — lignes déjà importées grisées / cases décochées, nouvelles cochées par défaut
+  — case «Écraser existants», boutons **Tout cocher / Tout décocher**
+- **SSH** : jamais direct — ProxyJump (`-J user@hv:port`) si IP connue, sinon shell HV + `-t ssh user@vm`
+- **SPICE** : `virt-viewer --connect qemu+ssh://user@hv/system vm` (tunnel SSH natif, pas d’URI `spice://`)
+- **RDP** : uniquement si port 3389 confirmé ouvert (sondé depuis l’HV via `nc`/`nmap`)
+
+### 🛠️ Outils en ligne de commande (`tools/`)
+
+| Script | Description |
+|--------|-------------|
+| [tools/libvirt\_inventory.py](tools/libvirt_inventory.py) | Inventaire complet des VMs KVM/QEMU : IP, OS, vCPUs, RAM, ports SPICE/VNC/RDP |
+| [tools/ssh\_deploy.py](tools/ssh_deploy.py) | Déploiement de clés SSH (RSA-4096 + Ed25519) sur toutes les VMs depuis l’HV |
+
+**`libvirt_inventory.py`** — exports multiples :
+```bash
+python3 tools/libvirt_inventory.py \
+  --detect-ports \
+  --output-json inventory.json \
+  --output-csv  inventory.csv \
+  --ansible-ini inventory.ini \
+  --ansible-yaml inventory.yml
+```
+
+Options principales : `--uris`, `--no-os`, `--no-nmap`, `--ssh-password`, `--ssh-timeout`
+
+**`ssh_deploy.py`** :
+```bash
+# Génère clés RSA/Ed25519 sur l’HV + déploiement via ssh-copy-id vers toutes les VMs
+python3 tools/ssh_deploy.py --inventory inventory.json --vm-user ubuntu
+```
 
 ### 🌐 16 langues supportées
 ar · cs · de · en · fr · it · ja · ko · nb · nl · pl · pt · ru · sv · tr · uk
 
-### 🧪 379 tests unitaires
-Suite `pytest` couvrant chiffrement, `Host`, `HostUtils`, Serial, RDP, VNC, SPICE, i18n.
+### 🧙 Qualité du code
+- **ruff** (linter + formateur, style Google docstring) + **black** + **flake8**
+- **pre-commit** : hooks automatisés à chaque commit (`pre-commit install`)
+- 379 tests unitaires pytest (chiffrement, Host, HostUtils, Serial, RDP, VNC, SPICE, libvirt)
 
 ---
 
@@ -104,17 +136,25 @@ sudo apt install virt-viewer           # fournit remote-viewer
 # Console série
 sudo apt install picocom               # ou minicom
 
-# Import libvirt
-sudo apt install python3-libvirt
-pip3 install paramiko
+# Import libvirt (recommandé : paquet système)
+sudo apt install python3-paramiko
+# Alternative pip (si python3-paramiko absent de votre distro) :
+# pip3 install --user paramiko
 ```
 
 ### Dépendances (Fedora / RHEL)
 
 ```bash
 sudo dnf install python3 python3-gobject vte291 expect freerdp \
-                 tigervnc virt-viewer picocom python3-libvirt
-pip3 install paramiko
+                 tigervnc virt-viewer picocom python3-paramiko
+```
+
+### Qualité du code
+
+```bash
+pip install ruff pre-commit black
+pre-commit install          # installe les hooks git
+pre-commit run --all-files  # vérification manuelle
 ```
 
 ---
@@ -138,9 +178,11 @@ pip3 install paramiko
 3. À l'ouverture : sélectionnez un **template** pour pré-remplir tous les paramètres
 
 ### Importer des VMs libvirt
-1. Menu **Serveurs → Importer depuis libvirt…**
-2. Saisir l’URI (ex. `qemu+ssh://root@192.168.1.1/system`)
-3. Cliquer **Importer** — les VMs apparaissent groupées dans l’arbre
+1. Menu **Fichier → Importer depuis libvirt…**
+2. Les URIs virt-manager sont pré-remplies depuis dconf
+3. Cocher les protocoles à importer : SSH / SPICE / RDP
+4. Cliquer **🔍 Scanner les hyperviseurs** — le log s’affiche en temps réel
+5. Phase 2 : vérifier le tableau, cocher/décocher les VMs, cliquer **⬇ Importer les sélectionnés**
 
 ---
 
@@ -174,6 +216,19 @@ make rpm    # rpm seulement
 
 ## Nouveautés
 
+### v1.3.2
+- **Import libvirt refondu** : dialogue 2 phases (scan → tableau de prévisualisation)
+  - SSH via ProxyJump (`-J`), SPICE via tunnel libvirt natif, RDP conditionnel (port 3389)
+  - Tableau scrollable (>250 VMs), cases à cocher, case «Écraser existants»
+  - Déplacé dans le menu **Fichier** (plus dans Serveurs)
+- **`SpiceTab`** : détection `--connect` pour tunnel libvirt natif (bypass URI `spice://`)
+- **Outils CLI** `tools/` : `libvirt_inventory.py` v4 + `ssh_deploy.py`
+  - Exports JSON / CSV / Ansible INI / Ansible YAML
+  - Détection OS (XML, guest-agent, SSH), vCPUs, RAM, ports SPICE/VNC/RDP
+  - `--ssh-password`, `--ssh-timeout`, `--detect-ports`, `--no-nmap`
+- **Qualité** : `pyproject.toml` + `.pre-commit-config.yaml` (ruff Google style + black + flake8)
+- **Corrections GTK3** : audit complet dépréciations v1.3.2 (`override_font→CssProvider`, `GtkPaned`, `get_color→get_rgba`, etc.)
+
 ### v1.3.1
 - **SerialTab** : console série RS-232/RS-485 embarquée dans VTE — picocom / minicom / screen
   - 11 templates constructeurs (Cisco, HP, Aruba, Juniper, Fortinet, Palo Alto, F5, Linux, Arduino, Modbus, Libre)
@@ -197,11 +252,10 @@ make rpm    # rpm seulement
 
 ## Contribuer
 
-Les pull requests sont les bienvenues.  
-Consultez [fork/ROADMAP-GCM-v1.3.md](fork/ROADMAP-GCM-v1.3.md) pour les fonctionnalités planifiées.  
+Les pull requests sont les bienvenues.
+Consultez [fork/ROADMAP-GCM-v1.3.md](fork/ROADMAP-GCM-v1.3.md) pour les fonctionnalités planifiées.
 Pour les changements importants, ouvrez d’abord une issue.
 
 ## Licence
 
 [GPLv3](https://www.gnu.org/licenses/gpl-3.0.html)
-

@@ -10,12 +10,12 @@ Couvre les fonctions critiques sans dépendance GTK/VTE :
 - RdpTab._build_cmd : construction commande xfreerdp
 """
 
-import sys
-import os
 import configparser
+import os
+import sys
 import types
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 # ── Stubs GTK/VTE pour importer sans affichage ──────────────────────────────
 
@@ -562,7 +562,7 @@ class TestEncryption(unittest.TestCase):
     """Tests pour les fonctions de chiffrement/déchiffrement."""
 
     def test_xor_roundtrip(self):
-        """xor est son propre inverse."""
+        """Xor est son propre inverse."""
         key = "secret"
         msg = "hello world"
         encrypted = gcm.xor(key, msg)
@@ -570,7 +570,7 @@ class TestEncryption(unittest.TestCase):
         self.assertEqual("".join(decrypted), msg)
 
     def test_xor_empty(self):
-        """xor avec chaîne vide retourne liste vide."""
+        """Xor avec chaîne vide retourne liste vide."""
         self.assertEqual(gcm.xor("key", ""), [])
 
     def test_encrypt_decrypt_old_roundtrip(self):
@@ -596,7 +596,7 @@ class TestEncryption(unittest.TestCase):
             gcm.conf.VERSION = original_version
 
     def test_decrypt_empty_string(self):
-        """decrypt d'une chaîne vide retourne chaîne vide."""
+        """Decrypt d'une chaîne vide retourne chaîne vide."""
         gcm.conf.VERSION = 1
         try:
             result = gcm.decrypt("key", "")
@@ -605,7 +605,7 @@ class TestEncryption(unittest.TestCase):
             gcm.conf.VERSION = 0
 
     def test_encrypt_empty_string(self):
-        """encrypt d'une chaîne vide ne lève pas d'exception."""
+        """Encrypt d'une chaîne vide ne lève pas d'exception."""
         result = gcm.encrypt("key", "")
         self.assertIsInstance(result, (str, bytes))
 
@@ -704,7 +704,7 @@ class TestHostUtils(unittest.TestCase):
         return cp, section
 
     def test_save_and_load_basic(self):
-        """save + load préserve les champs de base."""
+        """Save + load préserve les champs de base."""
         h = _make_host(
             group="TEST",
             name="srv1",
@@ -722,21 +722,21 @@ class TestHostUtils(unittest.TestCase):
         self.assertEqual(loaded.port, "22")
 
     def test_save_and_load_protocol_rdp(self):
-        """save + load préserve protocol='rdp'."""
+        """Save + load préserve protocol='rdp'."""
         h = _make_host(protocol="rdp", port="3389")
         cp, section = self._make_cp_with_host(h)
         loaded = gcm.HostUtils.load_host_from_ini(cp, section, pwd="testpwd")
         self.assertEqual(loaded.protocol, "rdp")
 
     def test_save_and_load_protocol_vnc(self):
-        """save + load préserve protocol='vnc'."""
+        """Save + load préserve protocol='vnc'."""
         h = _make_host(protocol="vnc", port="5900")
         cp, section = self._make_cp_with_host(h)
         loaded = gcm.HostUtils.load_host_from_ini(cp, section, pwd="testpwd")
         self.assertEqual(loaded.protocol, "vnc")
 
     def test_save_and_load_protocol_spice(self):
-        """save + load préserve protocol='spice'."""
+        """Save + load préserve protocol='spice'."""
         h = _make_host(protocol="spice", port="5930")
         cp, section = self._make_cp_with_host(h)
         loaded = gcm.HostUtils.load_host_from_ini(cp, section, pwd="testpwd")
@@ -792,7 +792,7 @@ class TestVmNameSplit(unittest.TestCase):
         self.assertEqual(n, "web01")
 
     def test_no_separator(self):
-        """standalone -> (LIBVIRT, standalone)."""
+        """Standalone -> (LIBVIRT, standalone)."""
         g, n = gcm._vm_name_split("standalone")
         self.assertEqual(g, "LIBVIRT")
         self.assertEqual(n, "standalone")
@@ -884,10 +884,8 @@ class TestRdpTabBuildCmd(unittest.TestCase):
         self.assertTrue(any(a.startswith("/p:") for a in cmd))
 
     def test_cmd_with_domain_user(self):
-        """Utilisateur avec domaine (domain\\user) génère /d: et /u:."""
-        h = _make_host(
-            host="10.0.0.1", user="DOMAIN\\admin", port="3389", protocol="rdp"
-        )
+        r"""Utilisateur avec domaine (domain\\user) génère /d: et /u:."""
+        h = _make_host(host="10.0.0.1", user="DOMAIN\\admin", port="3389", protocol="rdp")
         tab = self._make_rdp_tab(h)
         cmd = tab._build_cmd()
         self.assertTrue(any(a.startswith("/d:") for a in cmd))
@@ -1202,7 +1200,7 @@ class TestSerialTabBuildCmd(unittest.TestCase):
         self._with_picocom(_)
 
     def test_minicom_device_flag(self):
-        """minicom utilise -D pour le device."""
+        """Minicom utilise -D pour le device."""
 
         def _():
             tab = self._make_tab("/dev/ttyUSB1", "38400")
@@ -1213,7 +1211,7 @@ class TestSerialTabBuildCmd(unittest.TestCase):
         self._with_minicom(_)
 
     def test_minicom_baud_flag(self):
-        """minicom utilise -b pour le débit."""
+        """Minicom utilise -b pour le débit."""
 
         def _():
             tab = self._make_tab("/dev/ttyUSB0", "57600")
@@ -1224,7 +1222,7 @@ class TestSerialTabBuildCmd(unittest.TestCase):
         self._with_minicom(_)
 
     def test_screen_device_and_baud(self):
-        """screen prend device puis baud en positionnels."""
+        """Screen prend device puis baud en positionnels."""
 
         def _():
             tab = self._make_tab("/dev/ttyS1", "115200")
@@ -1237,7 +1235,7 @@ class TestSerialTabBuildCmd(unittest.TestCase):
         self._with_screen(_)
 
     def test_screen_extra_opts(self):
-        """screen : les options supplémentaires sont ajoutées."""
+        """Screen : les options supplémentaires sont ajoutées."""
 
         def _():
             tab = self._make_tab("/dev/ttyUSB0", "9600", "-L")
@@ -1298,9 +1296,7 @@ class TestSerialTemplates(unittest.TestCase):
     def test_tuple_length_5(self):
         """Chaque template doit avoir 5 valeurs (baud, flow, parity, bits, stop)."""
         for name, tpl in gcm._SERIAL_TEMPLATES.items():
-            self.assertEqual(
-                len(tpl), 5, msg=f"Template '{name}' : longueur incorrecte"
-            )
+            self.assertEqual(len(tpl), 5, msg=f"Template '{name}' : longueur incorrecte")
 
     def test_cisco_9600_8n1(self):
         baud, flow, parity, databits, stopbits = gcm._SERIAL_TEMPLATES[
@@ -1330,12 +1326,12 @@ class TestSerialTemplates(unittest.TestCase):
         self.assertEqual(baud, "19200")
 
     def test_flow_values_valid(self):
-        """flow doit être n, x ou h."""
+        """Flow doit être n, x ou h."""
         for name, (_, flow, *_rest) in gcm._SERIAL_TEMPLATES.items():
             self.assertIn(flow, ("n", "x", "h"), msg=f"flow invalide pour '{name}'")
 
     def test_parity_values_valid(self):
-        """parity doit être n, e ou o."""
+        """Parity doit être n, e ou o."""
         for name, (_, _, parity, *_rest) in gcm._SERIAL_TEMPLATES.items():
             self.assertIn(parity, ("n", "e", "o"), msg=f"parity invalide pour '{name}'")
 
@@ -1553,7 +1549,7 @@ class TestEncryptionExtended(unittest.TestCase):
         self.assertIsInstance(result, str)
 
     def test_encrypt_decrypt_aes_extended_latin(self):
-        """pyAES supporte les caractères latin-1 (U+0000–U+00FF)."""
+        """PyAES supporte les caractères latin-1 (U+0000–U+00FF)."""
         plain = "mot de passe admin"
         cipher = gcm.encrypt("key", plain)
         result = gcm.decrypt("key", cipher)
@@ -2220,14 +2216,10 @@ class TestBinaryDetection(unittest.TestCase):
         self.assertGreater(len(gcm.SERIAL_BIN), 0)
 
     def test_serial_bin_known(self):
-        self.assertIn(
-            os.path.basename(gcm.SERIAL_BIN), ("picocom", "minicom", "screen")
-        )
+        self.assertIn(os.path.basename(gcm.SERIAL_BIN), ("picocom", "minicom", "screen"))
 
     def test_spice_bin_known(self):
-        self.assertIn(
-            os.path.basename(gcm.SPICE_BIN), ("remote-viewer", "virt-viewer", "spicy")
-        )
+        self.assertIn(os.path.basename(gcm.SPICE_BIN), ("remote-viewer", "virt-viewer", "spicy"))
 
     def test_vnc_bin_known(self):
         self.assertIn(
@@ -2347,9 +2339,7 @@ class TestSerialTabTemplates(unittest.TestCase):
     """Test de l'application des templates dans SerialTab."""
 
     def _tab(self):
-        return gcm.SerialTab(
-            _make_host(host="/dev/ttyUSB0", port="9600", protocol="serial")
-        )
+        return gcm.SerialTab(_make_host(host="/dev/ttyUSB0", port="9600", protocol="serial"))
 
     def _apply(self, tab, name):
         tpl_list = list(gcm._SERIAL_TEMPLATES.keys())
@@ -2403,7 +2393,7 @@ class TestSerialTabTemplates(unittest.TestCase):
         self.assertIn("--parity", cmd)
 
     def test_minicom_opts_include_databits(self):
-        """minicom : --databits est passé dans la commande générée."""
+        """Minicom : --databits est passé dans la commande générée."""
         gcm.SERIAL_BIN = "minicom"
         t = self._tab()
         self._apply(t, "Cisco IOS / IOS-XE / NX-OS")
@@ -2517,9 +2507,7 @@ class TestSerialTabBuildCmdAll(unittest.TestCase):
 
     def test_picocom_opts_flow_n(self):
         gcm.SERIAL_BIN = "picocom"
-        cmd = self._tab(
-            opts="--flow n --parity n --databits 8 --stopbits 1"
-        )._build_cmd()
+        cmd = self._tab(opts="--flow n --parity n --databits 8 --stopbits 1")._build_cmd()
         self.assertIn("--flow", cmd)
         self.assertIn("n", cmd)
 
@@ -2627,29 +2615,21 @@ class TestRdpTabEdgeCases(unittest.TestCase):
         self.assertEqual(cmd[0], gcm.RDP_BIN)
 
     def test_v_flag_present(self):
-        cmd = self._t(
-            _make_host(host="10.0.0.1", port="3389", protocol="rdp")
-        )._build_cmd()
+        cmd = self._t(_make_host(host="10.0.0.1", port="3389", protocol="rdp"))._build_cmd()
         self.assertTrue(any(a.startswith("/v:") for a in cmd))
 
     def test_v_flag_host(self):
-        cmd = self._t(
-            _make_host(host="srv.corp", port="3389", protocol="rdp")
-        )._build_cmd()
+        cmd = self._t(_make_host(host="srv.corp", port="3389", protocol="rdp"))._build_cmd()
         v = next(a for a in cmd if a.startswith("/v:"))
         self.assertIn("srv.corp", v)
 
     def test_v_flag_custom_port(self):
-        cmd = self._t(
-            _make_host(host="10.0.0.1", port="9999", protocol="rdp")
-        )._build_cmd()
+        cmd = self._t(_make_host(host="10.0.0.1", port="9999", protocol="rdp"))._build_cmd()
         v = next(a for a in cmd if a.startswith("/v:"))
         self.assertIn("9999", v)
 
     def test_u_flag_user(self):
-        cmd = self._t(
-            _make_host(host="10.0.0.1", user="jdoe", protocol="rdp")
-        )._build_cmd()
+        cmd = self._t(_make_host(host="10.0.0.1", user="jdoe", protocol="rdp"))._build_cmd()
         self.assertTrue(any("jdoe" in a for a in cmd))
 
     def test_no_p_flag_without_password(self):
@@ -2657,9 +2637,7 @@ class TestRdpTabEdgeCases(unittest.TestCase):
         self.assertFalse(any(a.startswith("/p:") for a in cmd))
 
     def test_p_flag_with_password(self):
-        cmd = self._t(
-            _make_host(host="10.0.0.1", protocol="rdp"), pwd="s3cr3t"
-        )._build_cmd()
+        cmd = self._t(_make_host(host="10.0.0.1", protocol="rdp"), pwd="s3cr3t")._build_cmd()
         self.assertTrue(any("s3cr3t" in a for a in cmd))
 
     def test_cert_ignore(self):
@@ -2668,9 +2646,7 @@ class TestRdpTabEdgeCases(unittest.TestCase):
 
     def test_dynamic_resolution(self):
         cmd = self._t(_make_host(host="10.0.0.1", protocol="rdp"))._build_cmd()
-        self.assertTrue(
-            any("dynamic" in a.lower() or "resolution" in a.lower() for a in cmd)
-        )
+        self.assertTrue(any("dynamic" in a.lower() or "resolution" in a.lower() for a in cmd))
 
     def test_multi_extra_params(self):
         h = _make_host(
@@ -2866,9 +2842,7 @@ class TestSpiceTabEdgeCases(unittest.TestCase):
         self.assertFalse(any("password=" in a for a in cmd))
 
     def test_extra_params_appended(self):
-        h = _make_host(
-            host="vm", port="5930", protocol="spice", extra_params="--full-screen"
-        )
+        h = _make_host(host="vm", port="5930", protocol="spice", extra_params="--full-screen")
         self.assertIn("--full-screen", self._t(h)._build_cmd())
 
     def test_multiple_extra_params(self):
@@ -3105,6 +3079,496 @@ class TestVmNameSplitExtra(unittest.TestCase):
         g, n = self._s("réseau_interne")
         self.assertEqual(g, "RÉSEAU")
         self.assertEqual(n, "interne")
+
+
+# ── Tests _dep_install_hint (v1.3.2 — nouveau) ───────────────────────────────
+
+
+class TestDepInstallHint(unittest.TestCase):
+    """Tests pour _dep_install_hint — détection OS et suggestion d'installation."""
+
+    def _mock_rel(self, content):
+        return patch("builtins.open", unittest.mock.mock_open(read_data=content))
+
+    def test_ubuntu_returns_apt(self):
+        with self._mock_rel('ID=ubuntu\nNAME="Ubuntu 22.04"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo apt install", h)
+        self.assertIn("pkg-deb", h)
+
+    def test_debian_returns_apt(self):
+        with self._mock_rel('ID=debian\nNAME="Debian GNU/Linux 12"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo apt install", h)
+
+    def test_kali_returns_apt(self):
+        with self._mock_rel('ID=kali\nNAME="Kali GNU/Linux"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo apt install", h)
+
+    def test_raspbian_returns_apt(self):
+        with self._mock_rel('ID=raspbian\nNAME="Raspbian GNU/Linux"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo apt install", h)
+
+    def test_fedora_returns_dnf(self):
+        with self._mock_rel('ID=fedora\nNAME="Fedora Linux 39"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo dnf install", h)
+        self.assertIn("pkg-rpm", h)
+
+    def test_centos_returns_dnf(self):
+        with self._mock_rel('ID=centos\nNAME="CentOS Linux 8"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo dnf install", h)
+
+    def test_rocky_returns_dnf(self):
+        with self._mock_rel('ID=rocky\nNAME="Rocky Linux 9"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo dnf install", h)
+
+    def test_arch_returns_pacman_with_arch_pkg(self):
+        with self._mock_rel('ID=arch\nNAME="Arch Linux"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm", "pkg-arch")
+        self.assertIn("sudo pacman -S", h)
+        self.assertIn("pkg-arch", h)
+
+    def test_arch_fallback_uses_rpm_pkg(self):
+        with self._mock_rel('ID=arch\nNAME="Arch Linux"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("sudo pacman -S", h)
+        self.assertIn("pkg-rpm", h)
+
+    def test_unknown_os_contains_both_hints(self):
+        with self._mock_rel('ID=unknown\nNAME="Mystery OS"'):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("pkg-deb", h)
+        self.assertIn("pkg-rpm", h)
+
+    def test_os_release_missing_returns_fallback(self):
+        with patch("builtins.open", side_effect=OSError("no file")):
+            h = gcm._dep_install_hint("pkg-deb", "pkg-rpm")
+        self.assertIn("pkg-deb", h)
+        self.assertIn("pkg-rpm", h)
+
+    def test_returns_string(self):
+        with patch("builtins.open", side_effect=OSError):
+            h = gcm._dep_install_hint("a", "b")
+        self.assertIsInstance(h, str)
+
+
+# ── Tests _check_port_open (v1.3.2 — nouveau) ────────────────────────────────
+
+
+class TestCheckPortOpen(unittest.TestCase):
+    """Tests pour _check_port_open — sondage TCP via nc/nmap depuis l'HV."""
+
+    def _run_fn(self, responses):
+        """run_fn mocké retournant les réponses en séquence."""
+        calls = []
+
+        def _fn(client, cmd, timeout=30):
+            calls.append(cmd)
+            idx = len(calls) - 1
+            return responses[idx] if idx < len(responses) else ""
+
+        return _fn, calls
+
+    def test_empty_ip_returns_false(self):
+        run_fn, _ = self._run_fn([])
+        self.assertFalse(gcm._check_port_open(None, run_fn, "", 3389))
+
+    def test_none_ip_returns_false(self):
+        run_fn, _ = self._run_fn([])
+        self.assertFalse(gcm._check_port_open(None, run_fn, None, 3389))
+
+    def test_nc_open_returns_true(self):
+        run_fn, _ = self._run_fn(["OPEN"])
+        self.assertTrue(gcm._check_port_open(None, run_fn, "10.0.0.1", 3389))
+
+    def test_nc_closed_returns_false(self):
+        run_fn, _ = self._run_fn(["CLOSED"])
+        self.assertFalse(gcm._check_port_open(None, run_fn, "10.0.0.1", 3389))
+
+    def test_nc_ambiguous_fallback_nmap_open(self):
+        run_fn, _ = self._run_fn(["", "3389/open tcp"])
+        self.assertTrue(gcm._check_port_open(None, run_fn, "10.0.0.1", 3389))
+
+    def test_nc_ambiguous_fallback_nmap_closed(self):
+        run_fn, _ = self._run_fn(["", "3389/closed tcp"])
+        self.assertFalse(gcm._check_port_open(None, run_fn, "10.0.0.1", 3389))
+
+    def test_nmap_case_insensitive_open(self):
+        run_fn, _ = self._run_fn(["", "3389/OPEN"])
+        self.assertTrue(gcm._check_port_open(None, run_fn, "10.0.0.1", 3389))
+
+    def test_nc_cmd_contains_ip_and_port(self):
+        run_fn, calls = self._run_fn(["OPEN"])
+        gcm._check_port_open(None, run_fn, "192.168.1.50", 22)
+        self.assertIn("192.168.1.50", calls[0])
+        self.assertIn("22", calls[0])
+
+    def test_nmap_fallback_cmd_contains_port(self):
+        run_fn, calls = self._run_fn(["", ""])
+        gcm._check_port_open(None, run_fn, "10.0.0.5", 8080)
+        # second call is nmap fallback
+        self.assertTrue(len(calls) >= 2)
+        self.assertIn("8080", calls[1])
+
+    def test_returns_bool(self):
+        run_fn, _ = self._run_fn(["OPEN"])
+        result = gcm._check_port_open(None, run_fn, "1.2.3.4", 22)
+        self.assertIsInstance(result, bool)
+
+
+# ── Tests SpiceTab._build_cmd mode libvirt tunnel (v1.3.2) ───────────────────
+
+
+class TestSpiceTabLibvirtTunnel(unittest.TestCase):
+    """Tests SpiceTab._build_cmd en mode tunnel libvirt (--connect)."""
+
+    def _tab(self, opts="", pwd="", host_ip="vm"):
+        h = _make_host(host=host_ip, port="5930", protocol="spice")
+        tab = gcm.SpiceTab(h, lambda: pwd)
+        tab._entry_opts.set_text(opts)
+        return tab
+
+    def test_connect_mode_no_spice_uri(self):
+        cmd = self._tab("--connect qemu+ssh://root@hv/system vm1")._build_cmd()
+        self.assertFalse(any("spice://" in a for a in cmd))
+
+    def test_connect_mode_first_arg_is_binary(self):
+        cmd = self._tab("--connect qemu+ssh://root@hv/system vm1")._build_cmd()
+        self.assertEqual(cmd[0], gcm.SPICE_BIN)
+
+    def test_connect_mode_second_arg_is_connect(self):
+        cmd = self._tab("--connect qemu+ssh://root@hv/system vm1")._build_cmd()
+        self.assertEqual(cmd[1], "--connect")
+
+    def test_connect_mode_uri_in_cmd(self):
+        cmd = self._tab("--connect qemu+ssh://root@hv/system vm1")._build_cmd()
+        self.assertTrue(any("qemu+ssh://root@hv/system" in a for a in cmd))
+
+    def test_connect_mode_vm_name_present(self):
+        cmd = self._tab("--connect qemu+ssh://root@hv/system prod-web")._build_cmd()
+        self.assertIn("prod-web", cmd)
+
+    def test_connect_mode_nonstandard_port_preserved(self):
+        cmd = self._tab("--connect qemu+ssh://root@hv:542/system vm1")._build_cmd()
+        self.assertTrue(any("542" in a for a in cmd))
+
+    def test_connect_mode_ignores_host_port_field(self):
+        cmd = self._tab(
+            "--connect qemu+ssh://root@hv/system vm1", host_ip="192.168.1.10"
+        )._build_cmd()
+        # Le port SPICE (5930) ne doit pas apparaître dans les args (hors binaire)
+        all_args = " ".join(cmd[1:])
+        self.assertNotIn("5930", all_args)
+
+
+# ── Tests _libvirt_get_uris_from_dconf (v1.3.2) ──────────────────────────────
+
+
+class TestLibvirtGetUrisFromDconf(unittest.TestCase):
+    """Tests pour _libvirt_get_uris_from_dconf."""
+
+    def _mock_run(self, stdout="", raise_exc=None):
+        def _run(*args, **kwargs):
+            if raise_exc:
+                raise raise_exc
+            r = MagicMock()
+            r.stdout = stdout
+            return r
+
+        return patch("subprocess.run", side_effect=_run)
+
+    def test_normal_output_two_uris(self):
+        raw = "['qemu+ssh://root@192.168.1.41/system', 'qemu+ssh://root@192.168.1.42/system']"
+        with self._mock_run(raw):
+            result = gcm._libvirt_get_uris_from_dconf()
+        self.assertEqual(len(result), 2)
+        self.assertIn("qemu+ssh://root@192.168.1.41/system", result)
+
+    def test_empty_stdout_returns_empty(self):
+        with self._mock_run(""):
+            result = gcm._libvirt_get_uris_from_dconf()
+        self.assertEqual(result, [])
+
+    def test_as_empty_returns_empty(self):
+        with self._mock_run("@as []"):
+            result = gcm._libvirt_get_uris_from_dconf()
+        self.assertEqual(result, [])
+
+    def test_exception_returns_empty(self):
+        with self._mock_run(raise_exc=FileNotFoundError("dconf not found")):
+            result = gcm._libvirt_get_uris_from_dconf()
+        self.assertEqual(result, [])
+
+    def test_single_uri_list(self):
+        raw = "['qemu:///system']"
+        with self._mock_run(raw):
+            result = gcm._libvirt_get_uris_from_dconf()
+        self.assertEqual(result, ["qemu:///system"])
+
+
+# ── Tests _libvirt_ssh_run (v1.3.2) ──────────────────────────────────────────
+
+
+class TestLibvirtSshRun(unittest.TestCase):
+    """Tests pour _libvirt_ssh_run — exécution distante via paramiko."""
+
+    def _client(self, output_bytes=b""):
+        client = MagicMock()
+        stdout_mock = MagicMock()
+        stdout_mock.read.return_value = output_bytes
+        client.exec_command.return_value = (MagicMock(), stdout_mock, MagicMock())
+        return client
+
+    def test_returns_stripped_output(self):
+        result = gcm._libvirt_ssh_run(self._client(b"  hello world  \n"), "cmd")
+        self.assertEqual(result, "hello world")
+
+    def test_empty_output_returns_empty_string(self):
+        result = gcm._libvirt_ssh_run(self._client(b""), "true")
+        self.assertEqual(result, "")
+
+    def test_non_utf8_bytes_with_replace(self):
+        result = gcm._libvirt_ssh_run(self._client(b"\xff\xfe hello\n"), "cmd")
+        self.assertIsInstance(result, str)
+
+    def test_timeout_passed_to_exec_command(self):
+        client = self._client(b"out")
+        gcm._libvirt_ssh_run(client, "cmd", timeout=42)
+        client.exec_command.assert_called_with("cmd", timeout=42)
+
+
+# ── Tests color_to_hex (v1.3.2 — non couvert) ───────────────────────────────
+
+
+class TestColorToHex(unittest.TestCase):
+    """Tests pour color_to_hex — conversion RGBA → chaîne hexadécimale."""
+
+    def _rgba(self, r, g, b):
+        rgba = MagicMock()
+        rgba.red = r
+        rgba.green = g
+        rgba.blue = b
+        return rgba
+
+    def test_black_produces_hash_000(self):
+        self.assertEqual(gcm.color_to_hex(self._rgba(0.0, 0.0, 0.0)), "#000")
+
+    def test_white_contains_ff_components(self):
+        result = gcm.color_to_hex(self._rgba(1.0, 1.0, 1.0))
+        self.assertEqual(result, "#ffffff")
+
+    def test_starts_with_hash(self):
+        result = gcm.color_to_hex(self._rgba(0.5, 0.3, 0.1))
+        self.assertTrue(result.startswith("#"))
+
+    def test_diff_parameter_changes_result(self):
+        r0 = gcm.color_to_hex(self._rgba(0.0, 0.0, 0.0))
+        r1 = gcm.color_to_hex(self._rgba(0.0, 0.0, 0.0), diff=16)
+        self.assertNotEqual(r0, r1)
+
+    def test_pure_blue_components(self):
+        # blue=1.0 (255=0xff), red=green=0 (0x0)
+        result = gcm.color_to_hex(self._rgba(0.0, 0.0, 1.0))
+        self.assertTrue(result.endswith("ff"))
+
+
+# ── Tests get_username (v1.3.2 — non couvert) ────────────────────────────────
+
+
+class TestGetUsername(unittest.TestCase):
+    """Tests pour get_username — lecture variables d'environnement."""
+
+    def test_returns_user_env(self):
+        with patch("os.getenv", side_effect=lambda k: {"USER": "alice"}.get(k)):
+            self.assertEqual(gcm.get_username(), "alice")
+
+    def test_fallback_to_logname(self):
+        with patch(
+            "os.getenv",
+            side_effect=lambda k: {"USER": None, "LOGNAME": "bob", "USERNAME": None}.get(k),
+        ):
+            self.assertEqual(gcm.get_username(), "bob")
+
+    def test_fallback_to_username(self):
+        with patch(
+            "os.getenv",
+            side_effect=lambda k: {"USER": None, "LOGNAME": None, "USERNAME": "carol"}.get(k),
+        ):
+            self.assertEqual(gcm.get_username(), "carol")
+
+    def test_all_none_returns_none(self):
+        with patch("os.getenv", return_value=None):
+            self.assertIsNone(gcm.get_username())
+
+
+# ── Tests LibvirtImportDialog colonnes (v1.3.2) ───────────────────────────────
+
+
+class TestLibvirtImportDialogConstants(unittest.TestCase):
+    """Tests pour les constantes de colonnes de LibvirtImportDialog._COL_*."""
+
+    def test_col_sel_is_zero(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_SEL, 0)
+
+    def test_col_proto_is_one(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_PROTO, 1)
+
+    def test_col_name_is_two(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_NAME, 2)
+
+    def test_col_group_is_three(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_GROUP, 3)
+
+    def test_col_host_is_four(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_HOST, 4)
+
+    def test_col_state_is_five(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_STATE, 5)
+
+    def test_col_exists_is_six(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_EXISTS, 6)
+
+    def test_col_idx_is_nine(self):
+        self.assertEqual(gcm.LibvirtImportDialog._COL_IDX, 9)
+
+    def test_all_ten_columns_unique(self):
+        cols = [
+            gcm.LibvirtImportDialog._COL_SEL,
+            gcm.LibvirtImportDialog._COL_PROTO,
+            gcm.LibvirtImportDialog._COL_NAME,
+            gcm.LibvirtImportDialog._COL_GROUP,
+            gcm.LibvirtImportDialog._COL_HOST,
+            gcm.LibvirtImportDialog._COL_STATE,
+            gcm.LibvirtImportDialog._COL_EXISTS,
+            gcm.LibvirtImportDialog._COL_EXIST_LBL,
+            gcm.LibvirtImportDialog._COL_FG,
+            gcm.LibvirtImportDialog._COL_IDX,
+        ]
+        self.assertEqual(
+            len(cols), len(set(cols)), "Tous les indices de colonnes doivent être uniques"
+        )
+
+
+# ── Tests _serial_templates_save / round-trip (v1.3.2) ───────────────────────
+
+
+class TestSerialTemplatesSaveLoad(unittest.TestCase):
+    """Tests pour _serial_templates_save/_serial_templates_load — round-trip."""
+
+    def setUp(self):
+        self._orig = dict(gcm._SERIAL_TEMPLATES)
+
+    def tearDown(self):
+        gcm._SERIAL_TEMPLATES = self._orig
+
+    def test_save_creates_section(self):
+        cp = configparser.RawConfigParser()
+        gcm._serial_templates_save(cp)
+        self.assertTrue(cp.has_section("serial_templates"))
+
+    def test_save_load_roundtrip_cisco(self):
+        cp = configparser.RawConfigParser()
+        gcm._serial_templates_save(cp)
+        gcm._SERIAL_TEMPLATES = {}
+        gcm._serial_templates_load(cp)
+        self.assertIn("Cisco IOS / IOS-XE / NX-OS", gcm._SERIAL_TEMPLATES)
+
+    def test_save_load_custom_template(self):
+        gcm._SERIAL_TEMPLATES["Mon Switch"] = ("115200", "h", "n", "8", "1")
+        cp = configparser.RawConfigParser()
+        gcm._serial_templates_save(cp)
+        gcm._SERIAL_TEMPLATES = {}
+        gcm._serial_templates_load(cp)
+        # ConfigParser lowercases les clés pour les templates non-défaut
+        found = gcm._SERIAL_TEMPLATES.get("mon switch") or gcm._SERIAL_TEMPLATES.get("Mon Switch")
+        self.assertIsNotNone(found, "Le template custom doit être rechargé (casse tolérée)")
+        self.assertEqual(found, ("115200", "h", "n", "8", "1"))
+
+    def test_save_overwrites_existing_section(self):
+        cp = configparser.RawConfigParser()
+        cp.add_section("serial_templates")
+        cp.set("serial_templates", "old_entry", "9600,n,n,8,1")
+        gcm._serial_templates_save(cp)
+        self.assertFalse(cp.has_option("serial_templates", "old_entry"))
+
+    def test_load_no_section_returns_false(self):
+        cp = configparser.RawConfigParser()
+        result = gcm._serial_templates_load(cp)
+        self.assertFalse(result)
+
+    def test_load_with_section_returns_true(self):
+        cp = configparser.RawConfigParser()
+        gcm._serial_templates_save(cp)
+        result = gcm._serial_templates_load(cp)
+        self.assertTrue(result)
+
+    def test_save_load_linux_template(self):
+        cp = configparser.RawConfigParser()
+        gcm._serial_templates_save(cp)
+        gcm._SERIAL_TEMPLATES = {}
+        gcm._serial_templates_load(cp)
+        self.assertIn("Linux / Raspberry Pi", gcm._SERIAL_TEMPLATES)
+        self.assertEqual(gcm._SERIAL_TEMPLATES["Linux / Raspberry Pi"][0], "115200")
+
+
+# ── Tests _collect_ssh_keys (v1.3.2) ─────────────────────────────────────────
+
+
+class TestCollectSshKeys(unittest.TestCase):
+    """Tests pour _collect_ssh_keys — listing des clés privées SSH."""
+
+    def test_no_ssh_dir_returns_empty(self):
+        with patch("os.path.isdir", return_value=False):
+            result = gcm._collect_ssh_keys()
+        self.assertEqual(result, [])
+
+    def test_skips_pub_files(self):
+        with (
+            patch("os.path.isdir", return_value=True),
+            patch("os.listdir", return_value=["id_ed25519", "id_ed25519.pub"]),
+            patch("os.path.isfile", return_value=True),
+            patch(
+                "builtins.open", unittest.mock.mock_open(read_data=b"BEGIN OPENSSH PRIVATE KEY")
+            ),
+        ):
+            result = gcm._collect_ssh_keys()
+        self.assertFalse(any(".pub" in k for k in result))
+
+    def test_skips_known_hosts(self):
+        with (
+            patch("os.path.isdir", return_value=True),
+            patch("os.listdir", return_value=["known_hosts", "id_rsa"]),
+            patch("os.path.isfile", return_value=True),
+            patch("builtins.open", unittest.mock.mock_open(read_data=b"BEGIN RSA PRIVATE KEY")),
+        ):
+            result = gcm._collect_ssh_keys()
+        self.assertFalse(any("known_hosts" in k for k in result))
+
+    def test_skips_config(self):
+        with (
+            patch("os.path.isdir", return_value=True),
+            patch("os.listdir", return_value=["config", "authorized_keys", "id_rsa"]),
+            patch("os.path.isfile", return_value=True),
+            patch("builtins.open", unittest.mock.mock_open(read_data=b"BEGIN RSA PRIVATE KEY")),
+        ):
+            result = gcm._collect_ssh_keys()
+        basenames = [os.path.basename(k) for k in result]
+        self.assertNotIn("config", basenames)
+        self.assertNotIn("authorized_keys", basenames)
+
+    def test_returns_list(self):
+        with (
+            patch("os.path.isdir", return_value=True),
+            patch("os.listdir", return_value=[]),
+            patch("os.path.isfile", return_value=True),
+        ):
+            result = gcm._collect_ssh_keys()
+        self.assertIsInstance(result, list)
 
 
 if __name__ == "__main__":

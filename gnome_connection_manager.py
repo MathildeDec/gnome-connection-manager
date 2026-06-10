@@ -27,6 +27,30 @@ import time
 import traceback
 from urllib.parse import urlparse
 
+
+def _dep_install_hint(pkg_debian, pkg_fedora, pkg_arch=None):
+    """Retourne la commande d'installation selon l'OS détecté (/etc/os-release)."""
+    try:
+        with open("/etc/os-release") as _f:
+            _rel = _f.read().lower()
+    except OSError:
+        _rel = ""
+    if any(
+        x in _rel for x in ("ubuntu", "debian", "mint", "pop", "kali", "raspbian", "linuxmint")
+    ):
+        return f"sudo apt install {pkg_debian}"
+    if any(x in _rel for x in ("fedora", "rhel", "centos", "rocky", "alma", "oracle")):
+        return f"sudo dnf install {pkg_fedora}"
+    if any(x in _rel for x in ("arch", "manjaro", "endeavouros", "garuda")):
+        return f"sudo pacman -S {pkg_arch or pkg_fedora}"
+    if any(x in _rel for x in ("opensuse", "suse")):
+        return f"sudo zypper install {pkg_debian}"
+    return (
+        f"Debian/Ubuntu : sudo apt install {pkg_debian}\n"
+        f"  Fedora/RHEL   : sudo dnf install {pkg_fedora}"
+    )
+
+
 try:
     import paramiko
 
@@ -40,8 +64,19 @@ try:
     gi.require_version("Gtk", "3.0")
     gi.require_version("Vte", "2.91")
     from gi.repository import Gdk, GLib, GObject, Gtk, Pango, Vte
-except:
-    sys.exit("python3-gi and gir1.2-vte-2.91 required")
+except Exception:
+    print(
+        "\n[GCM] Erreur : dépendances GTK3 / VTE manquantes.\n"
+        "  → "
+        + _dep_install_hint(
+            "python3-gi gir1.2-gtk-3.0 gir1.2-vte-2.91",
+            "python3-gobject vte291",
+            "python-gobject vte3",
+        )
+        + "\n",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # check Terminal version
 TERMINAL_V048 = "spawn_async" in Vte.Terminal.__dict__
@@ -2068,7 +2103,10 @@ def _paramiko_connect(hostname, port, username, log_fn=None):
     """
     if not _PARAMIKO_OK:
         if log_fn:
-            log_fn("ERREUR : paramiko non installé → pip install paramiko")
+            log_fn(
+                "ERREUR : paramiko non installé → "
+                + _dep_install_hint("python3-paramiko", "python3-paramiko", "python-paramiko")
+            )
         return None
     keys = _collect_ssh_keys()
     client = paramiko.SSHClient()
@@ -2277,7 +2315,10 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
         list[dict]: Hôtes prêts à importer dans GCM.
     """
     if not _PARAMIKO_OK:
-        log_fn("ERREUR : paramiko non installé → pip install paramiko")
+        log_fn(
+            "ERREUR : paramiko non installé → "
+            + _dep_install_hint("python3-paramiko", "python3-paramiko", "python-paramiko")
+        )
         return []
     if proto_filter is None:
         proto_filter = {"ssh", "spice", "rdp"}
