@@ -1,6 +1,6 @@
 # GCM — Documentation utilisateur (français)
 
-**Gnome Connection Manager v1.3.1**  
+**Gnome Connection Manager v1.3.2**
 Fork maintenu par [MathildeDec](https://github.com/MathildeDec/gnome-connection-manager)
 
 ---
@@ -51,15 +51,23 @@ fenêtre unique, ce qui évite de jongler entre de nombreuses fenêtres et appli
 ### Architecture
 
 ```
-gnome_connection_manager.py   ← application principale (~7 300 lignes)
+gnome_connection_manager.py   ← application principale (~7 500 lignes)
 ├── GCMBase                   ← fenêtre principale, arbre hôtes, onglets
-├── Host                      ← modèle de données d'une connexion
+├── Host                      ← modèle de données d’une connexion
 ├── HostUtils                 ← lecture/écriture du fichier de config INI
 ├── RdpTab                    ← onglet RDP (xfreerdp fenêtre)
 ├── RdpEmbeddedTab            ← onglet RDP (GtkSocket XEmbed)
 ├── VncTab                    ← onglet VNC
-├── SpiceTab                  ← onglet SPICE
-└── SerialTab                 ← onglet console série
+├── SpiceTab                  ← onglet SPICE (URI spice:// ou tunnel libvirt)
+├── SerialTab                 ← onglet console série
+├── LibvirtImportDialog       ← dialogue import 2 phases (scan → prévisualisation)
+├── SerialTemplatesTab        ← onglet templates série dans les préférences
+├── Whost                     ← formulaire édition hôte
+└── Wconfig                   ← fenêtre préférences
+
+tools/
+├── libvirt_inventory.py      ← inventaire CLI : JSON/CSV/Ansible, détection OS/ports
+└── ssh_deploy.py             ← déploiement clés SSH RSA/Ed25519 vers les VMs
 ```
 
 Le fichier de configuration est stocké dans `~/.config/gnome-connection-manager/config.ini`
@@ -140,7 +148,7 @@ cd gnome-connection-manager
 
 ### Créer un hôte
 
-1. Clic droit sur un groupe dans l'arbre → **Nouveau hôte**  
+1. Clic droit sur un groupe dans l'arbre → **Nouveau hôte**
    _ou_ menu **Connexion → Nouvelle connexion**
 2. Remplir le formulaire :
    - **Nom** : libellé affiché dans l'arbre
@@ -268,24 +276,48 @@ vinagre vnc://motdepasse@192.168.1.30:5900
 
 ## 8. Protocole SPICE
 
+### Modes de connexion
+
+GCM supporte deux modes pour SPICE :
+
+| Mode | Quand | Description |
+|------|-------|--------------|
+| **URI directe** | Connexion manuelle (hote:port connus) | `spice://hote?port=5930` passé à `remote-viewer` |
+| **Tunnel libvirt** | Import libvirt | `remote-viewer --connect qemu+ssh://user@hv/system vm` — tunnel SSH géré nativement |
+
+Le mode utilisé est détecté automatiquement via le champ **Paramètres supplémentaires** : si la valeur commence par `--connect`, GCM utilise directement `remote-viewer --connect URI vm_name` sans construire d’URI `spice://`.
+
 ### Binaires supportés (auto-détectés)
 
 1. `remote-viewer` (virt-viewer — recommandé)
 2. `spicec`
 
-### Paramètres
+### Paramètres (mode URI directe)
 
 | Champ | Exemple | Description |
 |-------|---------|-------------|
 | Hôte | `192.168.1.40` | Adresse du serveur SPICE |
 | Port | `5930` | Port SPICE (défaut 5930) |
 | Mot de passe | `****` | Ajouté en paramètre `?password=` |
+| Paramètres supp. | `--spice-ca-file=/etc/ssl/certs/ca.crt` | Options `remote-viewer` |
 
-### Format URI
+### Format URI (mode direct)
 
 ```
 spice://192.168.1.40?port=5930&password=motdepasse
 ```
+
+### Mode tunnel libvirt (import automatique)
+
+Lorsque la VM est importée depuis libvirt, le champ Paramètres supp. contient :
+```
+--connect qemu+ssh://root@hyperviseur/system nom_vm
+```
+La commande résultante :
+```bash
+remote-viewer --connect qemu+ssh://root@hyperviseur/system nom_vm
+```
+`virt-viewer` établit le tunnel SSH vers l’hyperviseur et récupère le socket SPICE sans exposer le port.
 
 ---
 
@@ -435,38 +467,79 @@ Utile pour avoir un terminal rapide sans quitter GCM.
 
 ### Présentation
 
-GCM peut interroger un hyperviseur KVM/QEMU (local ou distant via SSH) et importer
-automatiquement toutes les VMs en tant que connexions GCM.
+GCM interroge les hyperviseurs KVM/QEMU via SSH et importe automatiquement
+les VMs découvertes sous forme de connexions GCM. L'import fonctionne en
+**deux phases** : scan (découverte) + prévisualisation (sélection avant import).
 
 ### Accès
 
-**Menu → Serveurs → Importer depuis libvirt…**
+**Menu → Fichier → Importer depuis libvirt…**
+
+### Phase 1 — Paramètres du scan
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ URI libvirt détectées (virt-manager / dconf) :                         │
+│ [☑] qemu+ssh://root@192.168.105.41/system                              │
+│ [☑] qemu+ssh://root@192.168.105.42/system                              │
+│                                                                         │
+│ User SSH hyperviseur : [root     ]                                      │
+│                                                                         │
+│ Types de connexion à importer :                                         │
+│   [☑] SSH  (ProxyJump -J ou shell HV + -t ssh user@vm)                 │
+│   [☑] SPICE  (virt-viewer --connect libvirt URI)                       │
+│   [☑] RDP  (port 3389 sondé depuis l'HV — nc/nmap)                    │
+│                                                                         │
+│ Log : [zone de log en temps réel]                                      │
+│ Progression : [████████████████████          ] 1/2                     │
+│                                              [🔍 Scanner]               │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Phase 2 — Tableau de prévisualisation
+
+Après le scan, un tableau apparaît avec toutes les connexions trouvées.
+
+- Lignes **déjà présentes** dans GCM : grisées, case décochée par défaut
+- **Nouvelles** lignes : case cochée par défaut
+- Case **Écraser existants** : si cochée, les connexions existantes sont remplacées
+- Boutons **✓ Tout cocher** / **✗ Tout décocher**
+- Le tableau est scrollable (>250 lignes gérées)
 
 ### URIs supportées
 
 | Type | Exemple |
 |------|---------|
-| Local | `qemu:///system` |
+| Local | `qemu:///system` (ignoré — nécessite SSH) |
 | SSH | `qemu+ssh://root@192.168.1.1/system` |
-| TCP | `qemu+tcp://192.168.1.1/system` |
+| SSH + port non-standard | `qemu+ssh://root@192.168.1.1:542/system` |
 
-### Comportement automatique
+Les URIs configurées dans **virt-manager** sont pré-remplies automatiquement (lecture dconf).
 
-| Critère | Action GCM |
-|---------|-----------|
-| Nom de VM contenant `win` / `windows` | Protocole → `rdp`, port → `3389` |
-| Toutes les autres VMs | Protocole → `ssh`, port → `22` |
-| Résolution IP | `domifaddr` → leases DHCP → table ARP |
-| Segmentation du nom | `prod-web-01` → groupe **PROD**, hôte **web-01** |
+### Stratégie de connexion par protocole
 
-### Convention de nommage
+| Protocole | Comportement |
+|-----------|-------------|
+| **SSH** (IP connue) | `ssh -J user@hv:port user@ip_vm` — ProxyJump transparent |
+| **SSH** (IP inconnue) | Shell HV puis `-t ssh user@vm_name` |
+| **SPICE** | `remote-viewer --connect qemu+ssh://user@hv[:port]/system vm_name` |
+| **RDP** | Uniquement si port 3389 confirmé ouvert (nc/nmap depuis l'HV) |
 
-GCM découpe le nom de VM sur le premier `-`, `_` ou espace :
+### Résolution IP
+
+Pour chaque VM, GCM tente dans l'ordre :
+1. `virsh domifaddr vm --source agent` (guest-agent)
+2. `virsh domifaddr vm --source arp` (table ARP)
+3. Leases DHCP (`virsh net-dhcp-leases`)
+4. Scan nmap (`-sn`) sur les sous-réseaux de l'HV
+
+### Convention de nommage des groupes
 
 ```
-prod_web-01      →  groupe PROD  / hôte web-01
-dev-mysql        →  groupe DEV   / hôte mysql
-standalone       →  groupe LIBVIRT / hôte standalone
+prod_web-01  →  groupe PROD    / hôte web-01 [SSH]
+dev-mysql    →  groupe DEV     / hôte mysql [SSH]
+win-dc       →  groupe WIN     / hôte dc [RDP]
+standalone   →  groupe LIBVIRT / hôte standalone [SSH]
 ```
 
 ---
@@ -477,7 +550,7 @@ Le mode cluster permet d'envoyer des commandes simultanément à plusieurs hôte
 
 ### Activer le mode cluster
 
-1. Maintenir **Ctrl** et double-cliquer sur plusieurs hôtes de l'arbre  
+1. Maintenir **Ctrl** et double-cliquer sur plusieurs hôtes de l'arbre
    _ou_ sélectionner les hôtes puis **Connexion → Ouvrir en cluster**
 2. Une barre de saisie apparaît sous les onglets
 3. Tapez une commande puis **Entrée** → exécution sur tous les onglets cluster
@@ -757,4 +830,107 @@ sudo apt install python3-gi
 
 ---
 
-*Documentation GCM v1.3.1 — [github.com/MathildeDec/gnome-connection-manager](https://github.com/MathildeDec/gnome-connection-manager)*
+## 21. Outils CLI (`tools/`)
+
+Le répertoire `tools/` contient des scripts autonomes pour la gestion des
+hyperviseurs libvirt en dehors de l'interface GCM.
+
+### `tools/libvirt_inventory.py` — Inventaire complet
+
+Interroge les hyperviseurs KVM/QEMU et génère un inventaire complet : IP, OS,
+vCPUs, RAM, ports SPICE/VNC/RDP. Exporte en JSON, CSV, Ansible INI et YAML.
+
+#### Prérequis
+
+```bash
+pip install paramiko
+```
+
+#### Utilisation
+
+```bash
+# Inventaire rapide (sans scan nmap ni détection OS)
+python3 tools/libvirt_inventory.py --no-nmap --no-os
+
+# Inventaire complet avec sondage ports
+python3 tools/libvirt_inventory.py \
+  --detect-ports \
+  --output-json inventory.json \
+  --output-csv  inventory.csv \
+  --ansible-ini inventory.ini \
+  --ansible-yaml inventory.yml
+
+# Surcharge des URIs (sans dconf)
+python3 tools/libvirt_inventory.py \
+  --uris qemu+ssh://root@192.168.105.41/system \
+         qemu+ssh://root@192.168.105.42/system \
+  --no-os --no-csv
+
+# Connexion avec mot de passe (préférer les clés SSH)
+python3 tools/libvirt_inventory.py --ssh-password MonMotDePasse
+```
+
+#### Options principales
+
+| Option | Description |
+|--------|-------------|
+| `--uris URI...` | Surcharge les URIs dconf |
+| `--no-os` | Désactive la détection d'OS (plus rapide) |
+| `--no-nmap` | Désactive le scan nmap |
+| `--detect-ports` | Sonde SPICE/VNC/RDP depuis l'HV |
+| `--vm-user USER` | Utilisateur SSH pour les VMs (défaut : root) |
+| `--ssh-password PASS` | Mot de passe SSH pour les HVs |
+| `--ssh-timeout SEC` | Délai de connexion SSH (défaut : 10s) |
+| `--no-csv` | Désactive l'export CSV |
+| `--no-ansible` | Désactive les exports Ansible |
+| `--no-report` | Pas d'affichage terminal |
+
+#### Exports générés
+
+| Fichier | Format | Description |
+|---------|--------|-------------|
+| `inventory.json` | JSON | Inventaire complet (toutes les données) |
+| `inventory.csv` | CSV | Une ligne par VM × interface |
+| `inventory.ini` | Ansible INI | Groupes : `vms_running`, `vms_stopped`, `os_linux`, `os_windows`, `rdp`, `hypervisor_*` |
+| `inventory.yml` | Ansible YAML | Compatible `ansible-inventory --list` |
+
+---
+
+### `tools/ssh_deploy.py` — Déploiement de clés SSH
+
+Génère des clés SSH (RSA-4096 + Ed25519) sur les hyperviseurs et les déploie
+automatiquement vers toutes les VMs running via `ssh-copy-id`.
+
+#### Prérequis
+
+```bash
+pip install paramiko
+# Sur les hyperviseurs : apt install sshpass (ou expect)
+```
+
+#### Workflow
+
+1. Connexion SSH à chaque hyperviseur (via clé ou mot de passe)
+2. Génération des clés RSA-4096 et Ed25519 si absentes (`~/.ssh/`)
+3. Pour chaque VM running avec IP connue :
+   - Test de connexion par clé depuis l'HV → VM
+   - Si échec : `ssh-copy-id` avec mot de passe (mis en cache par réseau)
+   - Re-test après déploiement
+4. Rapport JSON `ssh_deploy_report.json`
+
+#### Utilisation
+
+```bash
+# Utilise inventory.json généré par libvirt_inventory.py
+python3 tools/ssh_deploy.py
+
+# Options
+python3 tools/ssh_deploy.py \
+  --inventory /chemin/inventory.json \
+  --vm-user ubuntu \
+  --uris qemu+ssh://root@192.168.105.41/system
+```
+
+---
+
+*Documentation GCM v1.3.2 — [github.com/MathildeDec/gnome-connection-manager](https://github.com/MathildeDec/gnome-connection-manager)*

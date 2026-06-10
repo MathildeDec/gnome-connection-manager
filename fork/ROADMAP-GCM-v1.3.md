@@ -1,7 +1,8 @@
 # Feuille de route — GCM v1.3
-**Projet :** Fork de kuthulux/gnome-connection-manager  
-**Fork cible :** https://github.com/MathildeDec/gnome-connection-manager  
-**Date de démarrage :** 2026-06-09  
+**Projet :** Fork de kuthulux/gnome-connection-manager
+**Fork cible :** https://github.com/MathildeDec/gnome-connection-manager
+**Date de démarrage :** 2026-06-09
+**Version courante :** v1.3.2
 **Modèle :** Claude Sonnet 4.6 (GitHub Copilot)
 
 ---
@@ -23,10 +24,9 @@
 | 9 | Serial RS-232/485 + templates constructeurs (11) | ✅ Terminé | Moyen |
 | 10 | Suite tests unitaires pytest (379 tests) | ✅ Terminé | Moyen |
 | 11 | Documentation utilisateur + README | ✅ Terminé | Facile |
-
----
-
-## Analyse des issues upstream (kuthulux/gnome-connection-manager)
+| 12 | **v1.3.2** — Import libvirt 2 phases + SpiceTab tunnel libvirt | ✅ Terminé | Complexe |
+| 13 | **v1.3.2** — `tools/libvirt_inventory.py` v4 (CSV/Ansible/ports) | ✅ Terminé | Moyen |
+| 14 | **v1.3.2** — `tools/ssh_deploy.py` + pre-commit ruff/black/flake8 | ✅ Terminé | Moyen |
 
 **28 issues ouvertes** analysées. Classées ci-dessous.
 
@@ -105,12 +105,20 @@
 | désactiver les shortcuts | 🔲 post v1.3 | Option dans préférences |
 | charset dynamique en console | 🔲 post v1.3 | Option par host |
 
-### 🔲 Prochaines évolutions planifiées (post v1.3.1)
+### ✅ Réalisé en v1.3.2 (post v1.3.1)
+
+| Priorité | Feature | Statut |
+|---|---|---|
+| ⭐⭐⭐ | **libvirt_inventory** v4 | ✅ `tools/libvirt_inventory.py` — CLI, CSV, Ansible INI/YAML, détection ports, OS, vCPUs, RAM |
+| ⭐⭐⭐ | **ssh_deploy** | ✅ `tools/ssh_deploy.py` — Génération clés RSA-4096 + Ed25519, ssh-copy-id batch |
+| ⭐⭐⭐ | **Import libvirt 2 phases** | ✅ `LibvirtImportDialog` — scan + prévisualisation, ProxyJump, SPICE libvirt URI, RDP conditionnel |
+| ⭐⭐⭐ | **SpiceTab tunnel libvirt** | ✅ `remote-viewer --connect qemu+ssh://…` via détection `--connect` |
+| ⭐⭐⭐ | **Qualité code** | ✅ `pyproject.toml` ruff Google style + `.pre-commit-config.yaml` (ruff/black/flake8) |
+
+### 🔲 Prochaines évolutions planifiées (post v1.3.2)
 
 | Priorité | Feature | Détails |
 |---|---|---|
-| ⭐⭐⭐ | **libvirt_inventory** | Script / module d'inventaire des VMs libvirt exporté en CSV/JSON/Ansible, indépendant de l'UI GCM |
-| ⭐⭐⭐ | **ssh_deploy** | Déploiement de clés SSH / fichiers / commandes sur une sélection de hosts GCM en mode batch |
 | ⭐⭐ | Zoom terminal Ctrl++/- (#79) | `terminal.set_font()` ajusté |
 | ⭐⭐ | Fermeture auto onglet (#77) | Option par host ou globale |
 | ⭐⭐ | Config CLI `--config` (#80) | `argparse` |
@@ -151,7 +159,7 @@ GCM parse correctement (`ast.parse` OK) mais contient des bugs à l'exécution :
 | 3510 | `web.readline().strip().decode('utf-8')` | Vérification type — OK (urllib3 retourne des bytes en Python 3) | ✅ vérif OK |
 
 ### Résultat
-`ast.parse` OK. `xrange` corrigé. `from __future__` supprimé.  
+`ast.parse` OK. `xrange` corrigé. `from __future__` supprimé.
 **Commit :** à faire après validation (étape 1b).
 
 ---
@@ -213,8 +221,8 @@ GCM parse correctement (`ast.parse` OK) mais contient des bugs à l'exécution :
 
 ### Actions détaillées
 
-**1.1 — Corriger `xrange` (bloquant)**  
-Fichier : `gnome_connection_manager.py`, ligne 315  
+**1.1 — Corriger `xrange` (bloquant)**
+Fichier : `gnome_connection_manager.py`, ligne 315
 Fonction `xor()` utilisée pour le chiffrement des mots de passe.
 
 ```python
@@ -225,10 +233,10 @@ for k in xrange(len(str1)):
 for k in range(len(str1)):
 ```
 
-**1.2 — Supprimer `from __future__`**  
+**1.2 — Supprimer `from __future__`**
 Ligne 41 — relique inoffensive mais inutile sous Python 3.
 
-**1.3 — Corriger la lecture de version (check_updates)**  
+**1.3 — Corriger la lecture de version (check_updates)**
 Ligne 3510 — `web.readline()` retourne déjà un `str` si la connexion HTTP est correctement décodée. Vérifier et corriger si nécessaire.
 
 **1.4 — Validation**
@@ -253,8 +261,8 @@ Corriger les 8 bugs remontés dans les issues du dépôt upstream qui impactent 
 
 ### Bug 1 — `style.css` manquant → crash au démarrage (issue #81) ⭐ CRITIQUE
 
-**Symptôme :** GCM crashe avec `GLib.GError: Error opening file .../style.css: No such file or directory`  
-**Cause :** `provider.load_from_path()` est appelé sans vérifier que le fichier existe.  
+**Symptôme :** GCM crashe avec `GLib.GError: Error opening file .../style.css: No such file or directory`
+**Cause :** `provider.load_from_path()` est appelé sans vérifier que le fichier existe.
 **Correction :** rendre le chargement non-fatal.
 
 ```python
@@ -270,14 +278,14 @@ except Exception:
 
 ### Bug 2 — Clone onglet impossible avec mot de passe (issue #82)
 
-**Symptôme :** Le 2e onglet cloné reste noir (curseur clignotant, rien ne se passe).  
-**Cause :** Lors d'un `clone()`, la méthode `addTab()` récupère le mot de passe depuis `host.password` mais le processus `expect` de saisie automatique du mot de passe ne se déclenche pas au bon moment sur la session clonée.  
+**Symptôme :** Le 2e onglet cloné reste noir (curseur clignotant, rien ne se passe).
+**Cause :** Lors d'un `clone()`, la méthode `addTab()` récupère le mot de passe depuis `host.password` mais le processus `expect` de saisie automatique du mot de passe ne se déclenche pas au bon moment sur la session clonée.
 **Correction :** Analyser `addTab()` → vérifier que `sendPassword()` est appelé sur le bon terminal VTE après connexion SSH, pas avant.
 
 ### Bug 3 — Logging cassé sur Ubuntu 24.04 / VTE récent (issue #88) ⭐ CRITIQUE
 
-**Symptôme :** Le fichier de log ne contient que l'en-tête d'ouverture de session, rien de plus. Sessions très lentes si logging activé.  
-**Cause :** VTE 2.91+ a supprimé/modifié le signal `contents-changed`. GCM utilise probablement ce signal pour déclencher l'écriture dans le fichier de log.  
+**Symptôme :** Le fichier de log ne contient que l'en-tête d'ouverture de session, rien de plus. Sessions très lentes si logging activé.
+**Cause :** VTE 2.91+ a supprimé/modifié le signal `contents-changed`. GCM utilise probablement ce signal pour déclencher l'écriture dans le fichier de log.
 **Correction :** Migrer vers `output-written` (signal VTE 2.91+) :
 
 ```python
@@ -292,8 +300,8 @@ Chercher dans le code : `set_terminal_logger()` et `on_contents_changed()`.
 
 ### Bug 4 — Passphrase SSH redemandée à chaque onglet (issue #89)
 
-**Symptôme :** À chaque nouvel onglet SSH, GCM demande la passphrase de la clé privée, même si l'agent SSH (gnome-keyring, ssh-agent) est actif.  
-**Cause :** La variable `SSH_AUTH_SOCK` n'est pas transmise au sous-processus VTE qui lance SSH.  
+**Symptôme :** À chaque nouvel onglet SSH, GCM demande la passphrase de la clé privée, même si l'agent SSH (gnome-keyring, ssh-agent) est actif.
+**Cause :** La variable `SSH_AUTH_SOCK` n'est pas transmise au sous-processus VTE qui lance SSH.
 **Correction :** Injecter `SSH_AUTH_SOCK` dans l'environnement du processus SSH :
 
 ```python
@@ -308,8 +316,8 @@ Ou plus simplement : passer `-o AddKeysToAgent=yes` dans les arguments SSH par d
 
 ### Bug 5 — Freeze SSH sur équipements réseau (MikroTik, etc.) (issue #87)
 
-**Symptôme :** La session SSH se gèle après quelques minutes. Le device reçoit des centaines de paquets `window-change` en boucle.  
-**Cause :** À chaque redimensionnement de la fenêtre GCM (même minuscule), `Vte` notifie la taille et GCM renvoie immédiatement un `window-change` SSH. Des animations GTK ou des redimensionnements automatiques génèrent des dizaines d'événements par seconde.  
+**Symptôme :** La session SSH se gèle après quelques minutes. Le device reçoit des centaines de paquets `window-change` en boucle.
+**Cause :** À chaque redimensionnement de la fenêtre GCM (même minuscule), `Vte` notifie la taille et GCM renvoie immédiatement un `window-change` SSH. Des animations GTK ou des redimensionnements automatiques génèrent des dizaines d'événements par seconde.
 **Correction :** Throttler les envois `window-change` avec un debounce de 200ms :
 
 ```python
@@ -328,8 +336,8 @@ def _send_window_change(self, terminal):
 
 ### Bug 6 — Double-clic dans Midnight Commander ouvre un onglet (issue #64)
 
-**Symptôme :** Un double-clic dans le panneau droit de MC ouvre un nouvel onglet GCM au lieu d'exécuter l'action MC.  
-**Cause :** Dans `on_terminal_click()`, le calcul `posY = event.y + widget.get_allocation().y` est relatif au mauvais widget selon si on clique dans le terminal ou dans la barre d'onglets. Avec MC actif, les coordonnées tombent dans la zone "ouvrir un onglet".  
+**Symptôme :** Un double-clic dans le panneau droit de MC ouvre un nouvel onglet GCM au lieu d'exécuter l'action MC.
+**Cause :** Dans `on_terminal_click()`, le calcul `posY = event.y + widget.get_allocation().y` est relatif au mauvais widget selon si on clique dans le terminal ou dans la barre d'onglets. Avec MC actif, les coordonnées tombent dans la zone "ouvrir un onglet".
 **Correction :** Ajouter une vérification de hauteur — si `posY > tab_bar_height`, le clic est dans le terminal, pas dans les onglets :
 
 ```python
@@ -341,14 +349,14 @@ if posY > tab_bar_height:
 
 ### Bug 7 — Surlignage jaune cluster ne se réinitialise pas (issue #67)
 
-**Symptôme :** Après ajout/suppression d'une connexion en mode cluster, les onglets gardent leur surbrillance jaune même après désélection.  
-**Cause :** Le `queue_draw()` n'est pas appelé sur les onglets retirés du cluster lors de la modification de la liste.  
+**Symptôme :** Après ajout/suppression d'une connexion en mode cluster, les onglets gardent leur surbrillance jaune même après désélection.
+**Cause :** Le `queue_draw()` n'est pas appelé sur les onglets retirés du cluster lors de la modification de la liste.
 **Correction :** Forcer le redraw de tous les label d'onglets lors d'un changement de cluster.
 
 ### Bug 8 — Port tunnel SSH perdu à la sauvegarde (issue #66)
 
-**Symptôme :** Le champ "Tunnel remote host" avec port (`hostname:8080`) est perdu après sauvegarde.  
-**Cause :** La sérialisation du champ `tunnel_host` ne gère pas le format `host:port` (confond avec le champ `host` principal).  
+**Symptôme :** Le champ "Tunnel remote host" avec port (`hostname:8080`) est perdu après sauvegarde.
+**Cause :** La sérialisation du champ `tunnel_host` ne gère pas le format `host:port` (confond avec le champ `host` principal).
 **Correction :** Sauvegarder `tunnel_host` et `tunnel_port` comme deux champs séparés dans la config.
 
 ### Ordre de traitement
@@ -397,12 +405,12 @@ Corriger les 71 occurrences d'APIs GTK3 dépréciées qui génèrent des warning
 
 ### Actions détaillées
 
-**2.1 — Remplacer `Gtk.ImageMenuItem` dans `createMenu()`**  
-Fichier : `gnome_connection_manager.py`, méthode `createMenu()` (~ligne 903)  
-Chaque `Gtk.ImageMenuItem(label=...)` → `Gtk.MenuItem(label=...)`  
+**2.1 — Remplacer `Gtk.ImageMenuItem` dans `createMenu()`**
+Fichier : `gnome_connection_manager.py`, méthode `createMenu()` (~ligne 903)
+Chaque `Gtk.ImageMenuItem(label=...)` → `Gtk.MenuItem(label=...)`
 Supprimer les `menuItem.set_image(...)` correspondants (les images ne sont plus affichées par GTK3 moderne de toute façon).
 
-**2.2 — Remplacer les constantes `STOCK_*` dans les dialogues**  
+**2.2 — Remplacer les constantes `STOCK_*` dans les dialogues**
 Fichier : `gnome_connection_manager.py`, fonction `show_open_dialog()` (~ligne 241)
 
 ```python
@@ -415,8 +423,8 @@ dlg.add_button(_("Annuler"), Gtk.ResponseType.CANCEL)
 dlg.add_button(_("Ouvrir"), Gtk.ResponseType.OK)
 ```
 
-**2.3 — Audit du fichier .glade**  
-Fichier : `gnome-connection-manager.glade`  
+**2.3 — Audit du fichier .glade**
+Fichier : `gnome-connection-manager.glade`
 Chercher et corriger :
 - `GtkImageMenuItem` → `GtkMenuItem`
 - `use-stock="True"` → supprimer
@@ -470,7 +478,7 @@ class Wmain:
         self.mainWindow = self.builder.get_object(root)
 ```
 
-**3.3 — Remplacer les accès `self.widget_name` par `self.builder.get_object("widget_name")`**  
+**3.3 — Remplacer les accès `self.widget_name` par `self.builder.get_object("widget_name")`**
 *Environ 150-200 occurrences — à faire avec un script de remplacement assisté.*
 
 **3.4 — Supprimer `SimpleGladeApp.py` du projet**
@@ -488,7 +496,7 @@ Plus de dépendance externe. Code 100% PyGObject natif.
 Intégrer `fork/gcm_import_libvirt_v2.py` dans `gnome_connection_manager.py`.
 
 ### Source
-Fichier de référence : `fork/gcm_import_libvirt_v2.py`  
+Fichier de référence : `fork/gcm_import_libvirt_v2.py`
 Développé lors de la session du 2026-06-08/09.
 
 ### Fonctionnalités apportées
@@ -547,7 +555,7 @@ self._libvirt_prefs_tab = LibvirtPrefsTab(config=self.conf)
 notebook_prefs.append_page(self._libvirt_prefs_tab, Gtk.Label(label="Libvirt"))
 ```
 
-**Point 6 — Persistance config**  
+**Point 6 — Persistance config**
 Dans `loadConfig()` et `saveConfig()` :
 ```python
 config["libvirt_default_user"] = self.conf.get("libvirt_default_user", "root")
@@ -571,7 +579,7 @@ pip3 install paramiko
 Intégrer `fork/gcm_rdp.py` dans `gnome_connection_manager.py`.
 
 ### Source
-Fichier de référence : `fork/gcm_rdp.py`  
+Fichier de référence : `fork/gcm_rdp.py`
 Développé lors de la session du 2026-06-08/09.
 
 ### Fonctionnalités apportées
@@ -630,7 +638,7 @@ def _open_rdp_tab(self, notebook, host):
     notebook.append_page(tab, ...)
 ```
 
-**Point 6 — ComboBox Protocol dans le dialogue host**  
+**Point 6 — ComboBox Protocol dans le dialogue host**
 Dans le dialogue d'édition/création de host :
 - Ajouter une ComboBox : `ssh / telnet / rdp / local`
 - Port auto selon protocole : ssh→22, rdp→3389, telnet→23
@@ -697,7 +705,7 @@ Améliorer l'étape 5 : au lieu d'une fenêtre xfreerdp indépendante, **embarqu
 class RdpEmbeddedTab(Gtk.Box):
     def __init__(self, host):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        
+
         # Barre d'outils (statut + boutons)
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.status_label = Gtk.Label(label="Déconnecté")
@@ -706,25 +714,25 @@ class RdpEmbeddedTab(Gtk.Box):
         toolbar.pack_start(self.status_label, False, False, 0)
         toolbar.pack_end(btn_disconnect, False, False, 0)
         toolbar.pack_end(btn_connect, False, False, 0)
-        
+
         # Socket XEmbed (zone RDP)
         self.socket = Gtk.Socket()
         self.socket.connect("plug-removed", self._on_plug_removed)
         self.socket.connect("realize", self._on_socket_realized)
-        
+
         self.pack_start(toolbar, False, False, 0)
         self.pack_start(self.socket, True, True, 0)
-        
+
         btn_connect.connect("clicked", lambda w: self._launch(host))
         btn_disconnect.connect("clicked", lambda w: self._kill())
-        
+
         self._process = None
         self._host = host
-    
+
     def _on_socket_realized(self, widget):
         """Le socket est prêt, on peut récupérer le XID."""
         self._xid = self.socket.get_id()
-    
+
     def _launch(self, host):
         xid = self.socket.get_id()
         cmd = [RDP_BIN,
@@ -737,13 +745,13 @@ class RdpEmbeddedTab(Gtk.Box):
             cmd.append(f"/p:{host.password}")
         self._process = subprocess.Popen(cmd)
         self.status_label.set_text(f"Connecté — {host.host}")
-    
+
     def _kill(self):
         if self._process:
             self._process.terminate()
             self._process = None
         self.status_label.set_text("Déconnecté")
-    
+
     def _on_plug_removed(self, socket):
         """xfreerdp s'est terminé — mettre à jour le statut."""
         self.status_label.set_text("Session terminée")
@@ -751,10 +759,10 @@ class RdpEmbeddedTab(Gtk.Box):
         return True  # Garder le socket (ne pas le détruire)
 ```
 
-**6.2 — Gestion du redimensionnement**  
+**6.2 — Gestion du redimensionnement**
 Quand l'onglet est redimensionné, envoyer `SIGUSR1` à xfreerdp (xfreerdp ≥ 2.4 supporte le resize dynamique via signal) ou utiliser `/size:WxH` au lancement et reconstruire la connexion si resize.
 
-**6.3 — Fallback transparent**  
+**6.3 — Fallback transparent**
 Si `Gtk.Socket` n'est pas disponible (Wayland sans XWayland), retomber automatiquement sur le comportement de l'étape 5 (fenêtre externe).
 
 ```python
@@ -788,22 +796,22 @@ Livrer une version propre, taggée et documentée.
 
 ### Actions
 
-**7.1 — Mettre à jour la version**  
+**7.1 — Mettre à jour la version**
 Fichier : `gnome_connection_manager.py`, ligne contenant `app_version`
 ```python
 app_version = "1.3.0"
 ```
 
-**7.2 — Mettre à jour le README**  
+**7.2 — Mettre à jour le README**
 Ajouter une section **Nouveautés v1.3** :
 - Import libvirt (détection automatique des VMs depuis virt-manager)
 - Support RDP via xfreerdp (embarqué dans les onglets GCM)
 - Compatibilité Python 3.13 / GTK 3.24+
 
-**7.3 — Mettre à jour le CHANGELOG**  
+**7.3 — Mettre à jour le CHANGELOG**
 Créer `CHANGELOG.md` avec les détails des changements.
 
-**7.4 — Dépendances**  
+**7.4 — Dépendances**
 Créer ou mettre à jour `requirements.txt` :
 ```
 paramiko>=3.0
