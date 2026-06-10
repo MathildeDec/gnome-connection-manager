@@ -1229,7 +1229,8 @@ _PROTO_DEFAULTS = {
 # Templates série : (débit, flow, parity, databits, stopbits)
 #   flow : n=none  x=xon/xoff  h=rts/cts
 #   parity : n=none  e=even  o=odd
-_SERIAL_TEMPLATES = {
+# Templates série par défaut (immuables — utilisés comme fallback).
+_SERIAL_TEMPLATES_DEFAULT = {
     "Cisco IOS / IOS-XE / NX-OS": ("9600", "n", "n", "8", "1"),
     "HP Comware (H3C)": ("9600", "n", "n", "8", "1"),
     "Aruba AOS-S / AOS-CX": ("9600", "n", "n", "8", "1"),
@@ -1242,6 +1243,54 @@ _SERIAL_TEMPLATES = {
     "RS-485 Modbus RTU": ("9600", "n", "n", "8", "1"),
     "Libre (manuel)": ("9600", "n", "n", "8", "1"),
 }
+# Copie mutable chargée au démarrage (peut être étendue / modifiée par l'user).
+_SERIAL_TEMPLATES = dict(_SERIAL_TEMPLATES_DEFAULT)
+
+
+def _serial_templates_load(cp):
+    """Charge les templates série depuis une section [serial_templates] du ConfigParser.
+
+    Format de chaque entrée :
+        nom_du_template = baud,flow,parity,databits,stopbits
+    Ex : Mon routeur = 9600,n,n,8,1
+
+    Les templates du fichier *remplacent entièrement* les valeurs par défaut
+    pour les noms existants et *ajoutent* les entrées inconnues.
+
+    Args:
+        cp (configparser.RawConfigParser): Objet de configuration déjà lu.
+    """
+    global _SERIAL_TEMPLATES
+    if not cp.has_section("serial_templates"):
+        # Section absente → garder les défauts, signaler l'absence pour injection
+        _SERIAL_TEMPLATES = dict(_SERIAL_TEMPLATES_DEFAULT)
+        return False
+    _SERIAL_TEMPLATES = dict(_SERIAL_TEMPLATES_DEFAULT)
+    for name, value in cp.items("serial_templates"):
+        # Les noms sont en minuscules dans ConfigParser — on reconstruit la casse
+        # originale depuis les défauts, sinon on garde tel quel.
+        original_name = name
+        for k in _SERIAL_TEMPLATES_DEFAULT:
+            if k.lower() == name.lower():
+                original_name = k
+                break
+        parts = [p.strip() for p in value.split(",")]
+        if len(parts) == 5:
+            _SERIAL_TEMPLATES[original_name] = tuple(parts)
+    return True
+
+
+def _serial_templates_save(cp):
+    """Écrit la section [serial_templates] dans le ConfigParser.
+
+    Args:
+        cp (configparser.RawConfigParser): Objet de configuration à mettre à jour.
+    """
+    if cp.has_section("serial_templates"):
+        cp.remove_section("serial_templates")
+    cp.add_section("serial_templates")
+    for name, tpl in _SERIAL_TEMPLATES.items():
+        cp.set("serial_templates", name, ",".join(tpl))
 
 
 class VncTab(Gtk.Box):
@@ -2427,6 +2476,165 @@ class LibvirtImportDialog:
         self._btn_import.set_sensitive(True)
         self._dlg.disconnect_by_func(self._on_response)
         self._dlg.connect("response", lambda d, r: d.destroy())
+
+
+# ─── Onglet Templates Série dans les préférences ─────────────────────────────
+
+
+class SerialTemplatesTab:
+    """Onglet 'Templates Série' dans Gtk.Notebook des préférences GCM.
+
+    Permet d'ajouter, modifier et supprimer des templates série personnalisés.
+    Les modifications sont appliquées dans _SERIAL_TEMPLATES global et
+    persistées dans [serial_templates] de gcm.conf.
+    """
+
+    _COL_NAME = 0
+    _COL_BAUD = 1
+    _COL_FLOW = 2
+    _COL_PARITY = 3
+    _COL_DATABITS = 4
+    _COL_STOPBITS = 5
+
+    _BAUD_VALUES = (
+        "300",
+        "1200",
+        "2400",
+        "4800",
+        "9600",
+        "19200",
+        "38400",
+        "57600",
+        "115200",
+        "230400",
+        "460800",
+        "921600",
+    )
+    _FLOW_CODES = ("n", "x", "h", "d")
+    _PARITY_CODES = ("n", "e", "o")
+    _DATABITS_VALUES = ("5", "6", "7", "8")
+    _STOPBITS_VALUES = ("1", "2")
+
+    def __init__(self, notebook):
+        self._build(notebook)
+
+    def _build(self, notebook):
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        outer.set_margin_start(10)
+        outer.set_margin_end(10)
+        outer.set_margin_top(10)
+        outer.set_margin_bottom(10)
+
+        lbl_help = Gtk.Label()
+        lbl_help.set_markup(
+            _(
+                "<i>Double-cliquez sur une cellule pour la modifier.\n"
+                "Format fichier : <tt>[serial_templates]</tt> dans <tt>gcm.conf</tt>\n"
+                "<tt>Mon équipement = 9600,n,n,8,1</tt>  (baud,flux,parité,bits,stop)</i>"
+            )
+        )
+        lbl_help.set_xalign(0)
+        lbl_help.set_line_wrap(True)
+        outer.pack_start(lbl_help, False, False, 0)
+
+        self._store = Gtk.ListStore(str, str, str, str, str, str)
+        self._populate_store()
+
+        tv = Gtk.TreeView(model=self._store)
+        tv.set_reorderable(True)
+        self._tv = tv
+
+        for title, col_idx, width in (
+            (_("Nom du template"), self._COL_NAME, 200),
+            (_("Débit"), self._COL_BAUD, 80),
+            (_("Flux"), self._COL_FLOW, 70),
+            (_("Parité"), self._COL_PARITY, 80),
+            (_("Bits données"), self._COL_DATABITS, 80),
+            (_("Stop"), self._COL_STOPBITS, 60),
+        ):
+            if col_idx == self._COL_NAME:
+                renderer = Gtk.CellRendererText()
+                renderer.set_property("editable", True)
+                renderer.connect("edited", self._on_cell_edited, col_idx)
+                col = Gtk.TreeViewColumn(title, renderer, text=col_idx)
+            else:
+                choices = {
+                    self._COL_BAUD: self._BAUD_VALUES,
+                    self._COL_FLOW: self._FLOW_CODES,
+                    self._COL_PARITY: self._PARITY_CODES,
+                    self._COL_DATABITS: self._DATABITS_VALUES,
+                    self._COL_STOPBITS: self._STOPBITS_VALUES,
+                }[col_idx]
+                renderer = Gtk.CellRendererCombo()
+                renderer.set_property("editable", True)
+                renderer.set_property("has-entry", False)
+                m = Gtk.ListStore(str)
+                for c in choices:
+                    m.append([c])
+                renderer.set_property("model", m)
+                renderer.set_property("text-column", 0)
+                renderer.connect("edited", self._on_cell_edited, col_idx)
+                col = Gtk.TreeViewColumn(title, renderer, text=col_idx)
+            col.set_min_width(width)
+            col.set_resizable(True)
+            tv.append_column(col)
+
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw.set_vexpand(True)
+        sw.add(tv)
+        outer.pack_start(sw, True, True, 0)
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_add = Gtk.Button(label=_("+ Ajouter"))
+        btn_add.connect("clicked", self._on_add)
+        btn_del = Gtk.Button(label=_("− Supprimer"))
+        btn_del.connect("clicked", self._on_delete)
+        btn_rst = Gtk.Button(label=_("Restaurer les défauts"))
+        btn_rst.connect("clicked", self._on_restore_defaults)
+        for b in (btn_add, btn_del, btn_rst):
+            btn_box.pack_start(b, False, False, 0)
+        outer.pack_start(btn_box, False, False, 0)
+
+        outer.show_all()
+        notebook.append_page(outer, Gtk.Label(label=_("Templates Série")))
+
+    def _populate_store(self):
+        self._store.clear()
+        for name, tpl in _SERIAL_TEMPLATES.items():
+            baud, flow, parity, databits, stopbits = tpl
+            self._store.append([name, baud, flow, parity, databits, stopbits])
+
+    def _on_cell_edited(self, renderer, path, new_text, col_idx):
+        self._store[path][col_idx] = new_text.strip()
+
+    def _on_add(self, widget):
+        self._store.append([_("Nouveau template"), "9600", "n", "n", "8", "1"])
+
+    def _on_delete(self, widget):
+        sel = self._tv.get_selection()
+        model, it = sel.get_selected()
+        if it is not None:
+            model.remove(it)
+
+    def _on_restore_defaults(self, widget):
+        global _SERIAL_TEMPLATES
+        _SERIAL_TEMPLATES = dict(_SERIAL_TEMPLATES_DEFAULT)
+        self._populate_store()
+
+    def apply(self):
+        """Applique les modifications dans _SERIAL_TEMPLATES global."""
+        global _SERIAL_TEMPLATES
+        _SERIAL_TEMPLATES = {}
+        for row in self._store:
+            name = row[self._COL_NAME].strip()
+            baud = row[self._COL_BAUD].strip()
+            flow = row[self._COL_FLOW].strip()
+            parity = row[self._COL_PARITY].strip()
+            databits = row[self._COL_DATABITS].strip()
+            stopbits = row[self._COL_STOPBITS].strip()
+            if name and baud:
+                _SERIAL_TEMPLATES[name] = (baud, flow, parity, databits, stopbits)
 
 
 class LibvirtPrefsTab:
@@ -4199,6 +4407,20 @@ class Wmain(GCMBase):
         global shortcuts
         shortcuts = scuts
 
+        # Charger les templates série personnalisés
+        # Si la section est absente (première exécution / mise à jour),
+        # on injecte les défauts dans le fichier de config immédiatement.
+        if not _serial_templates_load(cp):
+            try:
+                _serial_templates_save(cp)
+                with open(CONFIG_FILE + ".tmp", "w") as _f:
+                    cp.write(_f)
+                os.rename(CONFIG_FILE + ".tmp", CONFIG_FILE)
+            except Exception as _e:
+                print(
+                    "GCM: impossible d'écrire les templates série par défaut : %s" % _e
+                )
+
         # Leer lista de hosts
         groups = {}
         for section in cp.sections():
@@ -4478,6 +4700,9 @@ class Wmain(GCMBase):
                     "shortcuts", "command%d" % (i), shortcuts[s].replace("\n", "\\n")
                 )
                 i = i + 1
+
+        # Sauvegarder les templates série personnalisés
+        _serial_templates_save(cp)
 
         f = open(CONFIG_FILE + ".tmp", "w")
         cp.write(f)
@@ -6587,10 +6812,11 @@ class Wconfig(GCMBase):
 
         self.treeModel2.append(None, ["", ""])
 
-        # Onglet Libvirt dans les préférences
+        # Onglets dans les préférences
         nb = self.tblGeneral.get_parent().get_parent()
         if isinstance(nb, Gtk.Notebook):
             self._lv_prefs = LibvirtPrefsTab(nb, conf.__dict__)
+            self._serial_tpl_prefs = SerialTemplatesTab(nb)
 
     # -- Wconfig.new }
 
@@ -6786,6 +7012,8 @@ class Wconfig(GCMBase):
         # Sauvegarder prefs Libvirt
         if hasattr(self, "_lv_prefs"):
             self._lv_prefs.apply(conf.__dict__)
+        if hasattr(self, "_serial_tpl_prefs"):
+            self._serial_tpl_prefs.apply()
 
         wMain.writeConfig()
 
