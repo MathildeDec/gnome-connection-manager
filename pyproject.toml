@@ -11,21 +11,13 @@ requires-python = ">=3.10"
 target-version = "py310"
 line-length = 99
 
-# Répertoires à analyser
-include = [
-    "gnome_connection_manager.py",
-    "pyAES.py",
-    "urlregex.py",
-    "tools/**/*.py",
-    "tests/**/*.py",
-]
 exclude = [
     ".git",
     "__pycache__",
     "*.egg-info",
     "dist",
     "build",
-    "fork/__pycache__",
+    "fork",
 ]
 
 [tool.ruff.lint]
