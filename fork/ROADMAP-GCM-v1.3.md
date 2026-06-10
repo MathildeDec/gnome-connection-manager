@@ -115,13 +115,14 @@
 | ⭐⭐ | Fermeture auto onglet (#77) | Option par host ou globale |
 | ⭐⭐ | Config CLI `--config` (#80) | `argparse` |
 | ⭐⭐ | Import CSV / PuTTY (#74) | |
-| ⭐ | Terminal web xterm.js (#103) | |
-| ⭐ | Wayland natif (#104) | |
-| ⭐ | API REST (#106) | |
+| ⭐⭐ | ajoute une coche dans "editer hote" pour ajouter à l'espace de travail, ajouter un bouton "ouvrir l'espace de travail" qui ouvrira tous les onglets/connexions de l'espace de travail | |
+| ⭐⭐ | Terminal web xterm.js (#103) | |
+| ⭐⭐ | Wayland natif (#104) | |
+| ⭐⭐| API REST (#106) | |
 | ⭐ | Architecture plugins (#107) | |
-| ⭐ | Gestion clés SSH (#108) | |
+| ⭐ | Gestion clés SSH (#108) créer mes clés rsa et ed25519 | |
 | ⭐ | Notifications desktop (#109) | |
-| ⭐ | Mode sombre (#113) | |
+| ⭐⭐ | Mode sombre (#113) | |
 | ⭐ | Recherche dans onglets (#114) | |
 | ⭐ | Refactor MVC (#112) | |
 

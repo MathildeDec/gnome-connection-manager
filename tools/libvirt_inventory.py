@@ -16,19 +16,20 @@ Options :
     --no-report               Ne pas afficher le rapport terminal
     --detect-ports            Sonde les ports SPICE (5900-5939) et RDP (3389) par VM
     --vm-user USER            Utilisateur SSH par défaut pour les VMs (défaut: root)
+    --ssh-password PASS       Mot de passe SSH pour les hyperviseurs (préférer les clés)
+    --ssh-timeout SEC         Délai de connexion SSH en secondes (défaut: 10)
 
 Dépendances : pip install paramiko
 """
 
 import argparse
 import csv
-import subprocess
-import re
-import sys
 import json
 import logging
+import re
+import subprocess
+import sys
 from dataclasses import dataclass, field
-from typing import Optional
 from urllib.parse import urlparse
 
 try:
@@ -51,44 +52,44 @@ log = logging.getLogger(__name__)
 @dataclass
 class Interface:
     mac: str
-    ip: Optional[str] = None
-    source_network: Optional[str] = None
+    ip: str | None = None
+    source_network: str | None = None
 
 
 @dataclass
 class OSInfo:
     # Depuis le XML libvirt
-    libvirt_type: Optional[str] = None
-    libvirt_arch: Optional[str] = None
-    libvirt_machine: Optional[str] = None
-    libvirt_os_type: Optional[str] = None
-    libvirt_os_variant: Optional[str] = None
+    libvirt_type: str | None = None
+    libvirt_arch: str | None = None
+    libvirt_machine: str | None = None
+    libvirt_os_type: str | None = None
+    libvirt_os_variant: str | None = None
     # Depuis qemu-guest-agent
-    agent_os_name: Optional[str] = None
-    agent_os_version: Optional[str] = None
-    agent_kernel: Optional[str] = None
-    agent_hostname: Optional[str] = None
+    agent_os_name: str | None = None
+    agent_os_version: str | None = None
+    agent_kernel: str | None = None
+    agent_hostname: str | None = None
     # Depuis SSH direct sur la VM
-    ssh_os_name: Optional[str] = None
-    ssh_os_version: Optional[str] = None
-    ssh_kernel: Optional[str] = None
-    ssh_hostname: Optional[str] = None
+    ssh_os_name: str | None = None
+    ssh_os_version: str | None = None
+    ssh_kernel: str | None = None
+    ssh_hostname: str | None = None
     # Synthèse finale
-    os_name: Optional[str] = None
-    os_version: Optional[str] = None
-    kernel: Optional[str] = None
-    hostname: Optional[str] = None
-    arch: Optional[str] = None
+    os_name: str | None = None
+    os_version: str | None = None
+    kernel: str | None = None
+    hostname: str | None = None
+    arch: str | None = None
 
 
 @dataclass
 class PortInfo:
     """Ports ouverts détectés depuis l'hyperviseur."""
 
-    spice_port: Optional[int] = None  # port SPICE déclaré dans le XML libvirt
+    spice_port: int | None = None  # port SPICE déclaré dans le XML libvirt
     spice_open: bool = False  # port SPICE confirmé ouvert (nc/nmap)
     rdp_open: bool = False  # port 3389 ouvert
-    vnc_port: Optional[int] = None  # port VNC déclaré dans le XML
+    vnc_port: int | None = None  # port VNC déclaré dans le XML
 
 
 @dataclass
@@ -99,8 +100,8 @@ class VM:
     interfaces: list[Interface] = field(default_factory=list)
     os: OSInfo = field(default_factory=OSInfo)
     ports: PortInfo = field(default_factory=PortInfo)
-    vcpus: Optional[int] = None
-    memory_mb: Optional[int] = None
+    vcpus: int | None = None
+    memory_mb: int | None = None
 
 
 @dataclass
@@ -142,7 +143,7 @@ def get_libvirt_uris() -> list[str]:
 # ─── Parsing URI libvirt ──────────────────────────────────────────────────────
 
 
-def parse_libvirt_uri(uri: str) -> Optional[Hypervisor]:
+def parse_libvirt_uri(uri: str) -> Hypervisor | None:
     parsed = urlparse(uri)
     scheme = parsed.scheme
     if "+" in scheme:
@@ -163,17 +164,40 @@ def parse_libvirt_uri(uri: str) -> Optional[Hypervisor]:
 # ─── SSH helper ───────────────────────────────────────────────────────────────
 
 
-def ssh_connect(hv: Hypervisor) -> Optional[paramiko.SSHClient]:
+def ssh_connect(
+    hv: Hypervisor,
+    password: str | None = None,
+    timeout: int = 10,
+) -> paramiko.SSHClient | None:
+    """Ouvre une connexion SSH vers un hyperviseur.
+
+    Args:
+        hv: Hyperviseur cible (host, port, user).
+        password: Mot de passe SSH optionnel. Si None, utilise les clés/agent.
+        timeout: Délai de connexion en secondes.
+
+    Returns:
+        Client paramiko connecté, ou None en cas d'échec.
+    """
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    kwargs = dict(
-        hostname=hv.host, port=hv.port, timeout=10, look_for_keys=True, allow_agent=True
+    kwargs: dict = dict(
+        hostname=hv.host,
+        port=hv.port,
+        timeout=timeout,
+        look_for_keys=True,
+        allow_agent=True,
     )
     if hv.user:
         kwargs["username"] = hv.user
+    if password:
+        kwargs.update(password=password, look_for_keys=False, allow_agent=False)
     try:
         client.connect(**kwargs)
-        log.info(f"SSH connecté à {hv.user+'@' if hv.user else ''}{hv.host}:{hv.port}")
+        log.info(
+            f"SSH connecté à {hv.user + '@' if hv.user else ''}{hv.host}:{hv.port}"
+            + (" (mot de passe)" if password else " (clé/agent)")
+        )
         return client
     except Exception as e:
         log.error(f"Impossible de se connecter à {hv.host} : {e}")
@@ -236,9 +260,7 @@ def get_interfaces(client: paramiko.SSHClient, vm: VM) -> list[Interface]:
                 )
             )
     # Ports SPICE/VNC depuis le XML
-    m_spice = re.search(
-        r'<graphics[^>]+type=[\'"]spice[\'"][^>]*port=[\'"](\d+)[\'"]', xml
-    )
+    m_spice = re.search(r'<graphics[^>]+type=[\'"]spice[\'"][^>]*port=[\'"](\d+)[\'"]', xml)
     if m_spice and m_spice.group(1) != "-1":
         vm.ports.spice_port = int(m_spice.group(1))
     m_vnc = re.search(r'<graphics[^>]+type=[\'"]vnc[\'"][^>]*port=[\'"](\d+)[\'"]', xml)
@@ -412,9 +434,7 @@ def enrich_os(hv_client: paramiko.SSHClient, vm: VM) -> None:
 # ─── Détection de ports ouverts (SPICE/VNC/RDP) ─────────────────────────────
 
 
-def _port_open(
-    client: paramiko.SSHClient, ip: str, port: int, timeout: int = 4
-) -> bool:
+def _port_open(client: paramiko.SSHClient, ip: str, port: int, timeout: int = 4) -> bool:
     """Vérifie si un port TCP est accessible depuis l'hyperviseur (nc, puis nmap)."""
     if not ip:
         return False
@@ -455,9 +475,7 @@ def detect_ports(client: paramiko.SSHClient, vms: list[VM]) -> None:
         # VNC (port déclaré dans XML)
         if vm.ports.vnc_port:
             vnc_open = _port_open(client, ip, vm.ports.vnc_port)
-            log.info(
-                f"  {vm.name} VNC :{vm.ports.vnc_port} → {'ouvert' if vnc_open else 'fermé'}"
-            )
+            log.info(f"  {vm.name} VNC :{vm.ports.vnc_port} → {'ouvert' if vnc_open else 'fermé'}")
         # RDP
         vm.ports.rdp_open = _port_open(client, ip, 3389)
         if vm.ports.rdp_open:
@@ -530,12 +548,8 @@ def nmap_ping_scan(client: paramiko.SSHClient, subnets: list[str]) -> dict[str, 
 
 def build_arp_table(client: paramiko.SSHClient) -> dict[str, str]:
     arp = {}
-    for line in ssh_run(
-        client, "ip neigh show 2>/dev/null || arp -n 2>/dev/null"
-    ).splitlines():
-        m = re.search(
-            r"(\d+\.\d+\.\d+\.\d+).*?([0-9a-f]{2}(?::[0-9a-f]{2}){5})", line, re.I
-        )
+    for line in ssh_run(client, "ip neigh show 2>/dev/null || arp -n 2>/dev/null").splitlines():
+        m = re.search(r"(\d+\.\d+\.\d+\.\d+).*?([0-9a-f]{2}(?::[0-9a-f]{2}){5})", line, re.I)
         if m:
             arp[m.group(2).lower()] = m.group(1)
     return arp
@@ -547,9 +561,7 @@ def build_dhcp_table(client: paramiko.SSHClient) -> dict[str, str]:
         net = net.strip()
         if not net:
             continue
-        for line in ssh_run(
-            client, f"virsh net-dhcp-leases {net} 2>/dev/null"
-        ).splitlines():
+        for line in ssh_run(client, f"virsh net-dhcp-leases {net} 2>/dev/null").splitlines():
             parts = line.split()
             if len(parts) >= 4:
                 mac_c = parts[1] if ":" in parts[1] else None
@@ -562,16 +574,12 @@ def build_dhcp_table(client: paramiko.SSHClient) -> dict[str, str]:
 # ─── Résolution IP ────────────────────────────────────────────────────────────
 
 
-def resolve_ips(
-    client: paramiko.SSHClient, vms: list[VM], use_nmap: bool = True
-) -> None:
+def resolve_ips(client: paramiko.SSHClient, vms: list[VM], use_nmap: bool = True) -> None:
     for vm in vms:
         if vm.state != "running":
             continue
         for method in ("agent", "arp"):
-            out = ssh_run(
-                client, f"virsh domifaddr {vm.name} --source {method} 2>/dev/null"
-            )
+            out = ssh_run(client, f"virsh domifaddr {vm.name} --source {method} 2>/dev/null")
             for iface in vm.interfaces:
                 if iface.ip:
                     continue
@@ -606,12 +614,8 @@ def resolve_ips(
 def print_report(hypervisors: list[Hypervisor]) -> None:
     print("\n" + "═" * 68 + "\n  INVENTAIRE LIBVIRT\n" + "═" * 68)
     total_vms = sum(len(hv.vms) for hv in hypervisors)
-    total_running = sum(
-        1 for hv in hypervisors for vm in hv.vms if vm.state == "running"
-    )
-    print(
-        f"  Hyperviseurs : {len(hypervisors)}   VMs : {total_vms}   Running : {total_running}"
-    )
+    total_running = sum(1 for hv in hypervisors for vm in hv.vms if vm.state == "running")
+    print(f"  Hyperviseurs : {len(hypervisors)}   VMs : {total_vms}   Running : {total_running}")
     for hv in hypervisors:
         print(f"\n🖥  Hyperviseur : {hv.host}  ({hv.uri})")
         if not hv.vms:
@@ -930,9 +934,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-os", action="store_true", help="Désactive la détection d'OS (plus rapide)"
     )
-    p.add_argument(
-        "--no-nmap", action="store_true", help="Désactive le scan nmap (plus rapide)"
-    )
+    p.add_argument("--no-nmap", action="store_true", help="Désactive le scan nmap (plus rapide)")
     p.add_argument(
         "--detect-ports",
         action="store_true",
@@ -968,14 +970,26 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Chemin inventaire Ansible YAML (défaut: inventory.yml)",
     )
-    p.add_argument(
-        "--no-report", action="store_true", help="Ne pas afficher le rapport terminal"
-    )
+    p.add_argument("--no-report", action="store_true", help="Ne pas afficher le rapport terminal")
     p.add_argument("--no-csv", action="store_true", help="Désactive l'export CSV")
     p.add_argument(
         "--no-ansible",
         action="store_true",
         help="Désactive les exports Ansible INI et YAML",
+    )
+    p.add_argument(
+        "--ssh-password",
+        default=None,
+        metavar="PASS",
+        help="Mot de passe SSH pour les hyperviseurs (déconseillé ; préférez les clés). "
+        "Si omis, utilise clés/agent SSH.",
+    )
+    p.add_argument(
+        "--ssh-timeout",
+        type=int,
+        default=10,
+        metavar="SEC",
+        help="Délai de connexion SSH en secondes (défaut: 10)",
     )
     return p
 
@@ -995,7 +1009,7 @@ def main() -> None:
             log.info(f"URI locale ignorée : {uri}")
             continue
         log.info(f"\n── Hyperviseur : {hv.host} ({uri})")
-        client = ssh_connect(hv)
+        client = ssh_connect(hv, password=args.ssh_password, timeout=args.ssh_timeout)
         if not client:
             continue
         try:
@@ -1029,9 +1043,7 @@ def main() -> None:
         export_ansible_yaml(hypervisors, args.ansible_yaml, vm_user=args.vm_user)
 
     total_vms = sum(len(hv.vms) for hv in hypervisors)
-    log.info(
-        f"\n✅  {total_vms} VM(s) sur {len(hypervisors)} hyperviseur(s) inventoriées."
-    )
+    log.info(f"\n✅  {total_vms} VM(s) sur {len(hypervisors)} hyperviseur(s) inventoriées.")
 
 
 if __name__ == "__main__":

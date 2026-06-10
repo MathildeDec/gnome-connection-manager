@@ -12,9 +12,13 @@ Pour chaque hyperviseur libvirt (lu depuis dconf virt-manager) :
 Dépendances : pip install paramiko
 """
 
-import re, sys, json, getpass, logging, subprocess
+import getpass
+import json
+import logging
+import re
+import subprocess
+import sys
 from dataclasses import dataclass, field
-from typing import Optional
 from urllib.parse import urlparse
 
 try:
@@ -38,7 +42,7 @@ class VMTarget:
     user: str = "root"
     ssh_key_ok: bool = False
     ssh_copy_id_ok: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
@@ -71,11 +75,7 @@ def get_libvirt_uris():
 def parse_libvirt_uri(uri):
     parsed = urlparse(uri)
     scheme = parsed.scheme
-    transport = (
-        scheme.split("+")[1]
-        if "+" in scheme
-        else ("tcp" if parsed.hostname else "local")
-    )
+    transport = scheme.split("+")[1] if "+" in scheme else ("tcp" if parsed.hostname else "local")
     return Hypervisor(
         uri=uri,
         host=parsed.hostname or "localhost",
@@ -88,9 +88,7 @@ def parse_libvirt_uri(uri):
 def ssh_connect(host, user, port=22, password=None, timeout=10):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    kwargs = dict(
-        hostname=host, port=port, timeout=timeout, look_for_keys=True, allow_agent=True
-    )
+    kwargs = dict(hostname=host, port=port, timeout=timeout, look_for_keys=True, allow_agent=True)
     if user:
         kwargs["username"] = user
     if password:
@@ -131,9 +129,7 @@ def ensure_ssh_keys(client, hv_host):
     ssh_run(client, "mkdir -p /root/.ssh && chmod 700 /root/.ssh")
     pubkeys = []
     for ktype, privpath, keygen_cmd in KEY_TYPES:
-        _, out, _ = ssh_run(
-            client, f"test -f {privpath} && echo EXISTS || echo MISSING"
-        )
+        _, out, _ = ssh_run(client, f"test -f {privpath} && echo EXISTS || echo MISSING")
         if "MISSING" in out:
             log.info(f"  [{hv_host}] Génération clé {ktype}…")
             rc, _, err = ssh_run(client, keygen_cmd)
@@ -216,9 +212,7 @@ def copy_id_from_hypervisor(hv_client, vm, password):
     else:
         rc_ex, _, _ = ssh_run(hv_client, "which expect 2>/dev/null")
         if rc_ex != 0:
-            log.warning(
-                "    Ni sshpass ni expect disponible. Installez : apt install sshpass"
-            )
+            log.warning("    Ni sshpass ni expect disponible. Installez : apt install sshpass")
             return False
         escaped = password.replace('"', '\\"')
         cmd = f'expect -c "spawn ssh-copy-id -o StrictHostKeyChecking=no {vm.user}@{vm.ip}; expect {{*password* {{ send \\"{escaped}\\r\\"; exp_continue }} eof}}" 2>&1'
@@ -227,7 +221,7 @@ def copy_id_from_hypervisor(hv_client, vm, password):
 
 
 def process_hypervisor(hv, inventory, default_vm_user="root"):
-    print(f"\n{'═'*60}\n  Hyperviseur : {hv.host}\n{'═'*60}")
+    print(f"\n{'═' * 60}\n  Hyperviseur : {hv.host}\n{'═' * 60}")
     hv_client = ssh_connect(hv.host, hv.user, hv.port)
     if not hv_client:
         log.error(f"  Impossible de se connecter à {hv.host}")
