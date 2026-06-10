@@ -1547,6 +1547,10 @@ class SpiceTab(Gtk.Box):
     def _build_cmd(self):
         """Construit la commande remote-viewer avec URI spice://.
 
+        Si extra_params commence par '--connect', c'est un import libvirt :
+        virt-viewer gère le tunnel SSH automatiquement via l'URI libvirt.
+        Syntaxe : remote-viewer --connect qemu+ssh://user@host[:port]/system vm_name
+
         Returns:
             list[str]: Arguments pour subprocess.Popen.
         """
@@ -1554,6 +1558,10 @@ class SpiceTab(Gtk.Box):
         port = getattr(h, "port", "5930") or "5930"
         pwd = self._get_password() or ""
         opts_str = self._entry_opts.get_text().strip()
+        # Mode libvirt URI : virt-viewer gère le tunnel SSH nativement
+        if opts_str.startswith("--connect"):
+            return [SPICE_BIN] + shlex.split(opts_str)
+        # Mode standard : spice://host?port=PORT
         if pwd:
             uri = f"spice://{h.host}?port={port}&password={pwd}"
         else:
@@ -2239,23 +2247,63 @@ def _libvirt_nmap_scan(client, run_fn, log_fn):
     return result
 
 
+def _check_port_open(client, run_fn, ip, port, timeout=5):
+    """Vérifie si un port TCP est accessible depuis l'hyperviseur (nc ou nmap).
+
+    Essaie netcat d'abord (plus rapide), puis nmap en fallback.
+
+    Args:
+        client: Client SSH paramiko connecté.
+        run_fn (callable): run(client, cmd, timeout) → str.
+        ip (str): IP cible.
+        port (int): Port TCP à sonder.
+        timeout (int): Timeout de sonde en secondes.
+
+    Returns:
+        bool: True si le port est ouvert.
+    """
+    if not ip:
+        return False
+    out = run_fn(
+        client,
+        f"nc -z -w {timeout} {ip} {port} 2>/dev/null && echo OPEN || echo CLOSED",
+        timeout=timeout + 3,
+    )
+    if "OPEN" in out:
+        return True
+    if "CLOSED" in out:
+        return False
+    # Fallback nmap
+    out = run_fn(
+        client,
+        f"nmap -p {port} -sT --host-timeout {timeout}s {ip} -oG - 2>/dev/null",
+        timeout=timeout + 5,
+    )
+    return f"{port}/open" in out.lower()
+
+
 def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None):
     """Collecte les VMs libvirt via SSH sur les hyperviseurs donnés.
 
-    Résolution IP : domifaddr (agent/arp) → DHCP leases → table ARP noyau → nmap.
-    Pour chaque VM une entrée "jump" via l'hyperviseur est créée si l'IP est
-    inconnue ou si le protocole l'exige (SPICE/VNC redirigés via l'hyperviseur).
+    Résolution IP : domifaddr (agent/arp) → DHCP leases → ARP noyau → nmap.
+
+    Règles de génération des entrées :
+    - SSH : jamais direct ; ProxyJump (-J) si IP connue, sinon -t ssh user@vm_name
+      via le shell de l'hyperviseur.  Le port de l'hyperviseur est toujours
+      respecté (ex : qemu+ssh://root@ip:542/system → ProxyJump port 542).
+    - SPICE : virt-viewer --connect qemu+ssh://user@host[:port]/system vm_name
+      (tunnel SSH géré nativement par virt-viewer/remote-viewer).
+    - RDP : seulement si port 3389 détecté ouvert depuis l'hyperviseur (nc/nmap).
 
     Args:
         uris (list[str]): URIs libvirt (qemu+ssh://...).
-        ssh_user (str): Utilisateur SSH pour les VMs.
-        log_fn (callable): Fonction de log.
-        progress_fn (callable): Fonction de progression (frac, texte).
-        proto_filter (set[str] or None): Protocoles à importer {'ssh','spice','rdp'}.
-            None = tous.
+        ssh_user (str): Utilisateur SSH pour se connecter aux VMs.
+        log_fn (callable): Fonction de log (msg: str).
+        progress_fn (callable): Progression (frac: float, texte: str).
+        proto_filter (set[str] | None): {'ssh','spice','rdp'} ou None = tous.
 
     Returns:
-        list[dict]: Hôtes importés.
+        list[dict]: Hôtes prêts à importer dans GCM.
     """
     if not _PARAMIKO_OK:
         log_fn("ERREUR : paramiko non installé → pip install paramiko")
@@ -2295,7 +2343,7 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
             ]
             log_fn(f"  {len(vm_names)} VM(s) trouvée(s)")
 
-            # ── table ARP noyau ──────────────────────────────────────────────
+            # ── ARP noyau ────────────────────────────────────────────────────
             arp = {}
             for line in run(
                 client, "ip neigh show 2>/dev/null || arp -n 2>/dev/null"
@@ -2325,33 +2373,25 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
 
             # ── nmap ping scan ────────────────────────────────────────────────
             nmap_table = _libvirt_nmap_scan(client, run, log_fn)
-
-            # table fusionnée mac → ip (priorité : nmap > dhcp > arp)
             combined = {**arp, **dhcp, **nmap_table}
             log_fn(f"  Table MAC→IP : {len(combined)} entrées")
 
-            # ── énumération des VMs ──────────────────────────────────────────
+            # ── enumération des VMs ──────────────────────────────────────────
             for vm_name in vm_names:
                 state = run(client, f"virsh domstate {vm_name}").strip()
                 xml = run(client, f"virsh dumpxml {vm_name}")
                 ip_addr = ""
                 spice_port = ""
-                vnc_port = ""
 
-                # SPICE/VNC port dans le XML
+                # Port SPICE depuis le XML
                 m_spice = re.search(
-                    r"<graphics\s[^>]*type=['\"]spice['\"][^>]*port=['\"](\d+)['\"]",
+                    r'<graphics[^>]+type=[\'"]spice[\'"][^>]*port=[\'"](\d+)[\'"]',
                     xml,
                 )
-                m_vnc = re.search(
-                    r"<graphics\s[^>]*type=['\"]vnc['\"][^>]*port=['\"](\d+)['\"]", xml
-                )
-                if m_spice:
+                if m_spice and m_spice.group(1) != "-1":
                     spice_port = m_spice.group(1)
-                if m_vnc:
-                    vnc_port = m_vnc.group(1)
 
-                # Résolution IP
+                # Résolution IP via interfaces XML
                 for block in re.findall(r"<interface.*?</interface>", xml, re.DOTALL):
                     mac_m = re.search(r"<mac address=['\"]([^'\"]+)['\"]", block)
                     if not mac_m:
@@ -2359,11 +2399,11 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                     mac = mac_m.group(1).lower()
                     if state == "running":
                         for src in ("agent", "arp"):
-                            out = run(
+                            out2 = run(
                                 client,
                                 f"virsh domifaddr {vm_name} --source {src} 2>/dev/null",
                             )
-                            for ln in out.splitlines():
+                            for ln in out2.splitlines():
                                 if mac in ln.lower():
                                     m2 = re.search(r"(\d+\.\d+\.\d+\.\d+)", ln)
                                     if m2:
@@ -2384,46 +2424,66 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                         re.IGNORECASE,
                     )
                 )
-
-                # ── entrées selon proto_filter ───────────────────────────────
+                vm_user = "Administrator" if is_windows else ssh_user
                 added = False
 
+                # ── SSH : toujours via l'hyperviseur (jamais direct) ──────────
                 if "ssh" in proto_filter:
-                    # SSH direct sur l'IP de la VM (si connue) ou jump via HV
                     if ip_addr:
+                        # ProxyJump transparent (port hyperviseur respecté)
+                        if hv_port != 22:
+                            jump_flag = f"-J {hv_user}@{hv_host}:{hv_port}"
+                        else:
+                            jump_flag = f"-J {hv_user}@{hv_host}"
                         results.append(
                             {
                                 "name": f"{short} [SSH]",
                                 "host": ip_addr,
-                                "user": "Administrator" if is_windows else ssh_user,
+                                "user": vm_user,
                                 "port": 22,
                                 "password": "",
-                                "description": f"[{state}] {vm_name} — SSH direct",
+                                "description": (
+                                    f"[{state}] {vm_name} — SSH ProxyJump via "
+                                    f"{hv_user}@{hv_host}:{hv_port} → {ip_addr}"
+                                ),
                                 "group": grp,
                                 "hypervisor": hv_host,
                                 "protocol": "ssh",
+                                "extra_params": jump_flag,
                             }
                         )
-                        added = True
                     else:
-                        # Jump : ssh root@hyperviseur → ssh root@vm_name
+                        # IP inconnue : shell sur l'hyperviseur + -t ssh vers la VM
+                        post_cmd = f"-t ssh {vm_user}@{vm_name}"
                         results.append(
                             {
-                                "name": f"{short} [SSH via {hv_host}]",
+                                "name": f"{short} [SSH]",
                                 "host": hv_host,
                                 "user": hv_user,
                                 "port": hv_port,
                                 "password": "",
-                                "description": f"[{state}] {vm_name} — SSH via hyperviseur (IP inconnue)",
+                                "description": (
+                                    f"[{state}] {vm_name} — SSH via hyperviseur "
+                                    f"{hv_host}:{hv_port} → ssh {vm_user}@{vm_name} (IP inconnue)"
+                                ),
                                 "group": grp,
                                 "hypervisor": hv_host,
                                 "protocol": "ssh",
-                                "extra_params": f"-t ssh root@{vm_name}",
+                                "extra_params": post_cmd,
                             }
                         )
-                        added = True
+                    log_fn(
+                        f"  + [{grp}] {short:28s}  {ip_addr or '(IP inconnue)':16s}"
+                        f"  [{state}]  SSH"
+                    )
+                    added = True
 
-                if "spice" in proto_filter and spice_port and spice_port != "-1":
+                # ── SPICE : virt-viewer --connect libvirt URI (tunnel SSH auto) ─
+                if "spice" in proto_filter and spice_port:
+                    if hv_port != 22:
+                        lv_uri = f"qemu+ssh://{hv_user}@{hv_host}:{hv_port}/system"
+                    else:
+                        lv_uri = f"qemu+ssh://{hv_user}@{hv_host}/system"
                     results.append(
                         {
                             "name": f"{short} [SPICE]",
@@ -2431,36 +2491,53 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                             "user": hv_user,
                             "port": int(spice_port),
                             "password": "",
-                            "description": f"[{state}] {vm_name} — SPICE port {spice_port} sur {hv_host}",
+                            "description": (
+                                f"[{state}] {vm_name} — SPICE via {lv_uri} "
+                                f"(tunnel SSH géré par virt-viewer)"
+                            ),
                             "group": grp,
                             "hypervisor": hv_host,
                             "protocol": "spice",
+                            # SpiceTab détecte --connect et appelle: remote-viewer --connect URI vm
+                            "extra_params": f"--connect {lv_uri} {vm_name}",
                         }
+                    )
+                    log_fn(
+                        f"  + [{grp}] {short:28s}  port SPICE {spice_port:>5s}"
+                        f"  [{state}]  SPICE"
                     )
                     added = True
 
-                if "rdp" in proto_filter and (is_windows or "rdp" in proto_filter):
-                    if ip_addr:
+                # ── RDP : seulement si port 3389 ouvert (sondé depuis l'HV) ──
+                if "rdp" in proto_filter and ip_addr:
+                    log_fn(f"  ↳ Sondage RDP 3389 sur {ip_addr}…")
+                    if _check_port_open(client, run, ip_addr, 3389):
                         results.append(
                             {
                                 "name": f"{short} [RDP]",
                                 "host": ip_addr,
-                                "user": "Administrator" if is_windows else ssh_user,
+                                "user": vm_user,
                                 "port": 3389,
                                 "password": "",
-                                "description": f"[{state}] {vm_name} — RDP",
+                                "description": (
+                                    f"[{state}] {vm_name} — RDP (port 3389 confirmé ouvert)"
+                                ),
                                 "group": grp,
                                 "hypervisor": hv_host,
                                 "protocol": "rdp",
+                                "extra_params": "",
                             }
                         )
+                        log_fn(
+                            f"  + [{grp}] {short:28s}  {ip_addr:16s}"
+                            f"  [{state}]  RDP ✓"
+                        )
                         added = True
+                    else:
+                        log_fn(f"  ↳ port 3389 fermé sur {ip_addr} — RDP ignoré")
 
-                if added:
-                    log_fn(
-                        f"  + [{grp}] {short:28s}  {ip_addr or '(IP inconnue)':16s}"
-                        f"  [{state}]  spice={spice_port or '-'}  vnc={vnc_port or '-'}"
-                    )
+                if not added:
+                    log_fn(f"  - {vm_name} : aucune connexion générée")
 
         finally:
             client.close()
@@ -2471,32 +2548,55 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
 class LibvirtImportDialog:
     """Dialogue GTK3 d'import de VMs depuis les hyperviseurs libvirt.
 
-    Propose la sélection des URIs, le user SSH, un log en temps réel
-    et une barre de progression pendant le worker en arrière-plan.
+    Flux en deux phases :
+    1. Paramètres : URIs, user SSH, types de protocoles (SSH/SPICE/RDP).
+       → bouton « Scanner »
+    2. Tableau de prévisualisation : connexions découvertes, avec marquage
+       des entrées déjà présentes dans GCM, cases à cocher, import sélectif.
+
+    SSH  : jamais direct – ProxyJump (-J) si IP connue, sinon shell HV + -t.
+    SPICE: virt-viewer/remote-viewer --connect qemu+ssh://… (tunnel auto).
+    RDP  : uniquement si port 3389 confirmé ouvert (sondé depuis l'HV).
     """
+
+    # Colonnes du ListStore de prévisualisation
+    _COL_SEL = 0  # bool — à importer ?
+    _COL_PROTO = 1  # str  — SSH / SPICE / RDP
+    _COL_NAME = 2  # str  — nom court
+    _COL_GROUP = 3  # str  — groupe GCM
+    _COL_HOST = 4  # str  — IP ou hostname
+    _COL_STATE = 5  # str  — état VM (running / shut off / …)
+    _COL_EXISTS = 6  # bool — déjà présent dans GCM
+    _COL_EXIST_LBL = 7  # str  — "✓ existe" ou ""
+    _COL_FG = 8  # str  — couleur foreground
+    _COL_IDX = 9  # int  — index dans self._discovered
 
     def __init__(self, parent_window, on_done_callback, default_user="root"):
         """Initialise le dialogue d'import libvirt.
 
         Args:
             parent_window (Gtk.Window): Fenêtre parente.
-            on_done_callback (callable): Appelée avec list[dict] à la fin.
-            default_user (str, optional): User SSH par défaut. Defaults to 'root'.
+            on_done_callback (callable): Appelée avec list[dict] lors de l'import.
+            default_user (str): Utilisateur SSH par défaut.
         """
         self.parent = parent_window
         self.on_done = on_done_callback
         self.default_user = default_user
+        self._discovered = []
         self._build_ui()
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Construction de l'UI
+    # ──────────────────────────────────────────────────────────────────────────
+
     def _build_ui(self):
-        """Construit l'interface du dialogue GTK."""
         dlg = Gtk.Dialog(
-            title=_("Importer depuis libvirt"), transient_for=self.parent, modal=True
+            title=_("Importer depuis libvirt"),
+            transient_for=self.parent,
+            modal=True,
         )
-        dlg.set_default_size(680, 580)
-        dlg.add_button(_("_Annuler"), Gtk.ResponseType.CANCEL)
-        self._btn_import = dlg.add_button(_("_Importer"), Gtk.ResponseType.OK)
-        self._btn_import.get_style_context().add_class("suggested-action")
+        dlg.set_default_size(820, 720)
+        self._dlg = dlg
         box = dlg.get_content_area()
         box.set_spacing(8)
         box.set_margin_start(12)
@@ -2504,165 +2604,311 @@ class LibvirtImportDialog:
         box.set_margin_top(12)
         box.set_margin_bottom(12)
 
-        # ── User SSH ────────────────────────────────────────────────────────────────────
-        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb.pack_start(Gtk.Label(label=_("User SSH hyperviseur :")), False, False, 0)
+        # ── Phase 1 : Paramètres de scan ─────────────────────────────────────
+        self._scan_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+
+        # User SSH hyperviseur
+        hb_user = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb_user.pack_start(
+            Gtk.Label(label=_("User SSH hyperviseur :")), False, False, 0
+        )
         self._entry_user = Gtk.Entry()
         self._entry_user.set_text(self.default_user)
-        hb.pack_start(self._entry_user, False, False, 0)
-        box.pack_start(hb, False, False, 0)
+        self._entry_user.set_width_chars(12)
+        hb_user.pack_start(self._entry_user, False, False, 0)
+        self._scan_box.pack_start(hb_user, False, False, 0)
 
-        # ── Liste des URIs libvirt détectées (6 lignes) ───────────────────────────────────────────────────
+        # Liste des URIs libvirt
         lbl_uri = Gtk.Label(label=_("URI libvirt détectées (virt-manager / dconf) :"))
         lbl_uri.set_xalign(0)
-        box.pack_start(lbl_uri, False, False, 2)
+        self._scan_box.pack_start(lbl_uri, False, False, 2)
+
         self._uri_store = Gtk.ListStore(bool, str)
-        tv = Gtk.TreeView(model=self._uri_store)
-        tv.set_headers_visible(True)
-        cr = Gtk.CellRendererToggle()
-        cr.connect("toggled", self._on_uri_toggled)
-        tv.append_column(Gtk.TreeViewColumn("", cr, active=0))
-        col_uri = Gtk.TreeViewColumn(
+        tv_uri = Gtk.TreeView(model=self._uri_store)
+        tv_uri.set_headers_visible(True)
+        cr_toggle = Gtk.CellRendererToggle()
+        cr_toggle.connect("toggled", self._on_uri_toggled)
+        tv_uri.append_column(Gtk.TreeViewColumn("", cr_toggle, active=0))
+        col_uri_txt = Gtk.TreeViewColumn(
             _("URI libvirt détectée"), Gtk.CellRendererText(), text=1
         )
-        col_uri.set_expand(True)
-        tv.append_column(col_uri)
-        sw = Gtk.ScrolledWindow()
-        sw.set_min_content_height(150)
-        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        sw.add(tv)
-        box.pack_start(sw, False, False, 0)
+        col_uri_txt.set_expand(True)
+        tv_uri.append_column(col_uri_txt)
+        sw_uri = Gtk.ScrolledWindow()
+        sw_uri.set_min_content_height(150)
+        sw_uri.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw_uri.add(tv_uri)
+        self._scan_box.pack_start(sw_uri, False, False, 0)
 
-        # ── Types de connexion à importer ───────────────────────────────────────────────────────────────────────
+        # Protocoles
         lbl_proto = Gtk.Label()
         lbl_proto.set_markup(_("<b>Types de connexion à importer :</b>"))
         lbl_proto.set_xalign(0)
-        box.pack_start(lbl_proto, False, False, 4)
+        self._scan_box.pack_start(lbl_proto, False, False, 4)
+
         proto_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._chk_ssh = Gtk.CheckButton(
             label=_(
-                "SSH  (connexion directe sur l’IP de la VM ; jump via root@hyperviseur si IP inconnue)"
+                "SSH  (ProxyJump -J via hyperviseur si IP connue, "
+                "sinon shell hyperviseur + -t ssh user@vm)"
             )
         )
         self._chk_ssh.set_active(True)
         self._chk_spice = Gtk.CheckButton(
             label=_(
-                "SPICE  (port redirigé sur l’hyperviseur — nécessite un tunnel ou accès réseau)"
+                "SPICE  (virt-viewer --connect qemu+ssh://… vm — "
+                "tunnel SSH géré automatiquement)"
             )
         )
         self._chk_spice.set_active(True)
         self._chk_rdp = Gtk.CheckButton(
             label=_(
-                "RDP  (port 3389 direct sur la VM — VMs Windows détectées automatiquement)"
+                "RDP  (sondage port 3389 depuis l'hyperviseur via nc/nmap — "
+                "ignoré si port fermé)"
             )
         )
         self._chk_rdp.set_active(True)
         for chk in (self._chk_ssh, self._chk_spice, self._chk_rdp):
             proto_box.pack_start(chk, False, False, 0)
-        box.pack_start(proto_box, False, False, 0)
+        self._scan_box.pack_start(proto_box, False, False, 0)
 
-        # ── Note groupes automatiques ───────────────────────────────────────────────────────────────────────────────
-        lbl = Gtk.Label()
-        lbl.set_markup(
-            "<i><small>"
-            "Groupes automatiques : premier token du nom VM (_, -, espace) → groupe en MAJUSCULES\n"
-            "“prod-web-01” → PROD / “web-01”  ·  “standalone” → LIBVIRT / “standalone”"
-            "</small></i>"
-        )
-        lbl.set_xalign(0)
-        box.pack_start(lbl, False, False, 0)
-
-        # ── Log en temps réel ─────────────────────────────────────────────────────────────────────────────
+        # Zone de log
         self._log_buf = Gtk.TextBuffer()
         lv = Gtk.TextView(buffer=self._log_buf)
         lv.set_editable(False)
         lv.set_monospace(True)
         lv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         sw_log = Gtk.ScrolledWindow()
-        sw_log.set_min_content_height(130)
+        sw_log.set_min_content_height(100)
+        sw_log.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         sw_log.add(lv)
-        box.pack_start(sw_log, True, True, 0)
+        self._scan_box.pack_start(sw_log, False, False, 0)
         self._log_view = lv
 
-        # ── Barre de progression ──────────────────────────────────────────────────────────────────────────────
+        # Barre de progression
         self._progress = Gtk.ProgressBar()
         self._progress.set_show_text(True)
         self._progress.set_text(_("En attente…"))
-        box.pack_start(self._progress, False, False, 0)
+        self._scan_box.pack_start(self._progress, False, False, 0)
 
-        self._dlg = dlg
+        # Bouton Scanner (aligné à droite)
+        self._btn_scan = Gtk.Button(label=_("🔍  Scanner les hyperviseurs"))
+        self._btn_scan.get_style_context().add_class("suggested-action")
+        self._btn_scan.connect("clicked", self._on_scan_clicked)
+        scan_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        scan_btn_box.pack_end(self._btn_scan, False, False, 0)
+        self._scan_box.pack_start(scan_btn_box, False, False, 0)
+
+        box.pack_start(self._scan_box, False, False, 0)
+
+        # ── Phase 2 : Tableau de prévisualisation (caché au départ) ──────────
+        self._preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self._preview_box.set_no_show_all(True)
+
+        box.pack_start(self._preview_box, True, True, 0)
+
+        box.pack_start(Gtk.Separator(), False, False, 4)
+
+        # Résumé
+        self._lbl_summary = Gtk.Label(label="")
+        self._lbl_summary.set_xalign(0)
+        self._preview_box.pack_start(self._lbl_summary, False, False, 0)
+
+        # Case « Écraser »
+        self._chk_overwrite = Gtk.CheckButton(
+            label=_(
+                "Écraser les connexions existantes portant le même nom et protocole"
+            )
+        )
+        self._chk_overwrite.set_active(False)
+        self._preview_box.pack_start(self._chk_overwrite, False, False, 0)
+
+        # Tout cocher / Tout décocher
+        ctrl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_all = Gtk.Button(label=_("✓ Tout cocher"))
+        btn_all.connect("clicked", lambda w: self._select_all(True))
+        btn_none = Gtk.Button(label=_("✗ Tout décocher"))
+        btn_none.connect("clicked", lambda w: self._select_all(False))
+        ctrl_box.pack_start(btn_all, False, False, 0)
+        ctrl_box.pack_start(btn_none, False, False, 0)
+        self._preview_box.pack_start(ctrl_box, False, False, 0)
+
+        # TreeView de prévisualisation
+        self._preview_store = Gtk.ListStore(
+            bool,  # COL_SEL
+            str,  # COL_PROTO
+            str,  # COL_NAME
+            str,  # COL_GROUP
+            str,  # COL_HOST
+            str,  # COL_STATE
+            bool,  # COL_EXISTS
+            str,  # COL_EXIST_LBL
+            str,  # COL_FG
+            int,  # COL_IDX
+        )
+        tv_prev = Gtk.TreeView(model=self._preview_store)
+        tv_prev.set_enable_search(True)
+        tv_prev.set_search_column(self._COL_NAME)
+        self._tv_preview = tv_prev
+
+        # Col 0 : case à cocher
+        cr_sel = Gtk.CellRendererToggle()
+        cr_sel.connect("toggled", self._on_preview_toggled)
+        col_sel = Gtk.TreeViewColumn("", cr_sel, active=self._COL_SEL)
+        col_sel.set_min_width(28)
+        tv_prev.append_column(col_sel)
+
+        # Col 1 : protocole
+        cr_proto = Gtk.CellRendererText()
+        col_proto = Gtk.TreeViewColumn(
+            _("Proto"),
+            cr_proto,
+            text=self._COL_PROTO,
+            foreground=self._COL_FG,
+        )
+        col_proto.set_min_width(55)
+        tv_prev.append_column(col_proto)
+
+        # Col 2 : nom VM
+        cr_name = Gtk.CellRendererText()
+        col_name = Gtk.TreeViewColumn(
+            _("Nom VM"),
+            cr_name,
+            text=self._COL_NAME,
+            foreground=self._COL_FG,
+        )
+        col_name.set_expand(True)
+        col_name.set_min_width(170)
+        tv_prev.append_column(col_name)
+
+        # Col 3 : groupe
+        cr_grp = Gtk.CellRendererText()
+        col_grp = Gtk.TreeViewColumn(
+            _("Groupe"),
+            cr_grp,
+            text=self._COL_GROUP,
+            foreground=self._COL_FG,
+        )
+        col_grp.set_min_width(90)
+        tv_prev.append_column(col_grp)
+
+        # Col 4 : IP / hôte
+        cr_host = Gtk.CellRendererText()
+        col_host = Gtk.TreeViewColumn(
+            _("IP / Hôte"),
+            cr_host,
+            text=self._COL_HOST,
+            foreground=self._COL_FG,
+        )
+        col_host.set_min_width(120)
+        tv_prev.append_column(col_host)
+
+        # Col 5 : état VM
+        cr_state = Gtk.CellRendererText()
+        col_state = Gtk.TreeViewColumn(
+            _("État"),
+            cr_state,
+            text=self._COL_STATE,
+            foreground=self._COL_FG,
+        )
+        col_state.set_min_width(75)
+        tv_prev.append_column(col_state)
+
+        # Col 7 : déjà importé ?
+        cr_exist = Gtk.CellRendererText()
+        col_exist = Gtk.TreeViewColumn(
+            _("Importé"),
+            cr_exist,
+            text=self._COL_EXIST_LBL,
+            foreground=self._COL_FG,
+        )
+        col_exist.set_min_width(70)
+        tv_prev.append_column(col_exist)
+
+        # ScrolledWindow (~30 lignes visibles, défilable pour > 250 lignes)
+        sw_prev = Gtk.ScrolledWindow()
+        sw_prev.set_min_content_height(500)
+        sw_prev.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.ALWAYS)
+        sw_prev.add(tv_prev)
+        sw_prev.set_vexpand(True)
+        self._preview_box.pack_start(sw_prev, True, True, 0)
+
+        # Boutons de la phase 2
+        import_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._btn_import = Gtk.Button(label=_("⬇  Importer les sélectionnés"))
+        self._btn_import.get_style_context().add_class("suggested-action")
+        self._btn_import.connect("clicked", self._on_import_clicked)
+        btn_cancel2 = Gtk.Button(label=_("Annuler"))
+        btn_cancel2.connect("clicked", lambda w: self._dlg.destroy())
+        import_btn_box.pack_end(self._btn_import, False, False, 0)
+        import_btn_box.pack_end(btn_cancel2, False, False, 6)
+        self._preview_box.pack_start(import_btn_box, False, False, 0)
+
+        # Bouton Fermer (barre d'action standard)
+        dlg.add_button(_("✕  Fermer"), Gtk.ResponseType.CANCEL)
+        dlg.connect("response", lambda d, r: d.destroy())
+
         dlg.show_all()
+        self._preview_box.hide()
         self._populate_uris()
-        dlg.connect("response", self._on_response)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Peuplement des URIs
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _populate_uris(self):
-        """Remplit la liste des URIs depuis dconf."""
         uris = _libvirt_get_uris_from_dconf()
         if not uris:
             self._log(
-                _("Aucune URI trouvée dans dconf (virt-manager non configuré ?).")
+                _(
+                    "Aucune URI trouvée dans dconf (virt-manager non configuré ?).\n"
+                    "Ajoutez manuellement vos URIs ci-dessous."
+                )
             )
             self._uri_store.append([True, "qemu+ssh://root@hyperviseur/system"])
             return
         for uri in uris:
-            self._uri_store.append([bool(urlparse(uri).hostname), uri])
+            self._uri_store.append([True, uri])
 
-    def _on_uri_toggled(self, renderer, path):
-        """Bascule la sélection d'une URI.
-
-        Args:
-            renderer (Gtk.CellRendererToggle): Renderer source.
-            path (str): Chemin dans le ListStore.
-        """
-        self._uri_store[path][0] = not self._uri_store[path][0]
+    # ──────────────────────────────────────────────────────────────────────────
+    # Helpers log / progress
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _log(self, msg):
-        """Ajoute un message dans le TextView de log (thread-safe).
-
-        Args:
-            msg (str): Message à afficher.
-        """
-
         def _do():
-            self._log_buf.insert(self._log_buf.get_end_iter(), msg + "\n")
+            buf = self._log_buf
+            buf.insert(buf.get_end_iter(), msg + "\n")
             adj = self._log_view.get_vadjustment()
             adj.set_value(adj.get_upper())
+            return False
 
         GLib.idle_add(_do)
 
     def _set_progress(self, frac, text):
-        """Met à jour la barre de progression (thread-safe).
+        def _do():
+            self._progress.set_fraction(frac)
+            self._progress.set_text(text)
+            return False
 
-        Args:
-            frac (float): Fraction entre 0.0 et 1.0.
-            text (str): Texte affiché sur la barre.
-        """
-        GLib.idle_add(
-            lambda: (
-                self._progress.set_fraction(frac),
-                self._progress.set_text(text),
-            )
-        )
+        GLib.idle_add(_do)
 
-    def _on_response(self, dlg, response_id):
-        """Gestionnaire de réponse du dialogue.
+    # ──────────────────────────────────────────────────────────────────────────
+    # URI toggle
+    # ──────────────────────────────────────────────────────────────────────────
 
-        Args:
-            dlg (Gtk.Dialog): Dialogue source.
-            response_id (int): Identifiant de la réponse GTK.
-        """
-        if response_id == Gtk.ResponseType.OK:
-            self._run_import()
-        else:
-            dlg.destroy()
+    def _on_uri_toggled(self, renderer, path):
+        self._uri_store[path][0] = not self._uri_store[path][0]
 
-    def _run_import(self):
-        """Lance l'import en arrière-plan (thread worker)."""
-        self._btn_import.set_sensitive(False)
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 1 → Scan
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_scan_clicked(self, widget):
+        self._btn_scan.set_sensitive(False)
         uris = [row[1] for row in self._uri_store if row[0]]
         if not uris:
             self._log(_("Aucune URI sélectionnée."))
-            self._btn_import.set_sensitive(True)
+            self._btn_scan.set_sensitive(True)
             return
         user = self._entry_user.get_text().strip() or "root"
         proto_filter = set()
@@ -2674,33 +2920,132 @@ class LibvirtImportDialog:
             proto_filter.add("rdp")
         if not proto_filter:
             self._log(_("Aucun type de connexion sélectionné."))
-            self._btn_import.set_sensitive(True)
+            self._btn_scan.set_sensitive(True)
             return
 
         def worker():
             results = _libvirt_fetch_hosts(
                 uris, user, self._log, self._set_progress, proto_filter
             )
-            GLib.idle_add(self._finish, results)
+            GLib.idle_add(self._show_preview, results)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish(self, host_dicts):
-        """Finalise l'import et appelle le callback.
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 2 → Tableau de prévisualisation
+    # ──────────────────────────────────────────────────────────────────────────
 
-        Args:
-            host_dicts (list[dict]): Hôtes importés.
-        """
-        self._set_progress(1.0, f"{len(host_dicts)} hôte(s) importé(s)")
-        self._log(f"\nTerminé — {len(host_dicts)} hôte(s) prêts.")
-        self.on_done(host_dicts)
-        self._btn_import.set_label(_("Fermer"))
-        self._btn_import.set_sensitive(True)
-        self._dlg.disconnect_by_func(self._on_response)
-        self._dlg.connect("response", lambda d, r: d.destroy())
+    def _host_exists(self, name, grp):
+        """Vérifie si un hôte avec ce nom existe déjà dans le groupe GCM."""
+        if grp in groups:
+            return any(h.name == name for h in groups[grp])
+        return False
 
+    def _show_preview(self, host_dicts):
+        self._discovered = host_dicts
+        self._preview_store.clear()
 
-# ─── Onglet Templates Série dans les préférences ─────────────────────────────
+        n_new = 0
+        n_exists = 0
+        for idx, hd in enumerate(host_dicts):
+            name = hd.get("name", "")
+            grp = hd.get("group", "LIBVIRT")
+            proto = hd.get("protocol", "ssh").upper()
+            host = hd.get("host", "")
+            desc = hd.get("description", "")
+            # Extraire l'état de la VM depuis la description ([running], [shut off]…)
+            m = re.search(r"\[([^\]]+)\]", desc)
+            state_str = m.group(1) if m else ""
+            exists = self._host_exists(name, grp)
+            exist_lbl = "✓ existe" if exists else ""
+            fg = "#888888" if exists else "black"
+            # Cocher par défaut seulement les nouvelles entrées
+            selected = not exists
+            if exists:
+                n_exists += 1
+            else:
+                n_new += 1
+            self._preview_store.append(
+                [
+                    selected,
+                    proto,
+                    name,
+                    grp,
+                    host,
+                    state_str,
+                    exists,
+                    exist_lbl,
+                    fg,
+                    idx,
+                ]
+            )
+
+        total = len(host_dicts)
+        self._lbl_summary.set_markup(
+            f"<b>{total}</b> connexion(s) trouvée(s) — "
+            f"<span foreground='#007700'>{n_new} nouvelle(s)</span>, "
+            f"<span foreground='#888888'>{n_exists} déjà importée(s)</span>"
+        )
+        self._set_progress(1.0, f"{total} connexion(s) découverte(s)")
+        self._log(
+            f"\nScan terminé — {total} connexion(s) : "
+            f"{n_new} nouvelle(s), {n_exists} déjà présente(s)."
+        )
+        # Afficher la phase 2
+        self._preview_box.set_no_show_all(False)
+        self._preview_box.show_all()
+        # Réinitialiser le bouton Scanner
+        self._btn_scan.set_label(_("🔄  Rescanner"))
+        self._btn_scan.set_sensitive(True)
+        # Agrandir le dialogue pour afficher le tableau
+        self._dlg.resize(820, 900)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Sélection globale
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_preview_toggled(self, renderer, path):
+        self._preview_store[path][self._COL_SEL] = not self._preview_store[path][
+            self._COL_SEL
+        ]
+
+    def _select_all(self, value):
+        for row in self._preview_store:
+            row[self._COL_SEL] = value
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Import final
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_import_clicked(self, widget):
+        self._btn_import.set_sensitive(False)
+        overwrite = self._chk_overwrite.get_active()
+        to_import = []
+        for row in self._preview_store:
+            if not row[self._COL_SEL]:
+                continue
+            exists = row[self._COL_EXISTS]
+            if exists and not overwrite:
+                continue  # ignorer les existants si écrasement désactivé
+            idx = row[self._COL_IDX]
+            to_import.append(self._discovered[idx])
+
+        if not to_import:
+            self._log(
+                _(
+                    "Aucune connexion à importer "
+                    "(toutes déjà présentes ou aucune sélectionnée)."
+                )
+            )
+            self._btn_import.set_sensitive(True)
+            return
+
+        self.on_done(to_import)
+        self._btn_import.set_label(_("✓ Importé"))
+        n = len(to_import)
+        self._lbl_summary.set_markup(
+            f"<b>{n}</b> connexion(s) importée(s) avec succès."
+        )
 
 
 class SerialTemplatesTab:
