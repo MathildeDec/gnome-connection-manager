@@ -2181,26 +2181,93 @@ def _libvirt_ssh_run(client, cmd, timeout=30):
     return stdout.read().decode(errors="replace").strip()
 
 
-def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
+def _libvirt_nmap_scan(client, run_fn, log_fn):
+    """Lance nmap -sn sur tous les sous-réseaux de l'hyperviseur.
+
+    Returns:
+        dict: mac_lower → ip
+    """
+    result = {}
+    # Obtenir les sous-réseaux
+    out = run_fn(client, "ip -o -f inet addr show")
+    subnets, seen = [], set()
+    for line in out.splitlines():
+        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", line)
+        if not m:
+            continue
+        ip_str, prefix = m.group(1), int(m.group(2))
+        if ip_str.startswith("127.") or ip_str.startswith("169.254."):
+            continue
+        parts = list(map(int, ip_str.split(".")))
+        mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
+        net_i = 0
+        for p in parts:
+            net_i = (net_i << 8) | p
+        net_i &= mask
+        np_ = [(net_i >> (8 * i)) & 0xFF for i in reversed(range(4))]
+        cidr = f"{'.'.join(map(str, np_))}/{prefix}"
+        if cidr not in seen:
+            seen.add(cidr)
+            subnets.append(cidr)
+    if not subnets:
+        return result
+    # Vérifier que nmap est dispo
+    nmap_bin = run_fn(client, "which nmap 2>/dev/null")
+    if not nmap_bin:
+        log_fn("  nmap non disponible sur l'hyperviseur — scan réseau ignoré")
+        return result
+    nmap_ver = run_fn(client, "nmap --version 2>/dev/null | head -1")
+    ver_m = re.search(r"Nmap version (\d+)", nmap_ver)
+    flag = "-sn" if ver_m and int(ver_m.group(1)) >= 6 else "-sP"
+    for cidr in subnets:
+        log_fn(f"  nmap {flag} {cidr}…")
+        xml_out = run_fn(
+            client,
+            f"nmap {flag} {cidr} -oX - --host-timeout 5s 2>/dev/null",
+            timeout=300,
+        )
+        if not xml_out:
+            continue
+        count = 0
+        for host_block in re.findall(r"<host\b.*?</host>", xml_out, re.DOTALL):
+            ip_m = re.search(r'<address addr="([^"]+)" addrtype="ipv4"', host_block)
+            mac_m = re.search(r'<address addr="([^"]+)" addrtype="mac"', host_block)
+            if ip_m and mac_m:
+                result[mac_m.group(1).lower()] = ip_m.group(1)
+                count += 1
+        log_fn(f"    → {count} hôte(s) avec MAC sur {cidr}")
+    return result
+
+
+def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None):
     """Collecte les VMs libvirt via SSH sur les hyperviseurs donnés.
 
-    Pour chaque URI : connexion SSH par clé, virsh list, résolution IP
-    (domifaddr → DHCP leases → ARP noyau), segmentation nom VM.
+    Résolution IP : domifaddr (agent/arp) → DHCP leases → table ARP noyau → nmap.
+    Pour chaque VM une entrée "jump" via l'hyperviseur est créée si l'IP est
+    inconnue ou si le protocole l'exige (SPICE/VNC redirigés via l'hyperviseur).
 
     Args:
         uris (list[str]): URIs libvirt (qemu+ssh://...).
         ssh_user (str): Utilisateur SSH pour les VMs.
         log_fn (callable): Fonction de log.
         progress_fn (callable): Fonction de progression (frac, texte).
+        proto_filter (set[str] or None): Protocoles à importer {'ssh','spice','rdp'}.
+            None = tous.
 
     Returns:
-        list[dict]: Hôtes importés avec clés name/host/user/port/group/etc.
+        list[dict]: Hôtes importés.
     """
     if not _PARAMIKO_OK:
         log_fn("ERREUR : paramiko non installé → pip install paramiko")
         return []
+    if proto_filter is None:
+        proto_filter = {"ssh", "spice", "rdp"}
     results = []
     total = len(uris)
+
+    def run(client, cmd, timeout=30):
+        return _libvirt_ssh_run(client, cmd, timeout)
+
     for idx, uri in enumerate(uris):
         log_fn(f"\n── Hyperviseur : {uri}")
         progress_fn(idx / total, f"Connexion à {uri}…")
@@ -2223,14 +2290,14 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
         try:
             vm_names = [
                 n
-                for n in _libvirt_ssh_run(
-                    client, "virsh list --all --name"
-                ).splitlines()
+                for n in run(client, "virsh list --all --name").splitlines()
                 if n.strip()
             ]
             log_fn(f"  {len(vm_names)} VM(s) trouvée(s)")
+
+            # ── table ARP noyau ──────────────────────────────────────────────
             arp = {}
-            for line in _libvirt_ssh_run(
+            for line in run(
                 client, "ip neigh show 2>/dev/null || arp -n 2>/dev/null"
             ).splitlines():
                 m = re.search(
@@ -2240,12 +2307,14 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
                 )
                 if m:
                     arp[m.group(2).lower()] = m.group(1)
+
+            # ── DHCP leases virsh ────────────────────────────────────────────
             dhcp = {}
-            for net in _libvirt_ssh_run(client, "virsh net-list --name").splitlines():
+            for net in run(client, "virsh net-list --name").splitlines():
                 net = net.strip()
                 if not net:
                     continue
-                for line in _libvirt_ssh_run(
+                for line in run(
                     client, f"virsh net-dhcp-leases {net} 2>/dev/null"
                 ).splitlines():
                     parts = line.split()
@@ -2253,10 +2322,36 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
                         ip_raw = parts[3].split("/")[0]
                         if re.match(r"\d+\.\d+\.\d+\.\d+", ip_raw):
                             dhcp[parts[1].lower()] = ip_raw
+
+            # ── nmap ping scan ────────────────────────────────────────────────
+            nmap_table = _libvirt_nmap_scan(client, run, log_fn)
+
+            # table fusionnée mac → ip (priorité : nmap > dhcp > arp)
+            combined = {**arp, **dhcp, **nmap_table}
+            log_fn(f"  Table MAC→IP : {len(combined)} entrées")
+
+            # ── énumération des VMs ──────────────────────────────────────────
             for vm_name in vm_names:
-                state = _libvirt_ssh_run(client, f"virsh domstate {vm_name}").strip()
-                xml = _libvirt_ssh_run(client, f"virsh dumpxml {vm_name}")
+                state = run(client, f"virsh domstate {vm_name}").strip()
+                xml = run(client, f"virsh dumpxml {vm_name}")
                 ip_addr = ""
+                spice_port = ""
+                vnc_port = ""
+
+                # SPICE/VNC port dans le XML
+                m_spice = re.search(
+                    r"<graphics\s[^>]*type=['\"]spice['\"][^>]*port=['\"](\d+)['\"]",
+                    xml,
+                )
+                m_vnc = re.search(
+                    r"<graphics\s[^>]*type=['\"]vnc['\"][^>]*port=['\"](\d+)['\"]", xml
+                )
+                if m_spice:
+                    spice_port = m_spice.group(1)
+                if m_vnc:
+                    vnc_port = m_vnc.group(1)
+
+                # Résolution IP
                 for block in re.findall(r"<interface.*?</interface>", xml, re.DOTALL):
                     mac_m = re.search(r"<mac address=['\"]([^'\"]+)['\"]", block)
                     if not mac_m:
@@ -2264,7 +2359,7 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
                     mac = mac_m.group(1).lower()
                     if state == "running":
                         for src in ("agent", "arp"):
-                            out = _libvirt_ssh_run(
+                            out = run(
                                 client,
                                 f"virsh domifaddr {vm_name} --source {src} 2>/dev/null",
                             )
@@ -2277,12 +2372,11 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
                             if ip_addr:
                                 break
                     if not ip_addr:
-                        ip_addr = dhcp.get(mac) or arp.get(mac) or ""
+                        ip_addr = combined.get(mac) or ""
                     if ip_addr:
                         break
-                host_val = ip_addr if ip_addr else vm_name
+
                 grp, short = _vm_name_split(vm_name)
-                # Détection automatique Windows → RDP (#101)
                 is_windows = bool(
                     re.search(
                         r"win|w(?:2k|2019|2022|2016|2012|srv|dc|server)",
@@ -2290,25 +2384,84 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn):
                         re.IGNORECASE,
                     )
                 )
-                vm_protocol = "rdp" if is_windows else "ssh"
-                vm_port = 3389 if is_windows else 22
-                vm_user = "Administrator" if is_windows else ssh_user
-                results.append(
-                    {
-                        "name": short,
-                        "host": host_val,
-                        "user": vm_user,
-                        "port": vm_port,
-                        "password": "",
-                        "description": f"[{state}] {vm_name} via {hv_host} (libvirt)",
-                        "group": grp,
-                        "hypervisor": hv_host,
-                        "protocol": vm_protocol,
-                    }
-                )
-                log_fn(
-                    f"  + [{grp}] {short:28s}  {host_val or '(IP inconnue)':16s}  [{state}]  [{vm_protocol}]"
-                )
+
+                # ── entrées selon proto_filter ───────────────────────────────
+                added = False
+
+                if "ssh" in proto_filter:
+                    # SSH direct sur l'IP de la VM (si connue) ou jump via HV
+                    if ip_addr:
+                        results.append(
+                            {
+                                "name": f"{short} [SSH]",
+                                "host": ip_addr,
+                                "user": "Administrator" if is_windows else ssh_user,
+                                "port": 22,
+                                "password": "",
+                                "description": f"[{state}] {vm_name} — SSH direct",
+                                "group": grp,
+                                "hypervisor": hv_host,
+                                "protocol": "ssh",
+                            }
+                        )
+                        added = True
+                    else:
+                        # Jump : ssh root@hyperviseur → ssh root@vm_name
+                        results.append(
+                            {
+                                "name": f"{short} [SSH via {hv_host}]",
+                                "host": hv_host,
+                                "user": hv_user,
+                                "port": hv_port,
+                                "password": "",
+                                "description": f"[{state}] {vm_name} — SSH via hyperviseur (IP inconnue)",
+                                "group": grp,
+                                "hypervisor": hv_host,
+                                "protocol": "ssh",
+                                "extra_params": f"-t ssh root@{vm_name}",
+                            }
+                        )
+                        added = True
+
+                if "spice" in proto_filter and spice_port and spice_port != "-1":
+                    results.append(
+                        {
+                            "name": f"{short} [SPICE]",
+                            "host": hv_host,
+                            "user": hv_user,
+                            "port": int(spice_port),
+                            "password": "",
+                            "description": f"[{state}] {vm_name} — SPICE port {spice_port} sur {hv_host}",
+                            "group": grp,
+                            "hypervisor": hv_host,
+                            "protocol": "spice",
+                        }
+                    )
+                    added = True
+
+                if "rdp" in proto_filter and (is_windows or "rdp" in proto_filter):
+                    if ip_addr:
+                        results.append(
+                            {
+                                "name": f"{short} [RDP]",
+                                "host": ip_addr,
+                                "user": "Administrator" if is_windows else ssh_user,
+                                "port": 3389,
+                                "password": "",
+                                "description": f"[{state}] {vm_name} — RDP",
+                                "group": grp,
+                                "hypervisor": hv_host,
+                                "protocol": "rdp",
+                            }
+                        )
+                        added = True
+
+                if added:
+                    log_fn(
+                        f"  + [{grp}] {short:28s}  {ip_addr or '(IP inconnue)':16s}"
+                        f"  [{state}]  spice={spice_port or '-'}  vnc={vnc_port or '-'}"
+                    )
+
         finally:
             client.close()
         progress_fn((idx + 1) / total, f"{idx + 1}/{total} hyperviseurs traités")
@@ -2340,7 +2493,7 @@ class LibvirtImportDialog:
         dlg = Gtk.Dialog(
             title=_("Importer depuis libvirt"), transient_for=self.parent, modal=True
         )
-        dlg.set_default_size(620, 500)
+        dlg.set_default_size(680, 580)
         dlg.add_button(_("_Annuler"), Gtk.ResponseType.CANCEL)
         self._btn_import = dlg.add_button(_("_Importer"), Gtk.ResponseType.OK)
         self._btn_import.get_style_context().add_class("suggested-action")
@@ -2350,38 +2503,76 @@ class LibvirtImportDialog:
         box.set_margin_end(12)
         box.set_margin_top(12)
         box.set_margin_bottom(12)
+
+        # ── User SSH ────────────────────────────────────────────────────────────────────
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb.pack_start(Gtk.Label(label=_("User SSH pour les VMs :")), False, False, 0)
+        hb.pack_start(Gtk.Label(label=_("User SSH hyperviseur :")), False, False, 0)
         self._entry_user = Gtk.Entry()
         self._entry_user.set_text(self.default_user)
         hb.pack_start(self._entry_user, False, False, 0)
         box.pack_start(hb, False, False, 0)
-        box.pack_start(
-            Gtk.Label(label=_("Hyperviseurs (virt-manager / dconf) :")), False, False, 2
-        )
+
+        # ── Liste des URIs libvirt détectées (6 lignes) ───────────────────────────────────────────────────
+        lbl_uri = Gtk.Label(label=_("URI libvirt détectées (virt-manager / dconf) :"))
+        lbl_uri.set_xalign(0)
+        box.pack_start(lbl_uri, False, False, 2)
         self._uri_store = Gtk.ListStore(bool, str)
         tv = Gtk.TreeView(model=self._uri_store)
         tv.set_headers_visible(True)
         cr = Gtk.CellRendererToggle()
         cr.connect("toggled", self._on_uri_toggled)
         tv.append_column(Gtk.TreeViewColumn("", cr, active=0))
-        tv.append_column(
-            Gtk.TreeViewColumn(_("URI libvirt"), Gtk.CellRendererText(), text=1)
+        col_uri = Gtk.TreeViewColumn(
+            _("URI libvirt détectée"), Gtk.CellRendererText(), text=1
         )
+        col_uri.set_expand(True)
+        tv.append_column(col_uri)
         sw = Gtk.ScrolledWindow()
-        sw.set_min_content_height(80)
+        sw.set_min_content_height(150)
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         sw.add(tv)
         box.pack_start(sw, False, False, 0)
+
+        # ── Types de connexion à importer ───────────────────────────────────────────────────────────────────────
+        lbl_proto = Gtk.Label()
+        lbl_proto.set_markup(_("<b>Types de connexion à importer :</b>"))
+        lbl_proto.set_xalign(0)
+        box.pack_start(lbl_proto, False, False, 4)
+        proto_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._chk_ssh = Gtk.CheckButton(
+            label=_(
+                "SSH  (connexion directe sur l’IP de la VM ; jump via root@hyperviseur si IP inconnue)"
+            )
+        )
+        self._chk_ssh.set_active(True)
+        self._chk_spice = Gtk.CheckButton(
+            label=_(
+                "SPICE  (port redirigé sur l’hyperviseur — nécessite un tunnel ou accès réseau)"
+            )
+        )
+        self._chk_spice.set_active(True)
+        self._chk_rdp = Gtk.CheckButton(
+            label=_(
+                "RDP  (port 3389 direct sur la VM — VMs Windows détectées automatiquement)"
+            )
+        )
+        self._chk_rdp.set_active(True)
+        for chk in (self._chk_ssh, self._chk_spice, self._chk_rdp):
+            proto_box.pack_start(chk, False, False, 0)
+        box.pack_start(proto_box, False, False, 0)
+
+        # ── Note groupes automatiques ───────────────────────────────────────────────────────────────────────────────
         lbl = Gtk.Label()
         lbl.set_markup(
             "<i><small>"
             "Groupes automatiques : premier token du nom VM (_, -, espace) → groupe en MAJUSCULES\n"
-            '"prod-web-01" → PROD / "web-01"  ·  '
-            '"standalone" → LIBVIRT / "standalone"'
+            "“prod-web-01” → PROD / “web-01”  ·  “standalone” → LIBVIRT / “standalone”"
             "</small></i>"
         )
         lbl.set_xalign(0)
         box.pack_start(lbl, False, False, 0)
+
+        # ── Log en temps réel ─────────────────────────────────────────────────────────────────────────────
         self._log_buf = Gtk.TextBuffer()
         lv = Gtk.TextView(buffer=self._log_buf)
         lv.set_editable(False)
@@ -2392,10 +2583,13 @@ class LibvirtImportDialog:
         sw_log.add(lv)
         box.pack_start(sw_log, True, True, 0)
         self._log_view = lv
+
+        # ── Barre de progression ──────────────────────────────────────────────────────────────────────────────
         self._progress = Gtk.ProgressBar()
         self._progress.set_show_text(True)
         self._progress.set_text(_("En attente…"))
         box.pack_start(self._progress, False, False, 0)
+
         self._dlg = dlg
         dlg.show_all()
         self._populate_uris()
@@ -2471,9 +2665,22 @@ class LibvirtImportDialog:
             self._btn_import.set_sensitive(True)
             return
         user = self._entry_user.get_text().strip() or "root"
+        proto_filter = set()
+        if self._chk_ssh.get_active():
+            proto_filter.add("ssh")
+        if self._chk_spice.get_active():
+            proto_filter.add("spice")
+        if self._chk_rdp.get_active():
+            proto_filter.add("rdp")
+        if not proto_filter:
+            self._log(_("Aucun type de connexion sélectionné."))
+            self._btn_import.set_sensitive(True)
+            return
 
         def worker():
-            results = _libvirt_fetch_hosts(uris, user, self._log, self._set_progress)
+            results = _libvirt_fetch_hosts(
+                uris, user, self._log, self._set_progress, proto_filter
+            )
             GLib.idle_add(self._finish, results)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -4538,13 +4745,6 @@ class Wmain(GCMBase):
             conf.COLLAPSED_FOLDERS = ",".join(self.get_collapsed_nodes())
 
         self.menuServers.foreach(self.menuServers.remove)
-        # Ré-ajouter les items statiques depuis le glade (retirés par foreach)
-        mnu_import_lv = self.get_widget("mnu_import_libvirt")
-        mnu_import_lv.show()
-        self.menuServers.append(mnu_import_lv)
-        sep = self.get_widget("mnu_sep_libvirt")
-        sep.show()
-        self.menuServers.append(sep)
         self.treeModel.clear()
 
         iconHost = "gtk-network"
