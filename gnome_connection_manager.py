@@ -410,7 +410,7 @@ def show_font_dialog(parent, title, button):
     if response == Gtk.ResponseType.OK:
         button.selected_font = Pango.FontDescription(fontsel.get_font_name())
         button.set_label(button.selected_font.to_string())
-        button.get_child().modify_font(button.selected_font)
+        button.get_child().override_font(button.selected_font)
     parent.dlgFont.hide()
 
 
@@ -2875,9 +2875,9 @@ class Wmain(GCMBase):
             instance: Nouvelle instance de la classe.
         """
         self.hpMain = self.get_widget("hpMain")
-        self.hpMainWindow = Gtk.Window()
-        self.hpMainWindow.add(self.hpMain)
         self.wMainWindow = self.builder.get_object("wMain")
+        # hpMainWindow est un alias vers wMainWindow utilisé pour le fullscreen
+        self.hpMainWindow = self.wMainWindow
         self.nbConsole = self.get_widget("nbConsole")
         self.treeServers = self.get_widget("treeServers")
         self.menuServers = self.get_widget("menuServers")
@@ -4326,46 +4326,67 @@ class Wmain(GCMBase):
         cp = configparser.RawConfigParser()
         cp.read(CONFIG_FILE)
 
-        # Leer configuracion general
-        try:
-            conf.WORD_SEPARATORS = cp.get("options", "word-separators")
-            conf.BUFFER_LINES = cp.getint("options", "buffer-lines")
-            conf.CONFIRM_ON_EXIT = cp.getboolean("options", "confirm-exit")
-            conf.FONT_COLOR = cp.get("options", "font-color")
-            conf.BACK_COLOR = cp.get("options", "back-color")
-            conf.TRANSPARENCY = cp.getint("options", "transparency")
-            conf.PASTE_ON_RIGHT_CLICK = cp.getboolean("options", "paste-right-click")
-            conf.CONFIRM_ON_CLOSE_TAB = cp.getboolean("options", "confirm-close-tab")
-            conf.CHECK_UPDATES = cp.getboolean("options", "check-updates")
-            conf.COLLAPSED_FOLDERS = cp.get("window", "collapsed-folders")
-            conf.LEFT_PANEL_WIDTH = cp.getint("window", "left-panel-width")
-            conf.WINDOW_WIDTH = cp.getint("window", "window-width")
-            conf.WINDOW_HEIGHT = cp.getint("window", "window-height")
-            conf.FONT = cp.get("options", "font")
-            conf.DISABLE_HOSTS_STRIPES = cp.getboolean(
-                "options", "disable-hosts-stripes"
-            )
-            conf.AUTO_COPY_SELECTION = cp.getboolean("options", "auto-copy-selection")
-            conf.LOG_PATH = cp.get("options", "log-path")
-            conf.VERSION = cp.get("options", "version")
-            conf.AUTO_CLOSE_TAB = cp.getint("options", "auto-close-tab")
-            conf.CYCLE_TABS = cp.getboolean("options", "cycle-tabs")
-            conf.SHOW_PANEL = cp.getboolean("window", "show-panel")
-            conf.SHOW_TOOLBAR = cp.getboolean("window", "show-toolbar")
-            conf.STARTUP_LOCAL = cp.getboolean("options", "startup-local")
-            conf.LOG_LOCAL = cp.getboolean("options", "log-local")
-            conf.CONFIRM_ON_CLOSE_TAB_MIDDLE = cp.getboolean(
-                "options", "confirm-close-tab-middle"
-            )
-            conf.TERM = cp.get("options", "term")
-            conf.UPDATE_TITLE = cp.getboolean("options", "update-title")
-            conf.APP_TITLE = cp.get("options", "app-title") or app_name
-        except:
-            print(
-                "%s: %s"
-                % (_("Entrada invalida en archivo de configuracion"), sys.exc_info()[1])
-            )
+        # Leer configuracion general — lecture option par option avec défaut
+        # pour ne pas bloquer au premier champ manquant (ancien fichier de config)
+        def _gopt(section, key, default, typ=str):
+            try:
+                if typ == bool:
+                    return cp.getboolean(section, key)
+                if typ == int:
+                    return cp.getint(section, key)
+                return cp.get(section, key)
+            except Exception:
+                return default
 
+        conf.WORD_SEPARATORS = _gopt("options", "word-separators", conf.WORD_SEPARATORS)
+        conf.BUFFER_LINES = _gopt("options", "buffer-lines", conf.BUFFER_LINES, int)
+        conf.CONFIRM_ON_EXIT = _gopt(
+            "options", "confirm-exit", conf.CONFIRM_ON_EXIT, bool
+        )
+        conf.FONT_COLOR = _gopt("options", "font-color", conf.FONT_COLOR)
+        conf.BACK_COLOR = _gopt("options", "back-color", conf.BACK_COLOR)
+        conf.TRANSPARENCY = _gopt("options", "transparency", conf.TRANSPARENCY, int)
+        conf.PASTE_ON_RIGHT_CLICK = _gopt(
+            "options", "paste-right-click", conf.PASTE_ON_RIGHT_CLICK, bool
+        )
+        conf.CONFIRM_ON_CLOSE_TAB = _gopt(
+            "options", "confirm-close-tab", conf.CONFIRM_ON_CLOSE_TAB, bool
+        )
+        conf.CHECK_UPDATES = _gopt("options", "check-updates", conf.CHECK_UPDATES, bool)
+        conf.COLLAPSED_FOLDERS = _gopt(
+            "window", "collapsed-folders", conf.COLLAPSED_FOLDERS
+        )
+        conf.LEFT_PANEL_WIDTH = _gopt(
+            "window", "left-panel-width", conf.LEFT_PANEL_WIDTH, int
+        )
+        conf.WINDOW_WIDTH = _gopt("window", "window-width", conf.WINDOW_WIDTH, int)
+        conf.WINDOW_HEIGHT = _gopt("window", "window-height", conf.WINDOW_HEIGHT, int)
+        conf.FONT = _gopt("options", "font", conf.FONT)
+        conf.DISABLE_HOSTS_STRIPES = _gopt(
+            "options", "disable-hosts-stripes", conf.DISABLE_HOSTS_STRIPES, bool
+        )
+        conf.AUTO_COPY_SELECTION = _gopt(
+            "options", "auto-copy-selection", conf.AUTO_COPY_SELECTION, bool
+        )
+        conf.LOG_PATH = _gopt("options", "log-path", conf.LOG_PATH)
+        conf.VERSION = _gopt("options", "version", conf.VERSION)
+        conf.AUTO_CLOSE_TAB = _gopt(
+            "options", "auto-close-tab", conf.AUTO_CLOSE_TAB, int
+        )
+        conf.CYCLE_TABS = _gopt("options", "cycle-tabs", conf.CYCLE_TABS, bool)
+        conf.SHOW_PANEL = _gopt("window", "show-panel", conf.SHOW_PANEL, bool)
+        conf.SHOW_TOOLBAR = _gopt("window", "show-toolbar", conf.SHOW_TOOLBAR, bool)
+        conf.STARTUP_LOCAL = _gopt("options", "startup-local", conf.STARTUP_LOCAL, bool)
+        conf.LOG_LOCAL = _gopt("options", "log-local", conf.LOG_LOCAL, bool)
+        conf.CONFIRM_ON_CLOSE_TAB_MIDDLE = _gopt(
+            "options",
+            "confirm-close-tab-middle",
+            conf.CONFIRM_ON_CLOSE_TAB_MIDDLE,
+            bool,
+        )
+        conf.TERM = _gopt("options", "term", conf.TERM)
+        conf.UPDATE_TITLE = _gopt("options", "update-title", conf.UPDATE_TITLE, bool)
+        conf.APP_TITLE = _gopt("options", "app-title", conf.APP_TITLE) or app_name
         # setup shorcuts
         scuts = {}
         self.add_shortcut(cp, scuts, "copy", _COPY, "CTRL+SHIFT+C")
@@ -6751,8 +6772,8 @@ class Wconfig(GCMBase):
             fcolor = conf.FONT_COLOR
             bcolor = conf.BACK_COLOR
 
-        self.btnFColor.set_color(parse_color(fcolor))
-        self.btnBColor.set_color(parse_color(bcolor))
+        self.btnFColor.set_rgba(parse_color_rgba(fcolor))
+        self.btnBColor.set_rgba(parse_color_rgba(bcolor))
         self.btnFColor.selected_color = fcolor
         self.btnBColor.selected_color = bcolor
 
@@ -6764,7 +6785,7 @@ class Wconfig(GCMBase):
         self.btnFont.set_sensitive(not self.chkDefaultFont.get_active())
         self.btnFont.selected_font = Pango.FontDescription(conf.FONT)
         self.btnFont.set_label(self.btnFont.selected_font.to_string())
-        self.btnFont.get_child().modify_font(self.btnFont.selected_font)
+        self.btnFont.get_child().override_font(self.btnFont.selected_font)
 
         # commandos
         self.treeModel = Gtk.TreeStore(GObject.TYPE_STRING, GObject.TYPE_STRING)
@@ -6835,7 +6856,7 @@ class Wconfig(GCMBase):
             obj = Gtk.CheckButton()
             obj.set_label(name)
             obj.set_active(value)
-            obj.set_alignment(0, 0.5)
+            obj.set_halign(Gtk.Align.START)
             obj.show()
             obj.field = field
             self.tblGeneral.attach(
@@ -6857,7 +6878,7 @@ class Wconfig(GCMBase):
             obj.show()
             obj.field = field
             lbl = Gtk.Label(label=name)
-            lbl.set_alignment(0, 0.5)
+            lbl.set_xalign(0.0)
             lbl.show()
             self.tblGeneral.attach(lbl, 0, 1, x, x + 1, Gtk.AttachOptions.FILL, 0)
             self.tblGeneral.attach(
@@ -6877,7 +6898,7 @@ class Wconfig(GCMBase):
             obj.show()
             obj.field = field
             lbl = Gtk.Label(label=name)
-            lbl.set_alignment(0, 0.5)
+            lbl.set_xalign(0.0)
             lbl.show()
             self.tblGeneral.attach(lbl, 0, 1, x, x + 1, Gtk.AttachOptions.FILL, 0)
             self.tblGeneral.attach(
@@ -6895,7 +6916,7 @@ class Wconfig(GCMBase):
             obj.show()
             obj.field = field
             lbl = Gtk.Label(label=name)
-            lbl.set_alignment(0, 0.5)
+            lbl.set_xalign(0.0)
             lbl.show()
             self.tblGeneral.attach(lbl, 0, 1, x, x + 1, Gtk.AttachOptions.FILL, 0)
             self.tblGeneral.attach(
@@ -7632,7 +7653,7 @@ class MultilineCellRenderer(Gtk.CellRendererText):
             event (Gdk.Event): Evenement declencheur.
         """
         editor = CellTextView()
-        editor.modify_font(self.props.font_desc)
+        editor.override_font(self.props.font_desc)
         editor.set_text(self.props.text)
         editor.set_size_request(cell_area.width, cell_area.height)
         editor.set_border_width(min(self.props.xpad, self.props.ypad))
