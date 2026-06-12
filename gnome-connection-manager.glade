@@ -1459,11 +1459,12 @@ blank: default compression
                     <property name="left-attach">1</property>
                     <property name="top-attach">15</property>
                   </packing>
-                      </object>
-                    </child>
-                  </object>
                 </child>
               </object>
+            </child>
+          </object>
+        </child>
+      </object>
             </child>
             <child type="tab">
               <object class="GtkLabel">
