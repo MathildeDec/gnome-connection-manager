@@ -2096,6 +2096,44 @@ Ex: ##D=1000&lt;/span&gt;</property>
                       </object>
                     </child>
                     <child>
+                      <object class="GtkMenuItem" id="mnu_import_csv">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Import from CSV…</property>
+                        <signal name="activate" handler="on_mnu_import_csv_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="mnu_import_json">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Import from JSON…</property>
+                        <signal name="activate" handler="on_mnu_import_json_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="mnu_export_csv">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Export to CSV…</property>
+                        <signal name="activate" handler="on_mnu_export_csv_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="mnu_export_json">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Export to JSON…</property>
+                        <signal name="activate" handler="on_mnu_export_json_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparatorMenuItem">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                      </object>
+                    </child>
+                    <child>
                       <object class="GtkMenuItem">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>
@@ -2230,6 +2268,15 @@ Ex: ##D=1000&lt;/span&gt;</property>
                         <signal name="toggled" handler="on_show_panel_toggled" swapped="no"/>
                       </object>
                     </child>
+                    <child>
+                      <object class="GtkCheckMenuItem" id="mnu_dark_mode">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Dark Mode</property>
+                        <property name="use-underline">True</property>
+                        <signal name="toggled" handler="on_mnu_dark_mode_toggled" swapped="no"/>
+                      </object>
+                    </child>
                   </object>
                 </child>
               </object>
@@ -2282,12 +2329,12 @@ Ex: ##D=1000&lt;/span&gt;</property>
           <object class="GtkToolbar" id="toolbar1">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
+            <property name="toolbar-style">icons</property>
             <child>
               <object class="GtkToolButton">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="tooltip-text" translatable="yes">Open local console</property>
-                <property name="is-important">True</property>
                 <property name="label" translatable="yes">Local</property>
                 <property name="use-underline">True</property>
                 <property name="stock-id">gtk-home</property>
@@ -2303,7 +2350,6 @@ Ex: ##D=1000&lt;/span&gt;</property>
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="tooltip-text" translatable="yes">Connect to selected host or all hosts in selected group</property>
-                <property name="is-important">True</property>
                 <property name="label" translatable="yes">Connect</property>
                 <property name="use-underline">True</property>
                 <property name="stock-id">gtk-network</property>
@@ -2319,7 +2365,6 @@ Ex: ##D=1000&lt;/span&gt;</property>
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="tooltip-text" translatable="yes">Add new host</property>
-                <property name="is-important">True</property>
                 <property name="label" translatable="yes">Add</property>
                 <property name="use-underline">True</property>
                 <property name="stock-id">gtk-add</property>
@@ -2335,7 +2380,6 @@ Ex: ##D=1000&lt;/span&gt;</property>
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="tooltip-text" translatable="yes">Edit hosts properties</property>
-                <property name="is-important">True</property>
                 <property name="label" translatable="yes">Edit</property>
                 <property name="use-underline">True</property>
                 <property name="stock-id">gtk-edit</property>
@@ -2351,7 +2395,6 @@ Ex: ##D=1000&lt;/span&gt;</property>
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="tooltip-text" translatable="yes">Remove selected host</property>
-                <property name="is-important">True</property>
                 <property name="label" translatable="yes">Remove</property>
                 <property name="use-underline">True</property>
                 <property name="stock-id">gtk-delete</property>

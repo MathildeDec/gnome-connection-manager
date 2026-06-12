@@ -471,6 +471,7 @@ class conf:
     CONTINUOUS_LOG_PATH = CONFIG_DIR + "/log"
     SHOW_TOOLBAR = True
     SHOW_PANEL = True
+    DARK_MODE = False
     VERSION = 0
     UPDATE_TITLE = 0
     APP_TITLE = app_name
@@ -4471,6 +4472,11 @@ class Wmain(GCMBase):
         if conf.LEFT_PANEL_WIDTH != 0:
             self.set_panel_visible(conf.SHOW_PANEL)
         self.set_toolbar_visible(conf.SHOW_TOOLBAR)
+        # Dark mode — init depuis conf (persisté dans gcm.conf)
+        self._apply_dark_mode(conf.DARK_MODE)
+        mnu_dark = self.get_widget("mnu_dark_mode")
+        if mnu_dark:
+            mnu_dark.set_active(conf.DARK_MODE)
 
         # a veces no se posiciona correctamente con 400 ms, asi que se repite el llamado
         GLib.timeout_add(400, lambda: self.hpMain.set_position(conf.LEFT_PANEL_WIDTH))
@@ -5475,6 +5481,174 @@ class Wmain(GCMBase):
 
         ProxmoxImportDialog(self.window, on_done, default_user)
 
+    # ── CSV / JSON import/export ──────────────────────────────────────────────
+
+    # Champs exportés (sans mot de passe)
+    _CSV_FIELDS = [
+        "group", "name", "description", "host", "user", "port", "type", "protocol",
+        "extra_params", "commands", "keep_alive", "font_color", "back_color",
+        "x11", "agent", "compression", "compressionLevel", "log",
+        "backspace_key", "delete_key", "term",
+        "serial_databits", "serial_parity", "serial_stopbits", "serial_flow",
+    ]
+
+    def _all_hosts(self):
+        """Retourne la liste plate de tous les Host."""
+        return [h for grp in groups.values() for h in grp]
+
+    def _host_to_dict(self, h):
+        """Sérialise un Host en dict sans mot de passe."""
+        return {f: str(getattr(h, f, "") or "") for f in self._CSV_FIELDS}
+
+    def _dict_to_host(self, d):
+        """Désérialise un dict en Host (pas de mot de passe)."""
+        h = Host()
+        h.group = d.get("group", "IMPORT")
+        h.name = d.get("name", "")
+        h.description = d.get("description", "")
+        h.host = d.get("host", "")
+        h.user = d.get("user", "")
+        h.password = ""
+        h.private_key = ""
+        h.port = d.get("port", "22")
+        h.tunnel = ""
+        h.type = d.get("type", "ssh")
+        h.commands = d.get("commands", "")
+        h.keep_alive = int(d.get("keep_alive", 0) or 0)
+        h.font_color = d.get("font_color", "")
+        h.back_color = d.get("back_color", "")
+        h.x11 = str(d.get("x11", "False")).lower() in ("true", "1", "yes")
+        h.agent = str(d.get("agent", "False")).lower() in ("true", "1", "yes")
+        h.compression = str(d.get("compression", "False")).lower() in ("true", "1", "yes")
+        h.compressionLevel = d.get("compressionLevel", "")
+        h.extra_params = d.get("extra_params", "")
+        h.log = str(d.get("log", "False")).lower() in ("true", "1", "yes")
+        h.backspace_key = int(d.get("backspace_key", 0) or 0)
+        h.delete_key = int(d.get("delete_key", 0) or 0)
+        h.term = d.get("term", "")
+        h.protocol = d.get("protocol", d.get("type", "ssh"))
+        h.serial_databits = d.get("serial_databits", "8")
+        h.serial_parity = d.get("serial_parity", "n")
+        h.serial_stopbits = d.get("serial_stopbits", "1")
+        h.serial_flow = d.get("serial_flow", "n")
+        return h
+
+    def _import_hosts_from_list(self, host_list):
+        """Ajoute une liste de Host dans le modèle et écrit la config."""
+        added = 0
+        for h in host_list:
+            gname = h.group or "IMPORT"
+            if gname not in groups:
+                groups[gname] = []
+            # Skip doublons (même nom dans même groupe)
+            if any(x.name == h.name for x in groups[gname]):
+                continue
+            groups[gname].append(h)
+            added += 1
+        self.updateTree()
+        self.writeConfig()
+        return added
+
+    def on_mnu_import_csv_activate(self, widget, *args):
+        """Importe des connexions depuis un fichier CSV (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Import from CSV"), action=Gtk.FileChooserAction.OPEN
+        )
+        if not filename:
+            return
+        import csv as _csv
+        try:
+            with open(filename, newline="", encoding="utf-8") as f:
+                reader = _csv.DictReader(f)
+                hosts = [self._dict_to_host(row) for row in reader if row.get("name")]
+        except Exception as e:
+            msgbox(_(f"CSV import error: {e}"))
+            return
+        if not hosts:
+            msgbox(_("No valid entry found in CSV."))
+            return
+        n = self._import_hosts_from_list(hosts)
+        msgbox(_(f"{n} connection(s) imported from CSV."))
+
+    def on_mnu_import_json_activate(self, widget, *args):
+        """Importe des connexions depuis un fichier JSON (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Import from JSON"), action=Gtk.FileChooserAction.OPEN
+        )
+        if not filename:
+            return
+        import json as _json
+        try:
+            with open(filename, encoding="utf-8") as f:
+                data = _json.load(f)
+            if isinstance(data, dict):
+                data = list(data.values())
+            hosts = [self._dict_to_host(d) for d in data if isinstance(d, dict) and d.get("name")]
+        except Exception as e:
+            msgbox(_(f"JSON import error: {e}"))
+            return
+        if not hosts:
+            msgbox(_("No valid entry found in JSON."))
+            return
+        n = self._import_hosts_from_list(hosts)
+        msgbox(_(f"{n} connection(s) imported from JSON."))
+
+    def on_mnu_export_csv_activate(self, widget, *args):
+        """Exporte toutes les connexions vers un fichier CSV (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Export to CSV"), action=Gtk.FileChooserAction.SAVE
+        )
+        if not filename:
+            return
+        if not filename.endswith(".csv"):
+            filename += ".csv"
+        import csv as _csv
+        try:
+            hosts = self._all_hosts()
+            with open(filename, "w", newline="", encoding="utf-8") as f:
+                writer = _csv.DictWriter(f, fieldnames=self._CSV_FIELDS)
+                writer.writeheader()
+                for h in hosts:
+                    writer.writerow(self._host_to_dict(h))
+        except Exception as e:
+            msgbox(_(f"CSV export error: {e}"))
+            return
+        msgbox(_(f"{len(hosts)} connection(s) exported to {filename}."))
+
+    def on_mnu_export_json_activate(self, widget, *args):
+        """Exporte toutes les connexions vers un fichier JSON (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Export to JSON"), action=Gtk.FileChooserAction.SAVE
+        )
+        if not filename:
+            return
+        if not filename.endswith(".json"):
+            filename += ".json"
+        import json as _json
+        try:
+            hosts = self._all_hosts()
+            data = [self._host_to_dict(h) for h in hosts]
+            with open(filename, "w", encoding="utf-8") as f:
+                _json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            msgbox(_(f"JSON export error: {e}"))
+            return
+        msgbox(_(f"{len(hosts)} connection(s) exported to {filename}."))
+
+    # ── Dark mode ─────────────────────────────────────────────────────────────
+
+    def _apply_dark_mode(self, enabled):
+        """Active ou désactive le mode sombre GTK."""
+        settings = Gtk.Settings.get_default()
+        settings.set_property("gtk-application-prefer-dark-theme", enabled)
+
+    def on_mnu_dark_mode_toggled(self, widget, *args):
+        """Bascule le mode sombre GTK et persiste l'état."""
+        enabled = widget.get_active()
+        conf.DARK_MODE = enabled
+        self._apply_dark_mode(enabled)
+        self.writeConfig()
+
     def createMenuItem(self, shortcut, label):
         """Cree un Gtk.MenuItem avec etiquette et action.
 
@@ -6206,6 +6380,7 @@ class Wmain(GCMBase):
         conf.CYCLE_TABS = _gopt("options", "cycle-tabs", conf.CYCLE_TABS, bool)
         conf.SHOW_PANEL = _gopt("window", "show-panel", conf.SHOW_PANEL, bool)
         conf.SHOW_TOOLBAR = _gopt("window", "show-toolbar", conf.SHOW_TOOLBAR, bool)
+        conf.DARK_MODE = _gopt("window", "dark-mode", conf.DARK_MODE, bool)
         conf.STARTUP_LOCAL = _gopt("options", "startup-local", conf.STARTUP_LOCAL, bool)
         conf.LOG_LOCAL = _gopt("options", "log-local", conf.LOG_LOCAL, bool)
         conf.CONFIRM_ON_CLOSE_TAB_MIDDLE = _gopt(
@@ -6521,6 +6696,7 @@ class Wmain(GCMBase):
         )
         cp.set("window", "show-panel", conf.SHOW_PANEL)
         cp.set("window", "show-toolbar", conf.SHOW_TOOLBAR)
+        cp.set("window", "dark-mode", conf.DARK_MODE)
 
         i = 1
         for grupo in groups:
