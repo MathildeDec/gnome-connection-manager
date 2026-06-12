@@ -3201,7 +3201,7 @@ class LibvirtImportDialog:
         self._scan_box.pack_start(self._progress, False, False, 0)
 
         # Bouton Scanner (aligné à droite)
-        self._btn_scan = Gtk.Button(label=_("🔍  Scan hypervisors"))
+        self._btn_scan = Gtk.Button(label=_("🔍  Scan Libvirt hypervisors"))
         self._btn_scan.get_style_context().add_class("suggested-action")
         self._btn_scan.connect("clicked", self._on_scan_clicked)
         scan_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -3696,48 +3696,254 @@ class LibvirtImportDialog:
         self._lbl_summary.set_markup(f"<b>{n}</b> connexion(s) importée(s) avec succès.")
 
 
-class ProxmoxImportDialog(LibvirtImportDialog):
-    """Dialogue GTK3 d'import de VMs depuis Proxmox (scan natif `qm`)."""
+class ProxmoxImportDialog:
+    """Dialogue GTK3 d'import de VMs depuis Proxmox (scan natif `qm`).
+
+    Classe indépendante — aucun lien avec LibvirtImportDialog.
+    Même structure UI en deux phases (scan → prévisualisation) mais :
+    - Inventaire via `qm list` / `qm config` (Proxmox natif)
+    - SPICE via ticket pvesh (vga:qxl requis)
+    - Résolution IP : QGA → ipconfig0 → ARP/MAC → nmap
+    """
+
+    # Colonnes du ListStore de prévisualisation (identiques à libvirt)
+    _COL_SEL = 0
+    _COL_PROTO = 1
+    _COL_NAME = 2
+    _COL_GROUP = 3
+    _COL_HOST = 4
+    _COL_STATE = 5
+    _COL_EXISTS = 6
+    _COL_EXIST_LBL = 7
+    _COL_FG = 8
+    _COL_IDX = 9
+
+    def __init__(self, parent_window, on_done_callback, default_user="root"):
+        self.parent = parent_window
+        self.on_done = on_done_callback
+        self.default_user = default_user
+        self._discovered = []
+        self._build_ui()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Construction de l'UI
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        """Construit l'UI Proxmox à partir de la base libvirt.
+        dlg = Gtk.Dialog(
+            title=_("Import from Proxmox"),
+            transient_for=self.parent,
+            modal=True,
+        )
+        dlg.set_default_size(820, 720)
+        self._dlg = dlg
+        box = dlg.get_content_area()
+        box.set_spacing(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
 
-        Surcharge le titre/labels et ajoute la saisie manuelle de cible
-        Proxmox (IP, user@hôte, user@hôte:port).
+        # ── Phase 1 : Paramètres de scan ─────────────────────────────────────
+        self._scan_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
-        Returns:
-            None: Construit et enrichit l'interface de dialogue.
-        """
-        super()._build_ui()
-        self._dlg.set_title(_("Import from libvirt"))
-        self._btn_scan.set_label(_("🔍  Scan Proxmox hosts"))
-        self._lbl_uri.set_text(_("Detected Proxmox targets (dconf):"))
-        self._col_uri_txt.set_title(_("Detected Proxmox target"))
-        self._lbl_manual_uri.set_text(_("Add a Proxmox target:"))
+        # User SSH hyperviseur
+        hb_user = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb_user.pack_start(Gtk.Label(label=_("Hypervisor SSH user:")), False, False, 0)
+        self._entry_user = Gtk.Entry()
+        self._entry_user.set_text(self.default_user)
+        self._entry_user.set_width_chars(12)
+        hb_user.pack_start(self._entry_user, False, False, 0)
+        self._scan_box.pack_start(hb_user, False, False, 0)
+
+        # Liste des cibles Proxmox
+        lbl_uri = Gtk.Label(label=_("Proxmox targets:"))
+        lbl_uri.set_xalign(0)
+        self._scan_box.pack_start(lbl_uri, False, False, 2)
+
+        self._uri_store = Gtk.ListStore(bool, str)
+        tv_uri = Gtk.TreeView(model=self._uri_store)
+        tv_uri.set_headers_visible(True)
+        cr_toggle = Gtk.CellRendererToggle()
+        cr_toggle.connect("toggled", self._on_uri_toggled)
+        tv_uri.append_column(Gtk.TreeViewColumn("", cr_toggle, active=0))
+        col_uri_txt = Gtk.TreeViewColumn(
+            _("Proxmox target (qemu+ssh://user@host/system)"),
+            Gtk.CellRendererText(),
+            text=1,
+        )
+        col_uri_txt.set_expand(True)
+        tv_uri.append_column(col_uri_txt)
+        sw_uri = Gtk.ScrolledWindow()
+        sw_uri.set_min_content_height(120)
+        sw_uri.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw_uri.add(tv_uri)
+        self._scan_box.pack_start(sw_uri, False, False, 0)
+
+        # Saisie manuelle d'une cible Proxmox
+        hb_manual = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb_manual.pack_start(Gtk.Label(label=_("Add a Proxmox target:")), False, False, 0)
+        self._entry_manual_uri = Gtk.Entry()
         self._entry_manual_uri.set_placeholder_text(
             _("Ex: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22")
         )
-        self._chk_spice.set_label(
-            _("SPICE  (vga:qxl required — ticket généré à la connexion via pvesh)")
+        self._entry_manual_uri.connect("activate", self._on_add_manual_uri)
+        hb_manual.pack_start(self._entry_manual_uri, True, True, 0)
+        btn_add_uri = Gtk.Button(label=_("Add"))
+        btn_add_uri.connect("clicked", self._on_add_manual_uri)
+        hb_manual.pack_start(btn_add_uri, False, False, 0)
+        self._scan_box.pack_start(hb_manual, False, False, 0)
+
+        # Protocoles
+        lbl_proto = Gtk.Label()
+        lbl_proto.set_markup(_("<b>Connection types to import:</b>"))
+        lbl_proto.set_xalign(0)
+        self._scan_box.pack_start(lbl_proto, False, False, 4)
+
+        proto_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._chk_ssh = Gtk.CheckButton(
+            label=_(
+                "SSH  (ProxyJump -J via hypervisor when VM IP is known, "
+                "otherwise hypervisor shell + -t ssh user@vm)"
+            )
         )
+        self._chk_ssh.set_active(True)
+        self._chk_spice = Gtk.CheckButton(
+            label=_("SPICE  (vga:qxl required — ticket generated at connection time via pvesh)")
+        )
+        self._chk_spice.set_active(True)
+        self._chk_rdp = Gtk.CheckButton(
+            label=_(
+                "RDP  (probe port 3389 from hypervisor via nc/nmap - skipped if port is closed)"
+            )
+        )
+        self._chk_rdp.set_active(True)
+        self._chk_vnc = Gtk.CheckButton(
+            label=_(
+                "VNC  (probe port 5900 from hypervisor via nc/nmap - skipped if port is closed)"
+            )
+        )
+        self._chk_vnc.set_active(False)
+        for chk in (self._chk_ssh, self._chk_spice, self._chk_rdp, self._chk_vnc):
+            proto_box.pack_start(chk, False, False, 0)
+        self._scan_box.pack_start(proto_box, False, False, 0)
 
-    def _on_add_manual_uri(self, widget):
-        """Alias Proxmox de l'ajout manuel de cible.
+        # Zone de log
+        self._log_buf = Gtk.TextBuffer()
+        lv = Gtk.TextView(buffer=self._log_buf)
+        lv.set_editable(False)
+        lv.set_monospace(True)
+        lv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        sw_log = Gtk.ScrolledWindow()
+        sw_log.set_min_content_height(100)
+        sw_log.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw_log.add(lv)
+        self._scan_box.pack_start(sw_log, False, False, 0)
+        self._log_view = lv
 
-        Args:
-            widget (Gtk.Widget): Widget déclencheur.
+        # Barre de progression
+        self._progress = Gtk.ProgressBar()
+        self._progress.set_show_text(True)
+        self._progress.set_text(_("Waiting…"))
+        self._scan_box.pack_start(self._progress, False, False, 0)
 
-        Returns:
-            None: Délègue à l'ajout manuel Proxmox.
-        """
-        self._on_add_manual_target(widget)
+        # Bouton Scanner
+        self._btn_scan = Gtk.Button(label=_("🔍  Scan Proxmox hosts"))
+        self._btn_scan.get_style_context().add_class("suggested-action")
+        self._btn_scan.connect("clicked", self._on_scan_clicked)
+        scan_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        scan_btn_box.pack_end(self._btn_scan, False, False, 0)
+        self._scan_box.pack_start(scan_btn_box, False, False, 0)
+
+        sw_scan = Gtk.ScrolledWindow()
+        sw_scan.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sw_scan.set_min_content_height(300)
+        sw_scan.set_max_content_height(500)
+        sw_scan.add(self._scan_box)
+        box.pack_start(sw_scan, False, False, 0)
+
+        # ── Phase 2 : Tableau de prévisualisation (caché au départ) ──────────
+        self._preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self._preview_box.set_no_show_all(True)
+        box.pack_start(self._preview_box, True, True, 0)
+        box.pack_start(Gtk.Separator(), False, False, 4)
+
+        self._lbl_summary = Gtk.Label(label="")
+        self._lbl_summary.set_xalign(0)
+        self._preview_box.pack_start(self._lbl_summary, False, False, 0)
+
+        self._chk_overwrite = Gtk.CheckButton(
+            label=_("Overwrite existing connections with the same name and protocol")
+        )
+        self._chk_overwrite.set_active(False)
+        self._preview_box.pack_start(self._chk_overwrite, False, False, 0)
+
+        ctrl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_all = Gtk.Button(label=_("✓ Check all"))
+        btn_all.connect("clicked", lambda w: self._select_all(True))
+        btn_none = Gtk.Button(label=_("✗ Uncheck all"))
+        btn_none.connect("clicked", lambda w: self._select_all(False))
+        ctrl_box.pack_start(btn_all, False, False, 0)
+        ctrl_box.pack_start(btn_none, False, False, 0)
+        self._preview_box.pack_start(ctrl_box, False, False, 0)
+
+        self._preview_store = Gtk.ListStore(
+            bool, str, str, str, str, str, bool, str, str, int
+        )
+        tv_prev = Gtk.TreeView(model=self._preview_store)
+        tv_prev.set_enable_search(True)
+        tv_prev.set_search_column(self._COL_NAME)
+        self._tv_preview = tv_prev
+
+        cr_sel = Gtk.CellRendererToggle()
+        cr_sel.connect("toggled", self._on_preview_toggled)
+        col_sel = Gtk.TreeViewColumn("", cr_sel, active=self._COL_SEL)
+        col_sel.set_min_width(28)
+        tv_prev.append_column(col_sel)
+
+        for title, col_idx, min_w, expand in (
+            (_("Proto"),     self._COL_PROTO,     55,  False),
+            (_("VM name"),   self._COL_NAME,      170, True),
+            (_("Group"),     self._COL_GROUP,     90,  False),
+            (_("IP / Host"), self._COL_HOST,      120, False),
+            (_("State"),     self._COL_STATE,     75,  False),
+            (_("Imported"),  self._COL_EXIST_LBL, 70,  False),
+        ):
+            cr = Gtk.CellRendererText()
+            col = Gtk.TreeViewColumn(title, cr, text=col_idx, foreground=self._COL_FG)
+            col.set_min_width(min_w)
+            col.set_expand(expand)
+            tv_prev.append_column(col)
+
+        sw_prev = Gtk.ScrolledWindow()
+        sw_prev.set_min_content_height(500)
+        sw_prev.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.ALWAYS)
+        sw_prev.add(tv_prev)
+        sw_prev.set_vexpand(True)
+        self._preview_box.pack_start(sw_prev, True, True, 0)
+
+        import_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._btn_import = Gtk.Button(label=_("⬇  Import selected"))
+        self._btn_import.get_style_context().add_class("suggested-action")
+        self._btn_import.connect("clicked", self._on_import_clicked)
+        btn_cancel2 = Gtk.Button(label=_("Cancel"))
+        btn_cancel2.connect("clicked", lambda w: self._dlg.destroy())
+        import_btn_box.pack_end(self._btn_import, False, False, 0)
+        import_btn_box.pack_end(btn_cancel2, False, False, 6)
+        self._preview_box.pack_start(import_btn_box, False, False, 0)
+
+        dlg.add_button(_("✕  Close"), Gtk.ResponseType.CANCEL)
+        dlg.connect("response", lambda d, r: d.destroy())
+
+        dlg.show_all()
+        self._preview_box.hide()
+        self._populate_uris()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Peuplement des cibles Proxmox
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _populate_uris(self):
-        """Pré-remplit les cibles Proxmox depuis les URI dconf compatibles.
-
-        Returns:
-            None: Alimente `self._uri_store` avec les cibles détectées.
-        """
         uris = [u for u in _libvirt_get_uris_from_dconf() if "+ssh://" in u and "/system" in u]
         if not uris:
             self._log(_("No SSH URI found in dconf.\nEnter an IP/host below and click Add."))
@@ -3745,49 +3951,31 @@ class ProxmoxImportDialog(LibvirtImportDialog):
         for uri in uris:
             self._uri_store.append([True, uri])
 
-    def _normalize_manual_target(self, raw_target):
-        """Convertit une saisie libre en URI qemu+ssh://.../system.
-
-        Args:
-            raw_target (str): Cible saisie (IP, user@host, URI complète, etc.).
-
-        Returns:
-            str: URI normalisée, ou chaîne vide si entrée invalide.
-        """
+    def _normalize_manual_uri(self, raw_target):
+        """Convertit une saisie libre en URI qemu+ssh://.../system."""
         raw = (raw_target or "").strip()
         if not raw:
             return ""
         if "://" in raw:
             return raw
-
         if "@" in raw:
             user, hostport = raw.split("@", 1)
             user = user or "root"
         else:
             user, hostport = "root", raw
-
         host = hostport
         port = 22
         if ":" in hostport:
             h, p = hostport.rsplit(":", 1)
             if p.isdigit():
                 host, port = h, int(p)
-
         host = host.strip()
         if not host:
             return ""
         return f"qemu+ssh://{user}@{host}:{port}/system"
 
-    def _on_add_manual_target(self, widget):
-        """Ajoute une cible Proxmox saisie manuellement à la liste.
-
-        Args:
-            widget (Gtk.Widget): Widget déclencheur.
-
-        Returns:
-            None: Met à jour la liste des cibles et le log UI.
-        """
-        uri = self._normalize_manual_target(self._entry_manual_uri.get_text())
+    def _on_add_manual_uri(self, widget):
+        uri = self._normalize_manual_uri(self._entry_manual_uri.get_text())
         if not uri:
             self._log(_("Invalid Proxmox target."))
             return
@@ -3800,17 +3988,41 @@ class ProxmoxImportDialog(LibvirtImportDialog):
         self._log(_(f"Cible ajoutée : {uri}"))
         self._entry_manual_uri.set_text("")
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Helpers log / progress
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _log(self, msg):
+        def _do():
+            buf = self._log_buf
+            buf.insert(buf.get_end_iter(), msg + "\n")
+            self._log_view.scroll_mark_onscreen(buf.get_insert())
+            return False
+
+        GLib.idle_add(_do)
+
+    def _set_progress(self, frac, text):
+        def _do():
+            self._progress.set_fraction(frac)
+            self._progress.set_text(text)
+            return False
+
+        GLib.idle_add(_do)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # URI toggle
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_uri_toggled(self, renderer, path):
+        self._uri_store[path][0] = not self._uri_store[path][0]
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 1 → Scan Proxmox
+    # ──────────────────────────────────────────────────────────────────────────
+
     def _on_scan_clicked(self, widget):
-        """Lance le scan Proxmox natif sur les cibles sélectionnées.
-
-        Args:
-            widget (Gtk.Widget): Bouton scanner.
-
-        Returns:
-            None: Démarre un thread de scan et met à jour l'UI.
-        """
         self._btn_scan.set_sensitive(False)
-        pending_uri = self._normalize_manual_target(self._entry_manual_uri.get_text())
+        pending_uri = self._normalize_manual_uri(self._entry_manual_uri.get_text())
         if pending_uri:
             existing = [row[1] for row in self._uri_store]
             if pending_uri not in existing:
@@ -3830,7 +4042,7 @@ class ProxmoxImportDialog(LibvirtImportDialog):
             proto_filter.add("spice")
         if self._chk_rdp.get_active():
             proto_filter.add("rdp")
-        if hasattr(self, "_chk_vnc") and self._chk_vnc.get_active():
+        if self._chk_vnc.get_active():
             proto_filter.add("vnc")
         if not proto_filter:
             self._log(_("No connection type selected."))
@@ -3838,10 +4050,93 @@ class ProxmoxImportDialog(LibvirtImportDialog):
             return
 
         def worker():
-            results = _proxmox_fetch_hosts(uris, user, self._log, self._set_progress, proto_filter)
+            results = _proxmox_fetch_hosts(
+                uris, user, self._log, self._set_progress, proto_filter
+            )
             GLib.idle_add(self._show_preview, results)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 2 → Tableau de prévisualisation
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _host_exists(self, name, grp):
+        if grp in groups:
+            return any(h.name == name for h in groups[grp])
+        return False
+
+    def _show_preview(self, host_dicts):
+        self._discovered = host_dicts
+        self._preview_store.clear()
+        n_new = 0
+        n_exists = 0
+        for idx, hd in enumerate(host_dicts):
+            name = hd.get("name", "")
+            grp = hd.get("group", "PROXMOX")
+            proto = hd.get("protocol", "ssh").upper()
+            host = hd.get("host", "")
+            desc = hd.get("description", "")
+            m = re.search(r"\[([^\]]+)\]", desc)
+            state_str = m.group(1) if m else ""
+            exists = self._host_exists(name, grp)
+            exist_lbl = "✓ existe" if exists else ""
+            fg = "#888888" if exists else "black"
+            selected = not exists
+            if exists:
+                n_exists += 1
+            else:
+                n_new += 1
+            self._preview_store.append(
+                [selected, proto, name, grp, host, state_str, exists, exist_lbl, fg, idx]
+            )
+        total = len(host_dicts)
+        self._lbl_summary.set_markup(
+            f"<b>{total}</b> connexion(s) trouvée(s) — "
+            f"<span foreground='#007700'>{n_new} nouvelle(s)</span>, "
+            f"<span foreground='#888888'>{n_exists} déjà importée(s)</span>"
+        )
+        self._set_progress(1.0, f"{total} connexion(s) découverte(s)")
+        self._log(
+            f"\nScan Proxmox terminé — {total} connexion(s) : "
+            f"{n_new} nouvelle(s), {n_exists} déjà présente(s)."
+        )
+        self._preview_box.set_no_show_all(False)
+        self._preview_box.show_all()
+        self._btn_scan.set_label(_("🔄  Rescan"))
+        self._btn_scan.set_sensitive(True)
+        self._dlg.resize(820, 900)
+
+    def _on_preview_toggled(self, renderer, path):
+        self._preview_store[path][self._COL_SEL] = not self._preview_store[path][self._COL_SEL]
+
+    def _select_all(self, value):
+        for row in self._preview_store:
+            row[self._COL_SEL] = value
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Import final
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_import_clicked(self, widget):
+        self._btn_import.set_sensitive(False)
+        overwrite = self._chk_overwrite.get_active()
+        to_import = []
+        for row in self._preview_store:
+            if not row[self._COL_SEL]:
+                continue
+            if row[self._COL_EXISTS] and not overwrite:
+                continue
+            to_import.append(self._discovered[row[self._COL_IDX]])
+        if not to_import:
+            self._log(_("No connection to import (all already exist or none selected)."))
+            self._btn_import.set_sensitive(True)
+            return
+        self.on_done(to_import)
+        self._btn_import.set_label(_("✓ Imported"))
+        self._lbl_summary.set_markup(
+            f"<b>{len(to_import)}</b> connexion(s) importée(s) avec succès."
+        )
 
 
 class SerialTemplatesTab:
