@@ -15,6 +15,8 @@
 
 
 import base64
+import json
+import logging
 import operator
 import os
 import re
@@ -24,9 +26,15 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
 from threading import Thread
 from urllib.parse import urlparse
+
+try:
+    from loguru import logger as _loguru_logger
+
+    _LOGURU_OK = True
+except ImportError:
+    _LOGURU_OK = False
 
 
 def _dep_install_hint(pkg_debian, pkg_fedora, pkg_arch=None):
@@ -67,7 +75,7 @@ try:
     gi.require_version("Gdk", "3.0")
     from gi.repository import Gdk, GLib, GObject, Gtk, Pango, Vte
 except Exception:
-    print(
+    dep_msg = (
         "\n[GCM] Erreur : dépendances GTK3 / VTE manquantes.\n"
         "  → "
         + _dep_install_hint(
@@ -75,9 +83,12 @@ except Exception:
             "python3-gobject vte291",
             "python-gobject vte3",
         )
-        + "\n",
-        file=sys.stderr,
+        + "\n"
     )
+    if _LOGURU_OK:
+        _loguru_logger.error(dep_msg.strip())
+    else:
+        sys.stderr.write(dep_msg)
     sys.exit(1)
 
 # check Terminal version
@@ -124,28 +135,78 @@ def bindtextdomain(app_name, locale_dir=None):
     """
     global _gcm_app_name
     _gcm_app_name = app_name
+    import builtins
     import gettext
     import locale
 
+    def _lang_candidates():
+        """Retourne les langues candidates, avec fallback anglais en dernier."""
+
+        def _expand_locale(loc):
+            # fr_FR.UTF-8@euro -> fr_FR.UTF-8@euro, fr_FR, fr
+            if not loc:
+                return []
+            out = [loc]
+            base = loc.split("@", 1)[0]
+            base = base.split(".", 1)[0]
+            if base and base not in out:
+                out.append(base)
+            if "_" in base:
+                short = base.split("_", 1)[0]
+                if short and short not in out:
+                    out.append(short)
+            return out
+
+        langs = []
+        seen = set()
+
+        language_env = os.environ.get("LANGUAGE", "")
+        if language_env:
+            for item in [x for x in language_env.split(":") if x]:
+                for cand in _expand_locale(item):
+                    if cand not in seen:
+                        seen.add(cand)
+                        langs.append(cand)
+
+        for key in ("LC_ALL", "LC_MESSAGES", "LANG"):
+            val = os.environ.get(key, "")
+            if not val:
+                continue
+            for cand in _expand_locale(val):
+                if cand not in seen:
+                    seen.add(cand)
+                    langs.append(cand)
+
+        for fallback in ("en_US", "en"):
+            if fallback not in seen:
+                seen.add(fallback)
+                langs.append(fallback)
+        return langs
+
     try:
         locale.setlocale(locale.LC_ALL, "")
-        locale.bindtextdomain(app_name, locale_dir)
-        gettext.bindtextdomain(app_name, locale_dir)
-        gettext.textdomain(app_name)
-        gettext.install(app_name, locale_dir)
     except (OSError, locale.Error):
         try:
             os.environ["LANG"] = "en_US.UTF-8"
             os.environ["LANGUAGE"] = "en"
             locale.setlocale(locale.LC_ALL, "")
-            locale.bindtextdomain(app_name, locale_dir)
-            gettext.bindtextdomain(app_name, locale_dir)
-            gettext.textdomain(app_name)
-            gettext.install(app_name, locale_dir)
         except Exception:
-            import builtins
-
             builtins.__dict__["_"] = lambda x: x
+            return
+
+    try:
+        locale.bindtextdomain(app_name, locale_dir)
+        gettext.bindtextdomain(app_name, locale_dir)
+        gettext.textdomain(app_name)
+        translation = gettext.translation(
+            app_name,
+            localedir=locale_dir,
+            languages=_lang_candidates(),
+            fallback=True,
+        )
+        builtins.__dict__["_"] = translation.gettext
+    except Exception:
+        builtins.__dict__["_"] = lambda x: x
 
 
 class GCMBase:
@@ -245,7 +306,7 @@ import pyAES
 import urlregex
 
 app_name = "Gnome Connection Manager"
-app_version = "1.3.1"
+app_version = "1.3.3"
 app_web = "https://github.com/MathildeDec/gnome-connection-manager"
 app_fileversion = "1"
 
@@ -268,13 +329,13 @@ if USERHOME_DIR is None or USERHOME_DIR == "":
     except:
         USERHOME_DIR = ""
 
-assert (USERHOME_DIR is not None) and (
-    USERHOME_DIR != ""
-), "FATAL: Could not determine home directory for the current user"
+assert (USERHOME_DIR is not None) and (USERHOME_DIR != ""), (
+    "FATAL: Could not determine home directory for the current user"
+)
 
-assert os.path.isdir(
-    USERHOME_DIR
-), "FATAL: Could not locate home directory '%s' for the current user" % (USERHOME_DIR)
+assert os.path.isdir(USERHOME_DIR), (
+    "FATAL: Could not locate home directory '%s' for the current user" % (USERHOME_DIR)
+)
 
 CONFIG_DIR = USERHOME_DIR + "/.gcm"
 CONFIG_FILE = CONFIG_DIR + "/gcm.conf"
@@ -282,6 +343,56 @@ KEY_FILE = CONFIG_DIR + "/.gcm.key"
 
 if not os.path.exists(CONFIG_DIR):
     os.makedirs(CONFIG_DIR)
+
+
+def _setup_app_logger():
+    """Initialise le logger applicatif (Loguru) avec fallback stdlib.
+
+    Returns:
+        object: Logger configuré (`loguru.logger` ou `logging.Logger`).
+    """
+    log_dir = os.path.join(CONFIG_DIR, "log")
+    log_file = os.path.join(log_dir, "gcm-app.log")
+    os.makedirs(log_dir, exist_ok=True)
+
+    if _LOGURU_OK:
+        _loguru_logger.remove()
+        _loguru_logger.add(
+            sys.stderr,
+            level="INFO",
+            enqueue=True,
+            backtrace=False,
+            diagnose=False,
+        )
+        _loguru_logger.add(
+            log_file,
+            level="DEBUG",
+            rotation="10 MB",
+            retention="14 days",
+            encoding="utf-8",
+            enqueue=True,
+            backtrace=True,
+            diagnose=False,
+        )
+        return _loguru_logger
+
+    fallback = logging.getLogger("gcm")
+    fallback.setLevel(logging.DEBUG)
+    if not fallback.handlers:
+        fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setLevel(logging.INFO)
+        sh.setFormatter(fmt)
+        fh = logging.FileHandler(log_file, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        fallback.addHandler(sh)
+        fallback.addHandler(fh)
+    fallback.warning("loguru non installé, fallback sur logging standard")
+    return fallback
+
+
+app_logger = _setup_app_logger()
 
 domain_name = "gcm-lang"
 
@@ -356,6 +467,8 @@ class conf:
     DISABLE_HOSTS_STRIPES = False
     AUTO_COPY_SELECTION = 0
     LOG_PATH = CONFIG_DIR + "/logs"
+    CONTINUOUS_TAB_LOG = False
+    CONTINUOUS_LOG_PATH = CONFIG_DIR + "/log"
     SHOW_TOOLBAR = True
     SHOW_PANEL = True
     VERSION = 0
@@ -463,9 +576,9 @@ def show_open_dialog(parent, title, action):
         str or None: Chemin du fichier selectionne, ou None si annule.
     """
     dlg = Gtk.FileChooserDialog(title=title, parent=parent, action=action)
-    dlg.add_button(_("Annuler"), Gtk.ResponseType.CANCEL)
+    dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
     dlg.add_button(
-        _("Enregistrer") if action == Gtk.FileChooserAction.SAVE else _("Ouvrir"),
+        _("Save") if action == Gtk.FileChooserAction.SAVE else _("Open"),
         Gtk.ResponseType.OK,
     )
     dlg.set_do_overwrite_confirmation(True)
@@ -515,10 +628,31 @@ def set_widget_font(widget, font_desc):
         widget: Widget Gtk sur lequel appliquer la police.
         font_desc (Pango.FontDescription): Description de la police.
     """
-    css = ("* { font: %s; }" % font_desc.to_string()).encode()
-    provider = Gtk.CssProvider()
-    provider.load_from_data(css)
-    widget.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    try:
+        family = font_desc.get_family() or "monospace"
+        size_pango = font_desc.get_size()
+        if font_desc.get_size_is_absolute():
+            size_pt = size_pango / Pango.SCALE
+        else:
+            size_pt = size_pango / Pango.SCALE
+        # Construire un CSS valide GTK3 (pas la syntaxe Pango)
+        parts = [f'font-family: "{family}";']
+        if size_pt > 0:
+            parts.append(f"font-size: {size_pt:.1f}pt;")
+        weight = font_desc.get_weight()
+        if weight >= 700:
+            parts.append("font-weight: bold;")
+        style = font_desc.get_style()
+        if style == Pango.Style.ITALIC:
+            parts.append("font-style: italic;")
+        elif style == Pango.Style.OBLIQUE:
+            parts.append("font-style: oblique;")
+        css = ("* { %s }" % " ".join(parts)).encode()
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css)
+        widget.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    except Exception:
+        pass
 
 
 def color_to_hex(rgba, diff=0):
@@ -682,7 +816,7 @@ def encrypt(passw, string):
     try:
         s = pyAES.encrypt(string, passw)
     except:
-        traceback.print_exc()
+        app_logger.exception("Erreur de chiffrement AES")
         s = ""
     return s
 
@@ -699,7 +833,7 @@ def decrypt(passw, string):
     try:
         s = decrypt_old(passw, string) if conf.VERSION == 0 else pyAES.decrypt(string, passw)
     except:
-        traceback.print_exc()
+        app_logger.exception("Erreur de déchiffrement AES")
         s = ""
     return s
 
@@ -841,22 +975,22 @@ class RdpTab(Gtk.Box):
             d.get_style_context().add_class("dim-label")
             self.pack_start(d, False, False, 0)
         self.pack_start(Gtk.Separator(), False, False, 4)
-        self._lbl_status = Gtk.Label(label=_("En attente\u2026"))
+        self._lbl_status = Gtk.Label(label=_("Waiting…"))
         self._lbl_status.set_xalign(0)
         self.pack_start(self._lbl_status, False, False, 0)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect = Gtk.Button(label=_("Connect"))
         self._btn_connect.get_style_context().add_class("suggested-action")
         self._btn_connect.connect("clicked", self._on_connect)
         hb.pack_start(self._btn_connect, False, False, 0)
-        self._btn_disconnect = Gtk.Button(label=_("Deconnecter"))
+        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
         self._btn_disconnect.set_sensitive(False)
         self._btn_disconnect.connect("clicked", self._on_disconnect)
         hb.pack_start(self._btn_disconnect, False, False, 0)
         self.pack_start(hb, False, False, 0)
         self.pack_start(Gtk.Separator(), False, False, 4)
         hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb2.pack_start(Gtk.Label(label=_("Options xfreerdp :")), False, False, 0)
+        hb2.pack_start(Gtk.Label(label=_("xfreerdp options:")), False, False, 0)
         self._entry_opts = Gtk.Entry()
         self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
         self._entry_opts.set_tooltip_text(
@@ -865,7 +999,7 @@ class RdpTab(Gtk.Box):
         )
         hb2.pack_start(self._entry_opts, True, True, 0)
         self.pack_start(hb2, False, False, 0)
-        self.pack_start(Gtk.Label(label=_("Journal xfreerdp :")), False, False, 2)
+        self.pack_start(Gtk.Label(label=_("xfreerdp log:")), False, False, 2)
         self._log_buf = Gtk.TextBuffer()
         lv = Gtk.TextView(buffer=self._log_buf)
         lv.set_editable(False)
@@ -925,9 +1059,9 @@ class RdpTab(Gtk.Box):
             self._log(
                 f"ERREUR : xfreerdp introuvable ({RDP_BIN})\n  sudo apt install freerdp2-x11\n"
             )
-            self._set_status(_("xfreerdp introuvable"))
+            self._set_status(_("xfreerdp not found"))
             return
-        self._set_status(_("Connexion en cours\u2026"))
+        self._set_status(_("Connecting…"))
         self._btn_connect.set_sensitive(False)
         self._btn_disconnect.set_sensitive(True)
         threading.Thread(target=self._read_output, daemon=True).start()
@@ -940,7 +1074,7 @@ class RdpTab(Gtk.Box):
         """
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
-        self._set_status(_("Deconnecte"))
+        self._set_status(_("Disconnect"))
         self._btn_connect.set_sensitive(True)
         self._btn_disconnect.set_sensitive(False)
 
@@ -953,9 +1087,9 @@ class RdpTab(Gtk.Box):
             pass
         rc = self._proc.wait()
         if rc == 0:
-            GLib.idle_add(self._set_status, _("Session terminee"))
+            GLib.idle_add(self._set_status, _("Session ended"))
         else:
-            GLib.idle_add(self._set_status, _("Termine avec code {rc}").format(rc=rc))
+            GLib.idle_add(self._set_status, _("Ended (code {rc})").format(rc=rc))
         GLib.idle_add(self._btn_connect.set_sensitive, True)
         GLib.idle_add(self._btn_disconnect.set_sensitive, False)
 
@@ -966,8 +1100,7 @@ class RdpTab(Gtk.Box):
             text (str): Texte a afficher.
         """
         self._log_buf.insert(self._log_buf.get_end_iter(), text)
-        adj = self._log_view.get_vadjustment()
-        adj.set_value(adj.get_upper())
+        self._log_view.scroll_mark_onscreen(self._log_buf.get_insert())
 
     def _set_status(self, text):
         """Met a jour le label de statut.
@@ -1045,16 +1178,16 @@ class RdpEmbeddedTab(Gtk.Box):
         title.set_xalign(0)
         toolbar.pack_start(title, True, True, 0)
 
-        self._lbl_status = Gtk.Label(label=_("En attente…"))
+        self._lbl_status = Gtk.Label(label=_("Waiting…"))
         self._lbl_status.get_style_context().add_class("dim-label")
         toolbar.pack_start(self._lbl_status, False, False, 8)
 
-        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect = Gtk.Button(label=_("Connect"))
         self._btn_connect.get_style_context().add_class("suggested-action")
         self._btn_connect.connect("clicked", self._on_connect)
         toolbar.pack_start(self._btn_connect, False, False, 0)
 
-        self._btn_disconnect = Gtk.Button(label=_("Déconnecter"))
+        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
         self._btn_disconnect.set_sensitive(False)
         self._btn_disconnect.connect("clicked", self._on_disconnect)
         toolbar.pack_start(self._btn_disconnect, False, False, 0)
@@ -1087,7 +1220,7 @@ class RdpEmbeddedTab(Gtk.Box):
         Args:
             widget (Gtk.Socket): Socket GTK.
         """
-        GLib.idle_add(self._set_status, _("Connecté"))
+        GLib.idle_add(self._set_status, _("Connect"))
         GLib.idle_add(self._btn_connect.set_sensitive, False)
         GLib.idle_add(self._btn_disconnect.set_sensitive, True)
 
@@ -1100,7 +1233,7 @@ class RdpEmbeddedTab(Gtk.Box):
         Returns:
             bool: True pour garder le socket en vie.
         """
-        GLib.idle_add(self._set_status, _("Session terminée"))
+        GLib.idle_add(self._set_status, _("Session ended"))
         GLib.idle_add(self._btn_connect.set_sensitive, True)
         GLib.idle_add(self._btn_disconnect.set_sensitive, False)
         self._proc = None
@@ -1160,9 +1293,9 @@ class RdpEmbeddedTab(Gtk.Box):
                 stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
-            self._set_status(_("xfreerdp introuvable"))
+            self._set_status(_("xfreerdp not found"))
             return
-        self._set_status(_("Connexion en cours…"))
+        self._set_status(_("Connecting…"))
         self._btn_connect.set_sensitive(False)
         threading.Thread(target=self._wait_proc, daemon=True).start()
 
@@ -1173,7 +1306,7 @@ class RdpEmbeddedTab(Gtk.Box):
             if rc != 0:
                 GLib.idle_add(
                     self._set_status,
-                    _("Terminé (code {rc})").format(rc=rc),
+                    _("Ended (code {rc})").format(rc=rc),
                 )
         GLib.idle_add(self._btn_connect.set_sensitive, True)
         GLib.idle_add(self._btn_disconnect.set_sensitive, False)
@@ -1187,7 +1320,7 @@ class RdpEmbeddedTab(Gtk.Box):
         """
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
-        self._set_status(_("Déconnecté"))
+        self._set_status(_("Disconnect"))
         self._btn_connect.set_sensitive(True)
         self._btn_disconnect.set_sensitive(False)
 
@@ -1365,22 +1498,22 @@ class VncTab(Gtk.Box):
             d.get_style_context().add_class("dim-label")
             self.pack_start(d, False, False, 0)
         self.pack_start(Gtk.Separator(), False, False, 4)
-        self._lbl_status = Gtk.Label(label=_("En attente…"))
+        self._lbl_status = Gtk.Label(label=_("Waiting…"))
         self._lbl_status.set_xalign(0)
         self.pack_start(self._lbl_status, False, False, 0)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect = Gtk.Button(label=_("Connect"))
         self._btn_connect.get_style_context().add_class("suggested-action")
         self._btn_connect.connect("clicked", self._on_connect)
         hb.pack_start(self._btn_connect, False, False, 0)
-        self._btn_disconnect = Gtk.Button(label=_("Deconnecter"))
+        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
         self._btn_disconnect.set_sensitive(False)
         self._btn_disconnect.connect("clicked", self._on_disconnect)
         hb.pack_start(self._btn_disconnect, False, False, 0)
         self.pack_start(hb, False, False, 0)
         self.pack_start(Gtk.Separator(), False, False, 4)
         hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb2.pack_start(Gtk.Label(label=_("Options VNC :")), False, False, 0)
+        hb2.pack_start(Gtk.Label(label=_("xfreerdp options:")), False, False, 0)
         self._entry_opts = Gtk.Entry()
         self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
         self._entry_opts.set_tooltip_text(
@@ -1451,9 +1584,9 @@ class VncTab(Gtk.Box):
                     stderr=subprocess.DEVNULL,
                 )
         except FileNotFoundError:
-            self._set_status(_("vncviewer introuvable"))
+            self._set_status(_("xfreerdp not found"))
             return
-        self._set_status(_("Connexion en cours…"))
+        self._set_status(_("Connecting…"))
         self._btn_connect.set_sensitive(False)
         self._btn_disconnect.set_sensitive(True)
         threading.Thread(target=self._wait_proc, daemon=True).start()
@@ -1463,9 +1596,9 @@ class VncTab(Gtk.Box):
         if self._proc:
             rc = self._proc.wait()
             if rc != 0:
-                GLib.idle_add(self._set_status, _("Terminé (code {rc})").format(rc=rc))
+                GLib.idle_add(self._set_status, _("Ended (code {rc})").format(rc=rc))
             else:
-                GLib.idle_add(self._set_status, _("Session terminée"))
+                GLib.idle_add(self._set_status, _("Session ended"))
         GLib.idle_add(self._btn_connect.set_sensitive, True)
         GLib.idle_add(self._btn_disconnect.set_sensitive, False)
         self._proc = None
@@ -1478,7 +1611,7 @@ class VncTab(Gtk.Box):
         """
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
-        self._set_status(_("Déconnecté"))
+        self._set_status(_("Disconnect"))
         self._btn_connect.set_sensitive(True)
         self._btn_disconnect.set_sensitive(False)
 
@@ -1532,22 +1665,22 @@ class SpiceTab(Gtk.Box):
             d.get_style_context().add_class("dim-label")
             self.pack_start(d, False, False, 0)
         self.pack_start(Gtk.Separator(), False, False, 4)
-        self._lbl_status = Gtk.Label(label=_("En attente…"))
+        self._lbl_status = Gtk.Label(label=_("Waiting…"))
         self._lbl_status.set_xalign(0)
         self.pack_start(self._lbl_status, False, False, 0)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect = Gtk.Button(label=_("Connect"))
         self._btn_connect.get_style_context().add_class("suggested-action")
         self._btn_connect.connect("clicked", self._on_connect)
         hb.pack_start(self._btn_connect, False, False, 0)
-        self._btn_disconnect = Gtk.Button(label=_("Deconnecter"))
+        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
         self._btn_disconnect.set_sensitive(False)
         self._btn_disconnect.connect("clicked", self._on_disconnect)
         hb.pack_start(self._btn_disconnect, False, False, 0)
         self.pack_start(hb, False, False, 0)
         self.pack_start(Gtk.Separator(), False, False, 4)
         hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb2.pack_start(Gtk.Label(label=_("Options SPICE :")), False, False, 0)
+        hb2.pack_start(Gtk.Label(label=_("xfreerdp options:")), False, False, 0)
         self._entry_opts = Gtk.Entry()
         self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
         self._entry_opts.set_tooltip_text(
@@ -1565,20 +1698,75 @@ class SpiceTab(Gtk.Box):
     def _build_cmd(self):
         """Construit la commande remote-viewer avec URI spice://.
 
-        Si extra_params commence par '--connect', c'est un import libvirt :
-        virt-viewer gère le tunnel SSH automatiquement via l'URI libvirt.
-        Syntaxe : remote-viewer --connect qemu+ssh://user@host[:port]/system vm_name
+        Trois modes selon extra_params :
+        - '--proxmox NODE VMID' : ticket Proxmox généré via SSH, fichier .vv temporaire
+        - '--connect qemu+ssh://...' : tunnel libvirt natif (virt-viewer)
+        - (vide/autres) : URI spice://host?port=PORT standard
 
         Returns:
-            list[str]: Arguments pour subprocess.Popen.
+            list[str]: Arguments pour subprocess.Popen, ou None si erreur.
         """
         h = self.host
         port = getattr(h, "port", "5930") or "5930"
         pwd = self._get_password() or ""
         opts_str = self._entry_opts.get_text().strip()
+
+        # Mode Proxmox : génération de ticket SPICE via pvesh
+        if opts_str.startswith("--proxmox "):
+            parts = opts_str.split()
+            if len(parts) >= 3:
+                node_name, vmid = parts[1], parts[2]
+            else:
+                self._set_status(_("Erreur : --proxmox NODE VMID requis"))
+                return None
+            hv_host = h.host
+            hv_port = (
+                int(h.port) if str(h.port).isdigit() and int(h.port) not in (5900, 5930) else 22
+            )
+            hv_user = h.user or "root"
+            try:
+                import paramiko as _paramiko
+
+                _client = _paramiko.SSHClient()
+                _client.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
+                _client.connect(hv_host, port=hv_port, username=hv_user, timeout=10)
+                cmd_pvesh = (
+                    f"pvesh create /nodes/{node_name}/qemu/{vmid}/spiceproxy --output-format json"
+                )
+                _stdin, stdout, stderr = _client.exec_command(cmd_pvesh)
+                out = stdout.read().decode().strip()
+                _client.close()
+            except Exception as exc:
+                self._set_status(_(f"Erreur SSH : {exc}"))
+                return None
+            try:
+                ticket = json.loads(out)
+            except Exception:
+                self._set_status(_(f"Erreur ticket SPICE : {out[:80]}"))
+                return None
+            # Écriture du fichier .vv temporaire
+            vv_lines = [
+                "[virt-viewer]",
+                "type=spice",
+                f"host={ticket['host']}",
+                f"tls-port={ticket['tls-port']}",
+                f"password={ticket['password']}",
+                f"proxy={ticket.get('proxy', '')}",
+                f"host-subject={ticket.get('host-subject', '')}",
+                f"ca={ticket.get('ca', '')}",
+                "delete-this-file=1",
+            ]
+            import tempfile as _tempfile
+
+            vv_fd, vv_path = _tempfile.mkstemp(suffix=".vv", prefix="gcm-spice-")
+            with os.fdopen(vv_fd, "w") as vv_f:
+                vv_f.write("\n".join(vv_lines) + "\n")
+            return [SPICE_BIN, vv_path]
+
         # Mode libvirt URI : virt-viewer gère le tunnel SSH nativement
         if opts_str.startswith("--connect"):
             return [SPICE_BIN] + shlex.split(opts_str)
+
         # Mode standard : spice://host?port=PORT
         if pwd:
             uri = f"spice://{h.host}?port={port}&password={pwd}"
@@ -1599,6 +1787,8 @@ class SpiceTab(Gtk.Box):
             return
         self.host.extra_params = self._entry_opts.get_text().strip()
         cmd = self._build_cmd()
+        if cmd is None:
+            return
         try:
             self._proc = subprocess.Popen(
                 cmd,
@@ -1606,9 +1796,9 @@ class SpiceTab(Gtk.Box):
                 stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
-            self._set_status(_("remote-viewer introuvable"))
+            self._set_status(_("xfreerdp not found"))
             return
-        self._set_status(_("Connexion en cours…"))
+        self._set_status(_("Connecting…"))
         self._btn_connect.set_sensitive(False)
         self._btn_disconnect.set_sensitive(True)
         threading.Thread(target=self._wait_proc, daemon=True).start()
@@ -1618,9 +1808,9 @@ class SpiceTab(Gtk.Box):
         if self._proc:
             rc = self._proc.wait()
             if rc != 0:
-                GLib.idle_add(self._set_status, _("Terminé (code {rc})").format(rc=rc))
+                GLib.idle_add(self._set_status, _("Ended (code {rc})").format(rc=rc))
             else:
-                GLib.idle_add(self._set_status, _("Session terminée"))
+                GLib.idle_add(self._set_status, _("Session ended"))
         GLib.idle_add(self._btn_connect.set_sensitive, True)
         GLib.idle_add(self._btn_disconnect.set_sensitive, False)
         self._proc = None
@@ -1633,7 +1823,7 @@ class SpiceTab(Gtk.Box):
         """
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
-        self._set_status(_("Déconnecté"))
+        self._set_status(_("Disconnect"))
         self._btn_connect.set_sensitive(True)
         self._btn_disconnect.set_sensitive(False)
 
@@ -1677,7 +1867,7 @@ class SerialTab(Gtk.Box):
 
     # Correspondances valeur interne → label UI
     _FLOW_LABELS = [
-        ("n", "Aucun"),
+        ("n", "None"),
         ("x", "XON/XOFF (soft)"),
         ("h", "RTS/CTS (hard)"),
         ("d", "DSR/DTR"),
@@ -1702,7 +1892,7 @@ class SerialTab(Gtk.Box):
         hb1.set_margin_top(4)
 
         # Port série
-        lbl_dev = Gtk.Label(label=_("Port série :"))
+        lbl_dev = Gtk.Label(label=_("Serial port:"))
         lbl_dev.set_xalign(1.0)
         self._entry_dev = Gtk.Entry()
         self._entry_dev.set_text(getattr(host, "host", "/dev/ttyUSB0") or "/dev/ttyUSB0")
@@ -1710,7 +1900,7 @@ class SerialTab(Gtk.Box):
         self._entry_dev.set_hexpand(True)
 
         # Débit (baud rate)
-        lbl_baud = Gtk.Label(label=_("Débit :"))
+        lbl_baud = Gtk.Label(label=_("Baud rate:"))
         lbl_baud.set_xalign(1.0)
         self._cmb_baud = Gtk.ComboBoxText()
         for b in (
@@ -1728,19 +1918,17 @@ class SerialTab(Gtk.Box):
             "921600",
         ):
             self._cmb_baud.append_text(b)
-        self._cmb_baud.set_tooltip_text(_("Vitesse de transmission en bauds"))
+        self._cmb_baud.set_tooltip_text(_("Transmission speed in baud"))
         baud = str(getattr(host, "port", "9600") or "9600")
         self._cmb_select(self._cmb_baud, baud, 4)  # défaut 9600 (idx 4)
 
         # Template constructeur
-        lbl_tpl = Gtk.Label(label=_("Template :"))
+        lbl_tpl = Gtk.Label(label=_("Template:"))
         lbl_tpl.set_xalign(1.0)
         self._cmb_tpl = Gtk.ComboBoxText()
         for tpl_name in _SERIAL_TEMPLATES:
             self._cmb_tpl.append_text(tpl_name)
-        self._cmb_tpl.set_tooltip_text(
-            _("Charge les paramètres série recommandés par le constructeur")
-        )
+        self._cmb_tpl.set_tooltip_text(_("Load vendor-recommended serial settings"))
         tpl_saved = getattr(host, "type", "") or ""
         tpl_list = list(_SERIAL_TEMPLATES.keys())
         tpl_idx = tpl_list.index(tpl_saved) if tpl_saved in tpl_list else 10
@@ -1763,72 +1951,68 @@ class SerialTab(Gtk.Box):
         hb2.set_margin_end(6)
 
         # Bits de données
-        lbl_data = Gtk.Label(label=_("Bits données :"))
+        lbl_data = Gtk.Label(label=_("Data bits:"))
         lbl_data.set_xalign(1.0)
         self._cmb_databits = Gtk.ComboBoxText()
         for d in self._DATABITS_VALUES:
             self._cmb_databits.append_text(d)
-        self._cmb_databits.set_tooltip_text(
-            _("Nombre de bits de données par octet (8 = standard)")
-        )
+        self._cmb_databits.set_tooltip_text(_("Number of data bits per byte (8 = standard)"))
         self._cmb_databits.set_active(3)  # 8 par défaut
 
         # Parité
-        lbl_par = Gtk.Label(label=_("Parité :"))
+        lbl_par = Gtk.Label(label=_("Parity:"))
         lbl_par.set_xalign(1.0)
         self._cmb_parity = Gtk.ComboBoxText()
         for _code, _label in self._PARITY_LABELS:
             self._cmb_parity.append_text(_label)
-        self._cmb_parity.set_tooltip_text(
-            _("Bit de parité : Aucune (N) = standard, Paire (E), Impaire (O)")
-        )
+        self._cmb_parity.set_tooltip_text(_("Parity bit: None (N) = standard, Even (E), Odd (O)"))
         self._cmb_parity.set_active(0)  # None par défaut
 
         # Bits de stop
-        lbl_stop = Gtk.Label(label=_("Stop :"))
+        lbl_stop = Gtk.Label(label=_("Stop bits:"))
         lbl_stop.set_xalign(1.0)
         self._cmb_stopbits = Gtk.ComboBoxText()
         for s in self._STOPBITS_VALUES:
             self._cmb_stopbits.append_text(s)
         self._cmb_stopbits.set_tooltip_text(
-            _("Bits de stop : 1 = standard, 2 = RS-485 / ancien matériel")
+            _("Stop bits: 1 = standard, 2 = RS-485 / legacy hardware")
         )
         self._cmb_stopbits.set_active(0)  # 1 par défaut
 
         # Contrôle de flux
-        lbl_flow = Gtk.Label(label=_("Flux :"))
+        lbl_flow = Gtk.Label(label=_("Flow control:"))
         lbl_flow.set_xalign(1.0)
         self._cmb_flow = Gtk.ComboBoxText()
         for _code, _label in self._FLOW_LABELS:
             self._cmb_flow.append_text(_label)
         self._cmb_flow.set_tooltip_text(
             _(
-                "Contrôle de flux :\n"
-                "  Aucun = standard console\n"
-                "  XON/XOFF = logiciel (Ctrl-Q/Ctrl-S)\n"
-                "  RTS/CTS = matériel (câble complet)\n"
-                "  DSR/DTR = matériel legacy"
+                "Flow control:\n"
+                "  None = standard console\n"
+                "  XON/XOFF = software (Ctrl-Q/Ctrl-S)\n"
+                "  RTS/CTS = hardware (full cable)\n"
+                "  DSR/DTR = legacy hardware"
             )
         )
         self._cmb_flow.set_active(0)  # Aucun par défaut
 
         # Options libres
-        lbl_opts = Gtk.Label(label=_("Options :"))
+        lbl_opts = Gtk.Label(label=_("xfreerdp options:"))
         lbl_opts.set_xalign(1.0)
         self._entry_opts = Gtk.Entry()
         self._entry_opts.set_text(getattr(host, "extra_params", "") or "")
         self._entry_opts.set_tooltip_text(
             _(
-                "Options brutes supplémentaires passées au binaire\n"
-                "Ex : --logfile /tmp/serial.log  (picocom)\n"
+                "Additional raw options passed to the binary\n"
+                "Ex: --logfile /tmp/serial.log  (picocom)\n"
                 "     -o -x  (minicom)"
             )
         )
 
         # Boutons
-        self._btn_connect = Gtk.Button(label=_("Connecter"))
+        self._btn_connect = Gtk.Button(label=_("Connect"))
         self._btn_connect.connect("clicked", self._on_connect)
-        self._btn_disconnect = Gtk.Button(label=_("Déconnecter"))
+        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
         self._btn_disconnect.set_sensitive(False)
         self._btn_disconnect.connect("clicked", self._on_disconnect)
 
@@ -1850,11 +2034,11 @@ class SerialTab(Gtk.Box):
 
         # ── infos + terminal ────────────────────────────────────────────────
         lbl_bin = Gtk.Label()
-        lbl_bin.set_markup(f"<small><i>Binaire détecté : {SERIAL_BIN}</i></small>")
+        lbl_bin.set_markup(f"<small><i>Detected binary: {SERIAL_BIN}</i></small>")
         lbl_bin.set_xalign(0.0)
         lbl_bin.set_margin_start(6)
 
-        self._lbl_status = Gtk.Label(label=_("Non connecté"))
+        self._lbl_status = Gtk.Label(label=_("Disconnect"))
         self._lbl_status.set_xalign(0.0)
         self._lbl_status.set_margin_start(6)
 
@@ -2005,7 +2189,7 @@ class SerialTab(Gtk.Box):
         cmd = self._build_cmd()
         if not cmd:
             return
-        self._lbl_status.set_text(_("Connexion en cours…"))
+        self._lbl_status.set_text(_("Connecting…"))
         self._btn_connect.set_sensitive(False)
         self._btn_disconnect.set_sensitive(True)
         vte_run(self._terminal, cmd[0], cmd[1:])
@@ -2020,7 +2204,7 @@ class SerialTab(Gtk.Box):
                 os.kill(pid, _signal.SIGTERM)
         except Exception:
             pass
-        self._lbl_status.set_text(_("Déconnecté"))
+        self._lbl_status.set_text(_("Disconnect"))
         self._btn_connect.set_sensitive(True)
         self._btn_disconnect.set_sensitive(False)
 
@@ -2113,14 +2297,17 @@ def _paramiko_connect(hostname, port, username, log_fn=None):
     keys = _collect_ssh_keys()
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    key_classes = [
+        getattr(paramiko, "Ed25519Key", None),
+        getattr(paramiko, "RSAKey", None),
+        getattr(paramiko, "ECDSAKey", None),
+        getattr(paramiko, "DSSKey", None),
+    ]
+    key_classes = [c for c in key_classes if c is not None]
+
     for key_path in keys:
         pkey = None
-        for cls in (
-            paramiko.Ed25519Key,
-            paramiko.RSAKey,
-            paramiko.ECDSAKey,
-            paramiko.DSSKey,
-        ):
+        for cls in key_classes:
             try:
                 pkey = cls.from_private_key_file(key_path)
                 break
@@ -2438,14 +2625,13 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                 # ── SSH : toujours via l'hyperviseur (jamais direct) ──────────
                 if "ssh" in proto_filter:
                     if ip_addr:
-                        # ProxyJump transparent (port hyperviseur respecté)
                         if hv_port != 22:
                             jump_flag = f"-J {hv_user}@{hv_host}:{hv_port}"
                         else:
                             jump_flag = f"-J {hv_user}@{hv_host}"
                         results.append(
                             {
-                                "name": f"{short} [SSH]",
+                                "name": short,
                                 "host": ip_addr,
                                 "user": vm_user,
                                 "port": 22,
@@ -2454,18 +2640,17 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                                     f"[{state}] {vm_name} — SSH ProxyJump via "
                                     f"{hv_user}@{hv_host}:{hv_port} → {ip_addr}"
                                 ),
-                                "group": grp,
+                                "group": f"{grp}/ssh" if grp else "ssh",
                                 "hypervisor": hv_host,
                                 "protocol": "ssh",
                                 "extra_params": jump_flag,
                             }
                         )
                     else:
-                        # IP inconnue : shell sur l'hyperviseur + -t ssh vers la VM
                         post_cmd = f"-t ssh {vm_user}@{vm_name}"
                         results.append(
                             {
-                                "name": f"{short} [SSH]",
+                                "name": short,
                                 "host": hv_host,
                                 "user": hv_user,
                                 "port": hv_port,
@@ -2474,7 +2659,7 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                                     f"[{state}] {vm_name} — SSH via hyperviseur "
                                     f"{hv_host}:{hv_port} → ssh {vm_user}@{vm_name} (IP inconnue)"
                                 ),
-                                "group": grp,
+                                "group": f"{grp}/ssh" if grp else "ssh",
                                 "hypervisor": hv_host,
                                 "protocol": "ssh",
                                 "extra_params": post_cmd,
@@ -2494,7 +2679,7 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                         lv_uri = f"qemu+ssh://{hv_user}@{hv_host}/system"
                     results.append(
                         {
-                            "name": f"{short} [SPICE]",
+                            "name": short,
                             "host": hv_host,
                             "user": hv_user,
                             "port": int(spice_port),
@@ -2503,10 +2688,9 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                                 f"[{state}] {vm_name} — SPICE via {lv_uri} "
                                 f"(tunnel SSH géré par virt-viewer)"
                             ),
-                            "group": grp,
+                            "group": f"{grp}/spice" if grp else "spice",
                             "hypervisor": hv_host,
                             "protocol": "spice",
-                            # SpiceTab détecte --connect et appelle: remote-viewer --connect URI vm
                             "extra_params": f"--connect {lv_uri} {vm_name}",
                         }
                     )
@@ -2521,7 +2705,7 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                     if _check_port_open(client, run, ip_addr, 3389):
                         results.append(
                             {
-                                "name": f"{short} [RDP]",
+                                "name": short,
                                 "host": ip_addr,
                                 "user": vm_user,
                                 "port": 3389,
@@ -2529,7 +2713,7 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                                 "description": (
                                     f"[{state}] {vm_name} — RDP (port 3389 confirmé ouvert)"
                                 ),
-                                "group": grp,
+                                "group": f"{grp}/rdp" if grp else "rdp",
                                 "hypervisor": hv_host,
                                 "protocol": "rdp",
                                 "extra_params": "",
@@ -2540,12 +2724,315 @@ def _libvirt_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None)
                     else:
                         log_fn(f"  ↳ port 3389 fermé sur {ip_addr} — RDP ignoré")
 
+                # ── VNC : seulement si port 5900 ouvert (sondé depuis l'HV) ──
+                if "vnc" in proto_filter and ip_addr:
+                    log_fn(f"  ↳ Sondage VNC 5900 sur {ip_addr}…")
+                    if _check_port_open(client, run, ip_addr, 5900):
+                        results.append(
+                            {
+                                "name": short,
+                                "host": ip_addr,
+                                "user": vm_user,
+                                "port": 5900,
+                                "password": "",
+                                "description": (
+                                    f"[{state}] {vm_name} — VNC (port 5900 confirmé ouvert)"
+                                ),
+                                "group": f"{grp}/vnc" if grp else "vnc",
+                                "hypervisor": hv_host,
+                                "protocol": "vnc",
+                                "extra_params": "",
+                            }
+                        )
+                        log_fn(f"  + [{grp}] {short:28s}  {ip_addr:16s}  [{state}]  VNC ✓")
+                        added = True
+                    else:
+                        log_fn(f"  ↳ port 5900 fermé sur {ip_addr} — VNC ignoré")
+
                 if not added:
                     log_fn(f"  - {vm_name} : aucune connexion générée")
 
         finally:
             client.close()
         progress_fn((idx + 1) / total, f"{idx + 1}/{total} hyperviseurs traités")
+    return results
+
+
+def _proxmox_fetch_hosts(uris, ssh_user, log_fn, progress_fn, proto_filter=None):
+    """Collecte les VMs Proxmox via SSH sur les hyperviseurs donnés.
+
+    Les hôtes d'entrée utilisent le même format que l'import libvirt
+    (URI type qemu+ssh://user@host[:port]/system), mais l'inventaire est
+    réalisé nativement avec les commandes Proxmox (`qm`).
+
+    Args:
+        uris (list[str]): Cibles hyperviseurs (URI SSH).
+        ssh_user (str): Utilisateur SSH des VMs invitées.
+        log_fn (callable): Fonction de log.
+        progress_fn (callable): Progression (frac: float, texte: str).
+        proto_filter (set[str] | None): {'ssh','spice','rdp','vnc'} ou None = tous.
+
+    Returns:
+        list[dict]: Hôtes prêts à importer dans GCM.
+    """
+    if not _PARAMIKO_OK:
+        log_fn(
+            "ERREUR : paramiko non installé → "
+            + _dep_install_hint("python3-paramiko", "python3-paramiko", "python-paramiko")
+        )
+        return []
+    if proto_filter is None:
+        proto_filter = {"ssh", "spice", "rdp"}
+
+    results = []
+    total = len(uris)
+
+    def run(client, cmd, timeout=30):
+        return _libvirt_ssh_run(client, cmd, timeout)
+
+    def _extract_first_ipv4(qm_agent_output):
+        try:
+            data = json.loads(qm_agent_output)
+            for iface in data.get("result", []):
+                for addr in iface.get("ip-addresses", []):
+                    ip = addr.get("ip-address", "")
+                    if re.match(r"\d+\.\d+\.\d+\.\d+$", ip) and not ip.startswith("127."):
+                        return ip
+        except Exception:
+            pass
+        m = re.search(r'"ip-address"\s*:\s*"(\d+\.\d+\.\d+\.\d+)"', qm_agent_output)
+        return m.group(1) if m else ""
+
+    for idx, uri in enumerate(uris):
+        log_fn(f"\n── Hyperviseur Proxmox : {uri}")
+        progress_fn(idx / total, f"Connexion à {uri}…")
+        parsed = urlparse(uri)
+        hv_host = parsed.hostname or "localhost"
+        hv_port = parsed.port or 22
+        hv_user = parsed.username or "root"
+
+        client = _paramiko_connect(hv_host, hv_port, hv_user, log_fn)
+        if client is None:
+            continue
+
+        try:
+            qm_out = run(client, "qm list")
+            vm_rows = []
+            for line in qm_out.splitlines():
+                line = line.strip()
+                if not line or line.lower().startswith("vmid"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 3 and parts[0].isdigit():
+                    vm_rows.append((parts[0], parts[1], parts[2]))
+            log_fn(f"  {len(vm_rows)} VM(s) trouvée(s)")
+
+            for vmid, vm_name, state in vm_rows:
+                grp, short = _vm_name_split(vm_name)
+                is_windows = bool(
+                    re.search(
+                        r"win|w(?:2k|2019|2022|2016|2012|srv|dc|server)",
+                        vm_name,
+                        re.IGNORECASE,
+                    )
+                )
+                vm_user = "Administrator" if is_windows else ssh_user
+                ip_addr = ""
+
+                if state == "running":
+                    qga_out = run(
+                        client,
+                        f"qm guest cmd {vmid} network-get-interfaces 2>/dev/null",
+                        timeout=20,
+                    )
+                    ip_addr = _extract_first_ipv4(qga_out)
+
+                # Fallback 1 : config ipconfig0 (cloud-init / statique Proxmox)
+                if not ip_addr:
+                    cfg_out = run(client, f"qm config {vmid} | grep '^ipconfig'", timeout=10)
+                    m_cfg = re.search(r"ip=(\d+\.\d+\.\d+\.\d+)", cfg_out)
+                    if m_cfg and not m_cfg.group(1).startswith("169."):
+                        ip_addr = m_cfg.group(1)
+
+                # Fallback 2 : ARP filtré par MAC de la VM
+                if not ip_addr:
+                    # Récupérer la MAC de la VM depuis qm config
+                    mac_out = run(
+                        client,
+                        f"qm config {vmid} | grep -oP '(?<=virtio=|e1000=|rtl8139=)[0-9A-Fa-f:]+' | head -1",
+                        timeout=10,
+                    )
+                    vm_mac = mac_out.strip().lower() if mac_out.strip() else ""
+                    arp_out = run(client, "ip neigh show 2>/dev/null || arp -n 2>/dev/null")
+                    for line in arp_out.splitlines():
+                        if vm_mac and vm_mac not in line.lower():
+                            continue
+                        m = re.search(r"(\d+\.\d+\.\d+\.\d+)", line)
+                        if m and not m.group(1).startswith("127."):
+                            ip_addr = m.group(1)
+                            break
+
+                # Fallback 3 : nmap ping scan (même pipeline que libvirt)
+                if not ip_addr and state == "running":
+                    nmap_table = _libvirt_nmap_scan(client, run, log_fn)
+                    if nmap_table:
+                        # Prendre la première IP découverte correspondant à une MAC VM connue
+                        mac_out2 = run(
+                            client,
+                            f"qm config {vmid} | grep -oP '[0-9A-Fa-f]{{2}}(:[0-9A-Fa-f]{{2}}){{5}}' | head -1",
+                            timeout=10,
+                        )
+                        vm_mac2 = mac_out2.strip().lower() if mac_out2.strip() else ""
+                        if vm_mac2 and vm_mac2 in nmap_table:
+                            ip_addr = nmap_table[vm_mac2]
+                        elif not ip_addr and nmap_table:
+                            # dernier recours : première IP du subnet (peu fiable)
+                            log_fn(f"  ↳ nmap : MAC VM introuvable, IP non résolue pour {vm_name}")
+
+                if ip_addr:
+                    log_fn(f"  ↳ IP {vm_name} : {ip_addr}")
+                else:
+                    log_fn(f"  ↳ IP {vm_name} : inconnue (QGA/ARP/nmap ont échoué)")
+
+                added = False
+
+                if "ssh" in proto_filter:
+                    if ip_addr:
+                        jump_flag = (
+                            f"-J {hv_user}@{hv_host}:{hv_port}"
+                            if hv_port != 22
+                            else f"-J {hv_user}@{hv_host}"
+                        )
+                        results.append(
+                            {
+                                "name": short,
+                                "host": ip_addr,
+                                "user": vm_user,
+                                "port": 22,
+                                "password": "",
+                                "description": (
+                                    f"[{state}] {vm_name} (VMID {vmid}) — SSH ProxyJump via "
+                                    f"{hv_user}@{hv_host}:{hv_port} → {ip_addr}"
+                                ),
+                                "group": f"{grp}/ssh" if grp else "ssh",
+                                "hypervisor": hv_host,
+                                "protocol": "ssh",
+                                "extra_params": jump_flag,
+                            }
+                        )
+                    else:
+                        post_cmd = f"-t ssh {vm_user}@{vm_name}"
+                        results.append(
+                            {
+                                "name": short,
+                                "host": hv_host,
+                                "user": hv_user,
+                                "port": hv_port,
+                                "password": "",
+                                "description": (
+                                    f"[{state}] {vm_name} (VMID {vmid}) — SSH via hyperviseur "
+                                    f"{hv_host}:{hv_port} → ssh {vm_user}@{vm_name} (IP inconnue)"
+                                ),
+                                "group": f"{grp}/ssh" if grp else "ssh",
+                                "hypervisor": hv_host,
+                                "protocol": "ssh",
+                                "extra_params": post_cmd,
+                            }
+                        )
+                    log_fn(
+                        f"  + [{grp}] {short:28s}  {ip_addr or '(IP inconnue)':16s}"
+                        f"  [{state}]  SSH"
+                    )
+                    added = True
+
+                if "spice" in proto_filter:
+                    # Proxmox SPICE : détecter vga qxl depuis qm config
+                    vga_out = run(client, f"qm config {vmid} | grep '^vga:'", timeout=10)
+                    has_qxl = "qxl" in vga_out.lower()
+                    if has_qxl:
+                        node_name = run(client, "hostname").strip()
+                        results.append(
+                            {
+                                "name": short,
+                                "host": hv_host,
+                                "user": hv_user,
+                                "port": hv_port,
+                                "password": "",
+                                "description": (
+                                    f"[{state}] {vm_name} (VMID {vmid}) — SPICE via Proxmox proxy "
+                                    f"{hv_host} (ticket généré à la connexion)"
+                                ),
+                                "group": f"{grp}/spice" if grp else "spice",
+                                "hypervisor": hv_host,
+                                "protocol": "spice",
+                                "extra_params": f"--proxmox {node_name} {vmid}",
+                            }
+                        )
+                        log_fn(f"  + [{grp}] {short:28s}  VMID {vmid:>5s}  [{state}]  SPICE (qxl)")
+                        added = True
+                    else:
+                        log_fn(
+                            f"  ↳ SPICE ignoré pour {vm_name} : pas de vga qxl (vga='{vga_out.strip()}')"
+                        )
+
+                if "rdp" in proto_filter and ip_addr:
+                    log_fn(f"  ↳ Sondage RDP 3389 sur {ip_addr}…")
+                    if _check_port_open(client, run, ip_addr, 3389):
+                        results.append(
+                            {
+                                "name": f"{short}",
+                                "host": ip_addr,
+                                "user": vm_user,
+                                "port": 3389,
+                                "password": "",
+                                "description": (
+                                    f"[{state}] {vm_name} (VMID {vmid}) — RDP "
+                                    "(port 3389 confirmé ouvert)"
+                                ),
+                                "group": f"{grp}/rdp" if grp else "rdp",
+                                "hypervisor": hv_host,
+                                "protocol": "rdp",
+                                "extra_params": "",
+                            }
+                        )
+                        log_fn(f"  + [{grp}] {short:28s}  {ip_addr:16s}  [{state}]  RDP ✓")
+                        added = True
+                    else:
+                        log_fn(f"  ↳ port 3389 fermé sur {ip_addr} — RDP ignoré")
+
+                if "vnc" in proto_filter and ip_addr:
+                    log_fn(f"  ↳ Sondage VNC 5900 sur {ip_addr}…")
+                    if _check_port_open(client, run, ip_addr, 5900):
+                        results.append(
+                            {
+                                "name": f"{short}",
+                                "host": ip_addr,
+                                "user": vm_user,
+                                "port": 5900,
+                                "password": "",
+                                "description": (
+                                    f"[{state}] {vm_name} (VMID {vmid}) — VNC "
+                                    "(port 5900 confirmé ouvert)"
+                                ),
+                                "group": f"{grp}/vnc" if grp else "vnc",
+                                "hypervisor": hv_host,
+                                "protocol": "vnc",
+                                "extra_params": "",
+                            }
+                        )
+                        log_fn(f"  + [{grp}] {short:28s}  {ip_addr:16s}  [{state}]  VNC ✓")
+                        added = True
+                    else:
+                        log_fn(f"  ↳ port 5900 fermé sur {ip_addr} — VNC ignoré")
+
+                if not added:
+                    log_fn(f"  - {vm_name} : aucune connexion générée")
+
+        finally:
+            client.close()
+
+        progress_fn((idx + 1) / total, f"{idx + 1}/{total} hyperviseurs traités")
+
     return results
 
 
@@ -2595,7 +3082,7 @@ class LibvirtImportDialog:
 
     def _build_ui(self):
         dlg = Gtk.Dialog(
-            title=_("Importer depuis libvirt"),
+            title=_("Import from libvirt"),
             transient_for=self.parent,
             modal=True,
         )
@@ -2613,7 +3100,7 @@ class LibvirtImportDialog:
 
         # User SSH hyperviseur
         hb_user = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb_user.pack_start(Gtk.Label(label=_("User SSH hyperviseur :")), False, False, 0)
+        hb_user.pack_start(Gtk.Label(label=_("Hypervisor SSH user:")), False, False, 0)
         self._entry_user = Gtk.Entry()
         self._entry_user.set_text(self.default_user)
         self._entry_user.set_width_chars(12)
@@ -2621,9 +3108,10 @@ class LibvirtImportDialog:
         self._scan_box.pack_start(hb_user, False, False, 0)
 
         # Liste des URIs libvirt
-        lbl_uri = Gtk.Label(label=_("URI libvirt détectées (virt-manager / dconf) :"))
+        lbl_uri = Gtk.Label(label=_("Hypervisors (virt-manager / dconf):"))
         lbl_uri.set_xalign(0)
         self._scan_box.pack_start(lbl_uri, False, False, 2)
+        self._lbl_uri = lbl_uri
 
         self._uri_store = Gtk.ListStore(bool, str)
         tv_uri = Gtk.TreeView(model=self._uri_store)
@@ -2631,42 +3119,65 @@ class LibvirtImportDialog:
         cr_toggle = Gtk.CellRendererToggle()
         cr_toggle.connect("toggled", self._on_uri_toggled)
         tv_uri.append_column(Gtk.TreeViewColumn("", cr_toggle, active=0))
-        col_uri_txt = Gtk.TreeViewColumn(_("URI libvirt détectée"), Gtk.CellRendererText(), text=1)
+        col_uri_txt = Gtk.TreeViewColumn(_("Detected libvirt URI"), Gtk.CellRendererText(), text=1)
         col_uri_txt.set_expand(True)
         tv_uri.append_column(col_uri_txt)
+        self._col_uri_txt = col_uri_txt
         sw_uri = Gtk.ScrolledWindow()
         sw_uri.set_min_content_height(150)
         sw_uri.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         sw_uri.add(tv_uri)
         self._scan_box.pack_start(sw_uri, False, False, 0)
 
+        # Saisie manuelle d'une cible libvirt (en plus de dconf)
+        hb_manual = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_manual_uri = Gtk.Label(label=_("Import from libvirt"))
+        hb_manual.pack_start(lbl_manual_uri, False, False, 0)
+        self._lbl_manual_uri = lbl_manual_uri
+        self._entry_manual_uri = Gtk.Entry()
+        self._entry_manual_uri.set_placeholder_text(
+            _("Ex: 192.168.105.41 | root@192.168.105.41 | qemu+ssh://root@192.168.105.41/system")
+        )
+        self._entry_manual_uri.connect("activate", self._on_add_manual_uri)
+        hb_manual.pack_start(self._entry_manual_uri, True, True, 0)
+        btn_add_uri = Gtk.Button(label=_("Add"))
+        btn_add_uri.connect("clicked", self._on_add_manual_uri)
+        hb_manual.pack_start(btn_add_uri, False, False, 0)
+        self._scan_box.pack_start(hb_manual, False, False, 0)
+
         # Protocoles
         lbl_proto = Gtk.Label()
-        lbl_proto.set_markup(_("<b>Types de connexion à importer :</b>"))
+        lbl_proto.set_markup(_("<b>Connection types to import:</b>"))
         lbl_proto.set_xalign(0)
         self._scan_box.pack_start(lbl_proto, False, False, 4)
 
         proto_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self._chk_ssh = Gtk.CheckButton(
             label=_(
-                "SSH  (ProxyJump -J via hyperviseur si IP connue, "
-                "sinon shell hyperviseur + -t ssh user@vm)"
+                "SSH  (ProxyJump -J via hypervisor when VM IP is known, "
+                "otherwise hypervisor shell + -t ssh user@vm)"
             )
         )
         self._chk_ssh.set_active(True)
         self._chk_spice = Gtk.CheckButton(
             label=_(
-                "SPICE  (virt-viewer --connect qemu+ssh://… vm — tunnel SSH géré automatiquement)"
+                "SPICE  (virt-viewer --connect qemu+ssh://... vm - SSH tunnel handled automatically)"
             )
         )
         self._chk_spice.set_active(True)
         self._chk_rdp = Gtk.CheckButton(
             label=_(
-                "RDP  (sondage port 3389 depuis l'hyperviseur via nc/nmap — ignoré si port fermé)"
+                "RDP  (probe port 3389 from hypervisor via nc/nmap - skipped if port is closed)"
             )
         )
         self._chk_rdp.set_active(True)
-        for chk in (self._chk_ssh, self._chk_spice, self._chk_rdp):
+        self._chk_vnc = Gtk.CheckButton(
+            label=_(
+                "VNC  (probe port 5900 from hypervisor via nc/nmap - skipped if port is closed)"
+            )
+        )
+        self._chk_vnc.set_active(False)
+        for chk in (self._chk_ssh, self._chk_spice, self._chk_rdp, self._chk_vnc):
             proto_box.pack_start(chk, False, False, 0)
         self._scan_box.pack_start(proto_box, False, False, 0)
 
@@ -2686,18 +3197,24 @@ class LibvirtImportDialog:
         # Barre de progression
         self._progress = Gtk.ProgressBar()
         self._progress.set_show_text(True)
-        self._progress.set_text(_("En attente…"))
+        self._progress.set_text(_("Waiting…"))
         self._scan_box.pack_start(self._progress, False, False, 0)
 
         # Bouton Scanner (aligné à droite)
-        self._btn_scan = Gtk.Button(label=_("🔍  Scanner les hyperviseurs"))
+        self._btn_scan = Gtk.Button(label=_("🔍  Scan hypervisors"))
         self._btn_scan.get_style_context().add_class("suggested-action")
         self._btn_scan.connect("clicked", self._on_scan_clicked)
         scan_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         scan_btn_box.pack_end(self._btn_scan, False, False, 0)
         self._scan_box.pack_start(scan_btn_box, False, False, 0)
 
-        box.pack_start(self._scan_box, False, False, 0)
+        # Wrap _scan_box dans un ScrolledWindow pour éviter le dépassement écran
+        sw_scan = Gtk.ScrolledWindow()
+        sw_scan.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sw_scan.set_min_content_height(300)
+        sw_scan.set_max_content_height(500)
+        sw_scan.add(self._scan_box)
+        box.pack_start(sw_scan, False, False, 0)
 
         # ── Phase 2 : Tableau de prévisualisation (caché au départ) ──────────
         self._preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -2714,16 +3231,16 @@ class LibvirtImportDialog:
 
         # Case « Écraser »
         self._chk_overwrite = Gtk.CheckButton(
-            label=_("Écraser les connexions existantes portant le même nom et protocole")
+            label=_("Overwrite existing connections with the same name and protocol")
         )
         self._chk_overwrite.set_active(False)
         self._preview_box.pack_start(self._chk_overwrite, False, False, 0)
 
         # Tout cocher / Tout décocher
         ctrl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_all = Gtk.Button(label=_("✓ Tout cocher"))
+        btn_all = Gtk.Button(label=_("✓ Check all"))
         btn_all.connect("clicked", lambda w: self._select_all(True))
-        btn_none = Gtk.Button(label=_("✗ Tout décocher"))
+        btn_none = Gtk.Button(label=_("✗ Uncheck all"))
         btn_none.connect("clicked", lambda w: self._select_all(False))
         ctrl_box.pack_start(btn_all, False, False, 0)
         ctrl_box.pack_start(btn_none, False, False, 0)
@@ -2768,7 +3285,7 @@ class LibvirtImportDialog:
         # Col 2 : nom VM
         cr_name = Gtk.CellRendererText()
         col_name = Gtk.TreeViewColumn(
-            _("Nom VM"),
+            _("VM name"),
             cr_name,
             text=self._COL_NAME,
             foreground=self._COL_FG,
@@ -2780,7 +3297,7 @@ class LibvirtImportDialog:
         # Col 3 : groupe
         cr_grp = Gtk.CellRendererText()
         col_grp = Gtk.TreeViewColumn(
-            _("Groupe"),
+            _("Group"),
             cr_grp,
             text=self._COL_GROUP,
             foreground=self._COL_FG,
@@ -2791,7 +3308,7 @@ class LibvirtImportDialog:
         # Col 4 : IP / hôte
         cr_host = Gtk.CellRendererText()
         col_host = Gtk.TreeViewColumn(
-            _("IP / Hôte"),
+            _("IP / Host"),
             cr_host,
             text=self._COL_HOST,
             foreground=self._COL_FG,
@@ -2802,7 +3319,7 @@ class LibvirtImportDialog:
         # Col 5 : état VM
         cr_state = Gtk.CellRendererText()
         col_state = Gtk.TreeViewColumn(
-            _("État"),
+            _("State"),
             cr_state,
             text=self._COL_STATE,
             foreground=self._COL_FG,
@@ -2813,7 +3330,7 @@ class LibvirtImportDialog:
         # Col 7 : déjà importé ?
         cr_exist = Gtk.CellRendererText()
         col_exist = Gtk.TreeViewColumn(
-            _("Importé"),
+            _("Imported"),
             cr_exist,
             text=self._COL_EXIST_LBL,
             foreground=self._COL_FG,
@@ -2831,17 +3348,17 @@ class LibvirtImportDialog:
 
         # Boutons de la phase 2
         import_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self._btn_import = Gtk.Button(label=_("⬇  Importer les sélectionnés"))
+        self._btn_import = Gtk.Button(label=_("⬇  Import selected"))
         self._btn_import.get_style_context().add_class("suggested-action")
         self._btn_import.connect("clicked", self._on_import_clicked)
-        btn_cancel2 = Gtk.Button(label=_("Annuler"))
+        btn_cancel2 = Gtk.Button(label=_("Cancel"))
         btn_cancel2.connect("clicked", lambda w: self._dlg.destroy())
         import_btn_box.pack_end(self._btn_import, False, False, 0)
         import_btn_box.pack_end(btn_cancel2, False, False, 6)
         self._preview_box.pack_start(import_btn_box, False, False, 0)
 
         # Bouton Fermer (barre d'action standard)
-        dlg.add_button(_("✕  Fermer"), Gtk.ResponseType.CANCEL)
+        dlg.add_button(_("✕  Close"), Gtk.ResponseType.CANCEL)
         dlg.connect("response", lambda d, r: d.destroy())
 
         dlg.show_all()
@@ -2853,12 +3370,20 @@ class LibvirtImportDialog:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _populate_uris(self):
+        """Charge la liste initiale des URI libvirt depuis dconf.
+
+        Si aucune URI n'est trouvée, un exemple par défaut est ajouté pour
+        permettre un démarrage rapide du scan.
+
+        Returns:
+            None: Met à jour `self._uri_store` en place.
+        """
         uris = _libvirt_get_uris_from_dconf()
         if not uris:
             self._log(
                 _(
-                    "Aucune URI trouvée dans dconf (virt-manager non configuré ?).\n"
-                    "Ajoutez manuellement vos URIs ci-dessous."
+                    "No URI found in dconf (virt-manager not configured?).\n"
+                    "Add your URIs manually below."
                 )
             )
             self._uri_store.append([True, "qemu+ssh://root@hyperviseur/system"])
@@ -2866,21 +3391,96 @@ class LibvirtImportDialog:
         for uri in uris:
             self._uri_store.append([True, uri])
 
+    def _normalize_manual_uri(self, raw_target):
+        """Convertit une saisie libre en URI qemu+ssh://.../system.
+
+        Args:
+            raw_target (str): Cible saisie (IP, user@host, URI complète, etc.).
+
+        Returns:
+            str: URI normalisée, ou chaîne vide si entrée invalide.
+        """
+        raw = (raw_target or "").strip()
+        if not raw:
+            return ""
+        if "://" in raw:
+            return raw
+
+        if "@" in raw:
+            user, hostport = raw.split("@", 1)
+            user = user or "root"
+        else:
+            user, hostport = "root", raw
+
+        host = hostport
+        port = None
+        if ":" in hostport:
+            h, p = hostport.rsplit(":", 1)
+            if p.isdigit():
+                host, port = h, int(p)
+
+        host = host.strip()
+        if not host:
+            return ""
+        if port is None or port == 22:
+            return f"qemu+ssh://{user}@{host}/system"
+        return f"qemu+ssh://{user}@{host}:{port}/system"
+
+    def _on_add_manual_uri(self, widget):
+        """Ajoute une URI libvirt saisie manuellement dans la liste.
+
+        Args:
+            widget (Gtk.Widget): Widget déclencheur (bouton ou entrée).
+
+        Returns:
+            None: Met à jour la liste des URI et le log UI.
+        """
+        uri = self._normalize_manual_uri(self._entry_manual_uri.get_text())
+        if not uri:
+            self._log(_("Invalid libvirt target."))
+            return
+        existing = [row[1] for row in self._uri_store]
+        if uri in existing:
+            self._log(_(f"Cible déjà présente : {uri}"))
+            self._entry_manual_uri.set_text("")
+            return
+        self._uri_store.append([True, uri])
+        self._log(_(f"Cible ajoutée : {uri}"))
+        self._entry_manual_uri.set_text("")
+
     # ──────────────────────────────────────────────────────────────────────────
     # Helpers log / progress
     # ──────────────────────────────────────────────────────────────────────────
 
     def _log(self, msg):
+        """Ajoute un message dans la zone de log du dialogue.
+
+        Args:
+            msg (str): Texte à afficher.
+
+        Returns:
+            None: Planifie l'ajout du message dans le thread GTK.
+        """
+
         def _do():
             buf = self._log_buf
             buf.insert(buf.get_end_iter(), msg + "\n")
-            adj = self._log_view.get_vadjustment()
-            adj.set_value(adj.get_upper())
+            self._log_view.scroll_mark_onscreen(buf.get_insert())
             return False
 
         GLib.idle_add(_do)
 
     def _set_progress(self, frac, text):
+        """Met à jour la barre de progression du scan.
+
+        Args:
+            frac (float): Fraction de progression entre 0 et 1.
+            text (str): Texte d'état à afficher.
+
+        Returns:
+            None: Planifie la mise à jour de la progress bar.
+        """
+
         def _do():
             self._progress.set_fraction(frac)
             self._progress.set_text(text)
@@ -2893,6 +3493,15 @@ class LibvirtImportDialog:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _on_uri_toggled(self, renderer, path):
+        """Inverse l'état coché d'une URI dans la liste de scan.
+
+        Args:
+            renderer (Gtk.CellRendererToggle): Renderer source.
+            path (str): Chemin de ligne dans le modèle Gtk.
+
+        Returns:
+            None: Inverse l'état de sélection de la ligne.
+        """
         self._uri_store[path][0] = not self._uri_store[path][0]
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -2900,10 +3509,29 @@ class LibvirtImportDialog:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _on_scan_clicked(self, widget):
+        """Lance le scan des hyperviseurs libvirt sélectionnés.
+
+        Ajoute aussi une URI saisie mais non encore validée avant de démarrer
+        le thread de collecte.
+
+        Args:
+            widget (Gtk.Widget): Bouton scanner.
+
+        Returns:
+            None: Démarre un thread de scan et met à jour l'UI.
+        """
         self._btn_scan.set_sensitive(False)
+        if hasattr(self, "_entry_manual_uri"):
+            pending_uri = self._normalize_manual_uri(self._entry_manual_uri.get_text())
+            if pending_uri:
+                existing = [row[1] for row in self._uri_store]
+                if pending_uri not in existing:
+                    self._uri_store.append([True, pending_uri])
+                    self._log(_(f"Cible ajoutée automatiquement : {pending_uri}"))
+                self._entry_manual_uri.set_text("")
         uris = [row[1] for row in self._uri_store if row[0]]
         if not uris:
-            self._log(_("Aucune URI sélectionnée."))
+            self._log(_("No URI selected."))
             self._btn_scan.set_sensitive(True)
             return
         user = self._entry_user.get_text().strip() or "root"
@@ -2914,8 +3542,10 @@ class LibvirtImportDialog:
             proto_filter.add("spice")
         if self._chk_rdp.get_active():
             proto_filter.add("rdp")
+        if hasattr(self, "_chk_vnc") and self._chk_vnc.get_active():
+            proto_filter.add("vnc")
         if not proto_filter:
-            self._log(_("Aucun type de connexion sélectionné."))
+            self._log(_("No connection type selected."))
             self._btn_scan.set_sensitive(True)
             return
 
@@ -2936,6 +3566,14 @@ class LibvirtImportDialog:
         return False
 
     def _show_preview(self, host_dicts):
+        """Affiche les résultats du scan dans la grille de prévisualisation.
+
+        Args:
+            host_dicts (list[dict]): Connexions détectées prêtes à importer.
+
+        Returns:
+            None: Remplit la grille de prévisualisation et met à jour le résumé.
+        """
         self._discovered = host_dicts
         self._preview_store.clear()
 
@@ -2989,7 +3627,7 @@ class LibvirtImportDialog:
         self._preview_box.set_no_show_all(False)
         self._preview_box.show_all()
         # Réinitialiser le bouton Scanner
-        self._btn_scan.set_label(_("🔄  Rescanner"))
+        self._btn_scan.set_label(_("🔄  Rescan"))
         self._btn_scan.set_sensitive(True)
         # Agrandir le dialogue pour afficher le tableau
         self._dlg.resize(820, 900)
@@ -2999,9 +3637,26 @@ class LibvirtImportDialog:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _on_preview_toggled(self, renderer, path):
+        """Inverse la sélection d'une ligne de prévisualisation.
+
+        Args:
+            renderer (Gtk.CellRendererToggle): Renderer source.
+            path (str): Chemin de ligne dans le modèle Gtk.
+
+        Returns:
+            None: Inverse l'état coché de la ligne.
+        """
         self._preview_store[path][self._COL_SEL] = not self._preview_store[path][self._COL_SEL]
 
     def _select_all(self, value):
+        """Coche ou décoche toutes les lignes de prévisualisation.
+
+        Args:
+            value (bool): État à appliquer à toute la liste.
+
+        Returns:
+            None: Applique l'état à toutes les lignes.
+        """
         for row in self._preview_store:
             row[self._COL_SEL] = value
 
@@ -3010,6 +3665,14 @@ class LibvirtImportDialog:
     # ──────────────────────────────────────────────────────────────────────────
 
     def _on_import_clicked(self, widget):
+        """Importe les éléments sélectionnés vers la configuration GCM.
+
+        Args:
+            widget (Gtk.Widget): Bouton d'import.
+
+        Returns:
+            None: Déclenche l'import et met à jour l'UI.
+        """
         self._btn_import.set_sensitive(False)
         overwrite = self._chk_overwrite.get_active()
         to_import = []
@@ -3023,16 +3686,162 @@ class LibvirtImportDialog:
             to_import.append(self._discovered[idx])
 
         if not to_import:
-            self._log(
-                _("Aucune connexion à importer (toutes déjà présentes ou aucune sélectionnée).")
-            )
+            self._log(_("No connection to import (all already exist or none selected)."))
             self._btn_import.set_sensitive(True)
             return
 
         self.on_done(to_import)
-        self._btn_import.set_label(_("✓ Importé"))
+        self._btn_import.set_label(_("✓ Imported"))
         n = len(to_import)
         self._lbl_summary.set_markup(f"<b>{n}</b> connexion(s) importée(s) avec succès.")
+
+
+class ProxmoxImportDialog(LibvirtImportDialog):
+    """Dialogue GTK3 d'import de VMs depuis Proxmox (scan natif `qm`)."""
+
+    def _build_ui(self):
+        """Construit l'UI Proxmox à partir de la base libvirt.
+
+        Surcharge le titre/labels et ajoute la saisie manuelle de cible
+        Proxmox (IP, user@hôte, user@hôte:port).
+
+        Returns:
+            None: Construit et enrichit l'interface de dialogue.
+        """
+        super()._build_ui()
+        self._dlg.set_title(_("Import from libvirt"))
+        self._btn_scan.set_label(_("🔍  Scan Proxmox hosts"))
+        self._lbl_uri.set_text(_("Detected Proxmox targets (dconf):"))
+        self._col_uri_txt.set_title(_("Detected Proxmox target"))
+        self._lbl_manual_uri.set_text(_("Add a Proxmox target:"))
+        self._entry_manual_uri.set_placeholder_text(
+            _("Ex: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22")
+        )
+        self._chk_spice.set_label(
+            _("SPICE  (vga:qxl required — ticket généré à la connexion via pvesh)")
+        )
+
+    def _on_add_manual_uri(self, widget):
+        """Alias Proxmox de l'ajout manuel de cible.
+
+        Args:
+            widget (Gtk.Widget): Widget déclencheur.
+
+        Returns:
+            None: Délègue à l'ajout manuel Proxmox.
+        """
+        self._on_add_manual_target(widget)
+
+    def _populate_uris(self):
+        """Pré-remplit les cibles Proxmox depuis les URI dconf compatibles.
+
+        Returns:
+            None: Alimente `self._uri_store` avec les cibles détectées.
+        """
+        uris = [u for u in _libvirt_get_uris_from_dconf() if "+ssh://" in u and "/system" in u]
+        if not uris:
+            self._log(_("No SSH URI found in dconf.\nEnter an IP/host below and click Add."))
+            return
+        for uri in uris:
+            self._uri_store.append([True, uri])
+
+    def _normalize_manual_target(self, raw_target):
+        """Convertit une saisie libre en URI qemu+ssh://.../system.
+
+        Args:
+            raw_target (str): Cible saisie (IP, user@host, URI complète, etc.).
+
+        Returns:
+            str: URI normalisée, ou chaîne vide si entrée invalide.
+        """
+        raw = (raw_target or "").strip()
+        if not raw:
+            return ""
+        if "://" in raw:
+            return raw
+
+        if "@" in raw:
+            user, hostport = raw.split("@", 1)
+            user = user or "root"
+        else:
+            user, hostport = "root", raw
+
+        host = hostport
+        port = 22
+        if ":" in hostport:
+            h, p = hostport.rsplit(":", 1)
+            if p.isdigit():
+                host, port = h, int(p)
+
+        host = host.strip()
+        if not host:
+            return ""
+        return f"qemu+ssh://{user}@{host}:{port}/system"
+
+    def _on_add_manual_target(self, widget):
+        """Ajoute une cible Proxmox saisie manuellement à la liste.
+
+        Args:
+            widget (Gtk.Widget): Widget déclencheur.
+
+        Returns:
+            None: Met à jour la liste des cibles et le log UI.
+        """
+        uri = self._normalize_manual_target(self._entry_manual_uri.get_text())
+        if not uri:
+            self._log(_("Invalid Proxmox target."))
+            return
+        existing = [row[1] for row in self._uri_store]
+        if uri in existing:
+            self._log(_(f"Cible déjà présente : {uri}"))
+            self._entry_manual_uri.set_text("")
+            return
+        self._uri_store.append([True, uri])
+        self._log(_(f"Cible ajoutée : {uri}"))
+        self._entry_manual_uri.set_text("")
+
+    def _on_scan_clicked(self, widget):
+        """Lance le scan Proxmox natif sur les cibles sélectionnées.
+
+        Args:
+            widget (Gtk.Widget): Bouton scanner.
+
+        Returns:
+            None: Démarre un thread de scan et met à jour l'UI.
+        """
+        self._btn_scan.set_sensitive(False)
+        pending_uri = self._normalize_manual_target(self._entry_manual_uri.get_text())
+        if pending_uri:
+            existing = [row[1] for row in self._uri_store]
+            if pending_uri not in existing:
+                self._uri_store.append([True, pending_uri])
+                self._log(_(f"Cible ajoutée automatiquement : {pending_uri}"))
+            self._entry_manual_uri.set_text("")
+        uris = [row[1] for row in self._uri_store if row[0]]
+        if not uris:
+            self._log(_("No Proxmox target selected."))
+            self._btn_scan.set_sensitive(True)
+            return
+        user = self._entry_user.get_text().strip() or "root"
+        proto_filter = set()
+        if self._chk_ssh.get_active():
+            proto_filter.add("ssh")
+        if self._chk_spice.get_active():
+            proto_filter.add("spice")
+        if self._chk_rdp.get_active():
+            proto_filter.add("rdp")
+        if hasattr(self, "_chk_vnc") and self._chk_vnc.get_active():
+            proto_filter.add("vnc")
+        if not proto_filter:
+            self._log(_("No connection type selected."))
+            self._btn_scan.set_sensitive(True)
+            return
+
+        def worker():
+            results = _proxmox_fetch_hosts(uris, user, self._log, self._set_progress, proto_filter)
+            GLib.idle_add(self._show_preview, results)
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
 class SerialTemplatesTab:
@@ -3082,9 +3891,9 @@ class SerialTemplatesTab:
         lbl_help = Gtk.Label()
         lbl_help.set_markup(
             _(
-                "<i>Double-cliquez sur une cellule pour la modifier.\n"
-                "Format fichier : <tt>[serial_templates]</tt> dans <tt>gcm.conf</tt>\n"
-                "<tt>Mon équipement = 9600,n,n,8,1</tt>  (baud,flux,parité,bits,stop)</i>"
+                "<i>Double-click a cell to edit it.\n"
+                "File format: <tt>[serial_templates]</tt> in <tt>gcm.conf</tt>\n"
+                "<tt>My device = 9600,n,n,8,1</tt>  (baud,flow,parity,bits,stop)</i>"
             )
         )
         lbl_help.set_xalign(0)
@@ -3099,11 +3908,11 @@ class SerialTemplatesTab:
         self._tv = tv
 
         for title, col_idx, width in (
-            (_("Nom du template"), self._COL_NAME, 200),
-            (_("Débit"), self._COL_BAUD, 80),
-            (_("Flux"), self._COL_FLOW, 70),
-            (_("Parité"), self._COL_PARITY, 80),
-            (_("Bits données"), self._COL_DATABITS, 80),
+            (_("Template name"), self._COL_NAME, 200),
+            (_("Baud rate"), self._COL_BAUD, 80),
+            (_("Flow"), self._COL_FLOW, 70),
+            (_("Parity"), self._COL_PARITY, 80),
+            (_("Data bits"), self._COL_DATABITS, 80),
             (_("Stop"), self._COL_STOPBITS, 60),
         ):
             if col_idx == self._COL_NAME:
@@ -3140,18 +3949,19 @@ class SerialTemplatesTab:
         outer.pack_start(sw, True, True, 0)
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        btn_add = Gtk.Button(label=_("+ Ajouter"))
+        btn_add = Gtk.Button(label=_("+ Add"))
         btn_add.connect("clicked", self._on_add)
-        btn_del = Gtk.Button(label=_("− Supprimer"))
+        btn_del = Gtk.Button(label=_("− Remove"))
         btn_del.connect("clicked", self._on_delete)
-        btn_rst = Gtk.Button(label=_("Restaurer les défauts"))
+        btn_rst = Gtk.Button(label=_("Restore defaults"))
         btn_rst.connect("clicked", self._on_restore_defaults)
         for b in (btn_add, btn_del, btn_rst):
             btn_box.pack_start(b, False, False, 0)
         outer.pack_start(btn_box, False, False, 0)
 
+        notebook.append_page(outer, Gtk.Label(label=_("Serial Templates")))
         outer.show_all()
-        notebook.append_page(outer, Gtk.Label(label=_("Templates Série")))
+        notebook.show_all()
 
     def _populate_store(self):
         self._store.clear()
@@ -3163,7 +3973,7 @@ class SerialTemplatesTab:
         self._store[path][col_idx] = new_text.strip()
 
     def _on_add(self, widget):
-        self._store.append([_("Nouveau template"), "9600", "n", "n", "8", "1"])
+        self._store.append([_("New template"), "9600", "n", "n", "8", "1"])
 
     def _on_delete(self, widget):
         sel = self._tv.get_selection()
@@ -3216,7 +4026,7 @@ class LibvirtPrefsTab:
         box.set_margin_top(14)
         box.set_margin_bottom(14)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        hb.pack_start(Gtk.Label(label=_("Utilisateur SSH par défaut (VMs) :")), False, False, 0)
+        hb.pack_start(Gtk.Label(label=_("Default SSH user (VMs):")), False, False, 0)
         self._entry_user = Gtk.Entry()
         self._entry_user.set_text(self._config.get("libvirt_default_user", LIBVIRT_DEFAULT_USER))
         self._entry_user.set_width_chars(22)
@@ -3285,6 +4095,52 @@ class Wmain(GCMBase):
             initialise_encyption_key()
 
         settings = Gtk.Settings.get_default()
+        # Suivre le thème GTK du bureau (GNOME/XFCE/MATE/…)
+        # Priorité : variable d'env GTK_THEME > gsettings GNOME > thème courant
+        _desktop_theme = None
+        try:
+            import subprocess as _sp
+
+            _gs = _sp.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if _gs.returncode == 0:
+                _desktop_theme = _gs.stdout.strip().strip("'\"")
+        except Exception:
+            pass
+        if not _desktop_theme:
+            # Fallback : lire ~/.config/gtk-3.0/settings.ini
+            try:
+                import configparser as _cp
+                import pathlib as _pl
+
+                _ini = _pl.Path.home() / ".config" / "gtk-3.0" / "settings.ini"
+                if _ini.exists():
+                    _c = _cp.ConfigParser()
+                    _c.read(str(_ini))
+                    _desktop_theme = _c.get("Settings", "gtk-theme-name", fallback=None)
+            except Exception:
+                pass
+        if _desktop_theme:
+            try:
+                settings.set_property("gtk-theme-name", _desktop_theme)
+            except Exception:
+                pass
+        # Suivre aussi le mode sombre si le bureau l'a activé
+        try:
+            _dark = _sp.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if _dark.returncode == 0 and "dark" in _dark.stdout.lower():
+                settings.set_property("gtk-application-prefer-dark-theme", True)
+        except Exception:
+            pass
         # gtk-menu-images / gtk-button-images sont dépréciés depuis GTK 3.10
         # On force via CSS à la place
         try:
@@ -3351,7 +4207,7 @@ class Wmain(GCMBase):
                             self.addTab(self.nbConsole, h)
                             break
 
-        self.get_widget("txtSearch").set_placeholder_text(_("buscar..."))
+        self.get_widget("txtSearch").set_placeholder_text(_("search..."))
 
         if conf.STARTUP_LOCAL:
             self.addTab(self.nbConsole, "local")
@@ -3671,7 +4527,7 @@ class Wmain(GCMBase):
 
         self.search = {}
         text = self.get_widget("txtSearch").get_text()
-        if text == "" or text == _("buscar..."):
+        if text == "" or text == _("search..."):
             terminal.search_set_regex(None, 0)
             terminal.match_remove_all()
             return True
@@ -3689,7 +4545,7 @@ class Wmain(GCMBase):
             self.search["pcre2"] = True
             return True
         except Exception as e:
-            print(e, "Using custom search instead")
+            app_logger.warning(f"PCRE2 indisponible ({e}), bascule sur recherche custom")
             self.search["pcre2"] = False
             # no hay soporte para pcre2, usar busqueda artesanal
 
@@ -3786,8 +4642,8 @@ class Wmain(GCMBase):
             return True
         elif item == "R":  # RENAME TAB
             text = inputbox(
-                _("Renombrar consola"),
-                _("Ingrese nuevo nombre"),
+                _("Rename tab"),
+                _("Enter new name"),
                 self.popupMenuTab.label.get_text().strip(),
             )
             if text != None and text != "":
@@ -3855,6 +4711,10 @@ class Wmain(GCMBase):
                 term = tab.widget_.get_children()[0]
             else:
                 term = self.popupMenu.terminal
+            if conf.CONTINUOUS_TAB_LOG and not widget.get_active():
+                msgbox(_("Continuous log mode is active and cannot be disabled per tab."))
+                widget.set_active(True)
+                return True
             if not self.set_terminal_logger(term, widget.get_active()):
                 widget.set_active(False)
             return True
@@ -3874,32 +4734,32 @@ class Wmain(GCMBase):
         Utilise Gtk.MenuItem (GTK3 moderne, sans icones deprecieees).
         """
         self.popupMenu = Gtk.Menu()
-        self.popupMenu.mnuCopy = menuItem = Gtk.MenuItem(label=_("Copiar"))
+        self.popupMenu.mnuCopy = menuItem = Gtk.MenuItem(label=_("Copy"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "C")
         menuItem.show()
 
-        self.popupMenu.mnuPaste = menuItem = Gtk.MenuItem(label=_("Pegar"))
+        self.popupMenu.mnuPaste = menuItem = Gtk.MenuItem(label=_("Paste"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "V")
         menuItem.show()
 
-        self.popupMenu.mnuCopyPaste = menuItem = Gtk.MenuItem(label=_("Copiar y Pegar"))
+        self.popupMenu.mnuCopyPaste = menuItem = Gtk.MenuItem(label=_("Copy and Paste"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "CV")
         menuItem.show()
 
-        self.popupMenu.mnuSelect = menuItem = Gtk.MenuItem(label=_("Seleccionar todo"))
+        self.popupMenu.mnuSelect = menuItem = Gtk.MenuItem(label=_("Select all"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "A")
         menuItem.show()
 
-        self.popupMenu.mnuCopyAll = menuItem = Gtk.MenuItem(label=_("Copiar todo"))
+        self.popupMenu.mnuCopyAll = menuItem = Gtk.MenuItem(label=_("Copy all"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "CA")
         menuItem.show()
 
-        self.popupMenu.mnuSelect = menuItem = Gtk.MenuItem(label=_("Guardar buffer en archivo"))
+        self.popupMenu.mnuSelect = menuItem = Gtk.MenuItem(label=_("Save buffer to file"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "S")
         menuItem.show()
@@ -3918,27 +4778,27 @@ class Wmain(GCMBase):
         self.popupMenu.append(menuItem)
         menuItem.show()
 
-        self.popupMenu.mnuReset = menuItem = Gtk.MenuItem(label=_("Reiniciar consola"))
+        self.popupMenu.mnuReset = menuItem = Gtk.MenuItem(label=_("Reset console"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "RS2")
         menuItem.show()
 
-        self.popupMenu.mnuClear = menuItem = Gtk.MenuItem(label=_("Reiniciar y Limpiar consola"))
+        self.popupMenu.mnuClear = menuItem = Gtk.MenuItem(label=_("Reset and Clear console"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "RC2")
         menuItem.show()
 
-        self.popupMenu.mnuClone = menuItem = Gtk.MenuItem(label=_("Clonar consola"))
+        self.popupMenu.mnuClone = menuItem = Gtk.MenuItem(label=_("Clone console"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "CC2")
         menuItem.show()
 
-        self.popupMenu.mnuLog = menuItem = Gtk.CheckMenuItem(label=_("Habilitar log"))
+        self.popupMenu.mnuLog = menuItem = Gtk.CheckMenuItem(label=_("Enable logging"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "L2")
         menuItem.show()
 
-        self.popupMenu.mnuClose = menuItem = Gtk.MenuItem(label=_("Cerrar consola"))
+        self.popupMenu.mnuClose = menuItem = Gtk.MenuItem(label=_("Close console"))
         self.popupMenu.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "X")
         menuItem.show()
@@ -3950,7 +4810,7 @@ class Wmain(GCMBase):
         # Menu de comandos personalizados
         self.popupMenu.mnuCommands = Gtk.Menu()
 
-        self.popupMenu.mnuCmds = menuItem = Gtk.MenuItem(label=_("Comandos personalizados"))
+        self.popupMenu.mnuCmds = menuItem = Gtk.MenuItem(label=_("Custom commands"))
         menuItem.set_submenu(self.popupMenu.mnuCommands)
         self.popupMenu.append(menuItem)
         menuItem.show()
@@ -3959,32 +4819,32 @@ class Wmain(GCMBase):
         # Menu contextual para panel de servidores
         self.popupMenuFolder = Gtk.Menu()
 
-        self.popupMenuFolder.mnuConnect = menuItem = Gtk.MenuItem(label=_("Conectar"))
+        self.popupMenuFolder.mnuConnect = menuItem = Gtk.MenuItem(label=_("Connect"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_btnConnect_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuCopyAddress = menuItem = Gtk.MenuItem(label=_("Copiar Direccion"))
+        self.popupMenuFolder.mnuCopyAddress = menuItem = Gtk.MenuItem(label=_("Copy Address"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "H")
         menuItem.show()
 
-        self.popupMenuFolder.mnuAdd = menuItem = Gtk.MenuItem(label=_("Agregar Host"))
+        self.popupMenuFolder.mnuAdd = menuItem = Gtk.MenuItem(label=_("Add Host"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_btnAdd_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuEdit = menuItem = Gtk.MenuItem(label=_("Editar"))
+        self.popupMenuFolder.mnuEdit = menuItem = Gtk.MenuItem(label=_("Edit"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_bntEdit_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuDel = menuItem = Gtk.MenuItem(label=_("Eliminar"))
+        self.popupMenuFolder.mnuDel = menuItem = Gtk.MenuItem(label=_("Remove"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_btnDel_clicked)
         menuItem.show()
 
-        self.popupMenuFolder.mnuDup = menuItem = Gtk.MenuItem(label=_("Duplicar Host"))
+        self.popupMenuFolder.mnuDup = menuItem = Gtk.MenuItem(label=_("Duplicate Host"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "D")
         menuItem.show()
@@ -3993,12 +4853,12 @@ class Wmain(GCMBase):
         self.popupMenuFolder.append(menuItem)
         menuItem.show()
 
-        self.popupMenuFolder.mnuExpand = menuItem = Gtk.MenuItem(label=_("Expandir todo"))
+        self.popupMenuFolder.mnuExpand = menuItem = Gtk.MenuItem(label=_("Expand all"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", lambda *args: self.treeServers.expand_all())
         menuItem.show()
 
-        self.popupMenuFolder.mnuCollapse = menuItem = Gtk.MenuItem(label=_("Contraer todo"))
+        self.popupMenuFolder.mnuCollapse = menuItem = Gtk.MenuItem(label=_("Collapse all"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", lambda *args: self.treeServers.collapse_all())
         menuItem.show()
@@ -4006,34 +4866,32 @@ class Wmain(GCMBase):
         # Menu contextual para tabs
         self.popupMenuTab = Gtk.Menu()
 
-        self.popupMenuTab.mnuRename = menuItem = Gtk.MenuItem(label=_("Renombrar consola"))
+        self.popupMenuTab.mnuRename = menuItem = Gtk.MenuItem(label=_("Rename tab"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "R")
         menuItem.show()
 
-        self.popupMenuTab.mnuReset = menuItem = Gtk.MenuItem(label=_("Reiniciar consola"))
+        self.popupMenuTab.mnuReset = menuItem = Gtk.MenuItem(label=_("Reset console"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "RS")
         menuItem.show()
 
-        self.popupMenuTab.mnuClear = menuItem = Gtk.MenuItem(
-            label=_("Reiniciar y Limpiar consola")
-        )
+        self.popupMenuTab.mnuClear = menuItem = Gtk.MenuItem(label=_("Reset and Clear console"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "RC")
         menuItem.show()
 
-        self.popupMenuTab.mnuReopen = menuItem = Gtk.MenuItem(label=_("Reconectar al host"))
+        self.popupMenuTab.mnuReopen = menuItem = Gtk.MenuItem(label=_("Reconnect to host"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "RO")
         # menuItem.show()
 
-        self.popupMenuTab.mnuClone = menuItem = Gtk.MenuItem(label=_("Clonar consola"))
+        self.popupMenuTab.mnuClone = menuItem = Gtk.MenuItem(label=_("Clone console"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "CC")
         menuItem.show()
 
-        self.popupMenuTab.mnuLog = menuItem = Gtk.CheckMenuItem(label=_("Habilitar log"))
+        self.popupMenuTab.mnuLog = menuItem = Gtk.CheckMenuItem(label=_("Enable logging"))
         self.popupMenuTab.append(menuItem)
         menuItem.connect("activate", self.on_popupmenu, "L")
         menuItem.show()
@@ -4184,7 +5042,7 @@ class Wmain(GCMBase):
 
         def on_done(host_dicts):
             if not host_dicts:
-                msgbox(_("Aucun hôte importé."))
+                msgbox(_("No host imported."))
                 return
             added_by_group = {}
             for d in host_dicts:
@@ -4227,16 +5085,100 @@ class Wmain(GCMBase):
                 h.protocol = d.get("protocol", "ssh")
                 h.port = str(d.get("port", 22))
                 groups[gname].append(h)
-                self.treeModel.append(group_iter, [h.name, h, self.get_widget("imgHost"), "#fff"])
+                proto = d.get("protocol", "ssh") or "ssh"
+                proto_icon = {
+                    "ssh": "utilities-terminal",
+                    "telnet": "utilities-terminal",
+                    "rdp": "computer",
+                    "vnc": "video-display",
+                    "spice": "video-display",
+                    "serial": "modem",
+                    "local": "user-home",
+                }.get(proto, "network-workstation")
+                self.treeModel.append(group_iter, [h.name, h, "gtk-network", "#fff", proto_icon])
                 added_by_group[gname] = added_by_group.get(gname, 0) + 1
             self.writeConfig()
             if added_by_group:
                 summary = ", ".join(f"{n} dans {g}" for g, n in sorted(added_by_group.items()))
                 msgbox(_(f"Import terminé : {summary}."))
             else:
-                msgbox(_("Aucun nouvel hôte (doublons ignorés)."))
+                msgbox(_("No new host (duplicates ignored)."))
 
         LibvirtImportDialog(self.window, on_done, default_user)
+
+    def on_mnu_import_proxmox_activate(self, widget):
+        """Ouvre le dialogue d'import de VMs depuis Proxmox.
+
+        Args:
+            widget (Gtk.MenuItem): Element de menu declencheur.
+        """
+        default_user = conf.__dict__.get("LIBVIRT_DEFAULT_USER", LIBVIRT_DEFAULT_USER)
+
+        def on_done(host_dicts):
+            if not host_dicts:
+                msgbox(_("No host imported."))
+                return
+            added_by_group = {}
+            for d in host_dicts:
+                gname = d["group"]
+                if gname not in groups:
+                    groups[gname] = []
+                group_iter = None
+                for i in range(self.treeModel.iter_n_children(None)):
+                    it = self.treeModel.iter_nth_child(None, i)
+                    if self.treeModel.get_value(it, 0) == gname:
+                        group_iter = it
+                        break
+                if group_iter is None:
+                    group_iter = self.treeModel.append(
+                        None, [gname, None, self.get_widget("imgDir"), "#fff"]
+                    )
+                if d["name"] in [h.name for h in groups[gname]]:
+                    continue
+                h = Host()
+                h.name = d["name"]
+                h.host = d["host"]
+                h.user = d["user"]
+                h.port = d["port"]
+                h.password = ""
+                h.description = d["description"]
+                h.log = False
+                h.tunnel = ""
+                h.options = ""
+                h.X11 = False
+                h.agent = True
+                h.compression = False
+                h.compressionLevel = 6
+                h.term = ""
+                h.keepAlive = 0
+                h.tabColor = ""
+                h.fontColor = ""
+                h.backColor = ""
+                h.font = ""
+                h.lineColor = ""
+                h.protocol = d.get("protocol", "ssh")
+                h.port = str(d.get("port", 22))
+                groups[gname].append(h)
+                proto = d.get("protocol", "ssh") or "ssh"
+                proto_icon = {
+                    "ssh": "utilities-terminal",
+                    "telnet": "utilities-terminal",
+                    "rdp": "computer",
+                    "vnc": "video-display",
+                    "spice": "video-display",
+                    "serial": "modem",
+                    "local": "user-home",
+                }.get(proto, "network-workstation")
+                self.treeModel.append(group_iter, [h.name, h, "gtk-network", "#fff", proto_icon])
+                added_by_group[gname] = added_by_group.get(gname, 0) + 1
+            self.writeConfig()
+            if added_by_group:
+                summary = ", ".join(f"{n} dans {g}" for g, n in sorted(added_by_group.items()))
+                msgbox(_(f"Import Proxmox terminé : {summary}."))
+            else:
+                msgbox(_("No new host (duplicates ignored)."))
+
+        ProxmoxImportDialog(self.window, on_done, default_user)
 
     def createMenuItem(self, shortcut, label):
         """Cree un Gtk.MenuItem avec etiquette et action.
@@ -4421,6 +5363,9 @@ class Wmain(GCMBase):
         Args:
             terminal (Vte.Terminal): Terminal source du signal.
         """
+        if not hasattr(terminal, "log") or not terminal.log:
+            return
+        col, row = terminal.get_cursor_position()
         if terminal.last_logged_row != row:
             text, b = terminal.get_text_range(
                 terminal.last_logged_row, terminal.last_logged_col, row, col, None, None
@@ -4428,21 +5373,103 @@ class Wmain(GCMBase):
             terminal.last_logged_row = row
             terminal.last_logged_col = col
             terminal.log.write(text[:-1])
+            terminal.log.flush()
 
-    def set_terminal_logger(self, terminal, enable_logging=True):
+    def _sanitize_tab_log_name(self, raw_name):
+        """Nettoie le nom d'onglet pour créer un nom de fichier sûr.
+
+        Args:
+            raw_name (str): Nom d'onglet brut.
+
+        Returns:
+            str: Nom nettoyé sans caractères incompatibles avec le système de fichiers.
+        """
+        cleaned = _re.sub(r"[^A-Za-z0-9._-]+", "_", (raw_name or "terminal").strip())
+        return cleaned.strip("._-") or "terminal"
+
+    def _build_terminal_log_file(self, terminal, continuous_mode=False):
+        """Construit le chemin de fichier log pour un terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+            continuous_mode (bool, optional): True pour le mode continu global.
+                Defaults to False.
+
+        Returns:
+            str: Chemin absolu du fichier log à utiliser.
+        """
+        p = terminal.get_parent()
+        title = p.get_parent().get_tab_label(p).get_text().strip() if p else "terminal"
+        safe_title = self._sanitize_tab_log_name(title)
+        if continuous_mode:
+            log_dir = os.path.expanduser(conf.CONTINUOUS_LOG_PATH)
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            filename = os.path.join(log_dir, f"{safe_title}+{stamp}+.log")
+            if not os.path.exists(filename):
+                return filename
+            for i in range(1, 1000):
+                candidate = os.path.join(log_dir, f"{safe_title}+{stamp}+{i:03d}.log")
+                if not os.path.exists(candidate):
+                    return candidate
+            return os.path.join(log_dir, f"{safe_title}+{stamp}+999.log")
+
+        log_dir = os.path.expanduser(conf.LOG_PATH)
+        prefix = os.path.join(log_dir, f"{safe_title}-{time.strftime('%Y%m%d')}")
+        for i in range(1, 1000):
+            candidate = f"{prefix}-{i:03d}.log"
+            if not os.path.exists(candidate):
+                return candidate
+        return f"{prefix}-999.log"
+
+    def _close_terminal_log(self, terminal):
+        """Ferme proprement le fichier log associé à un terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal cible.
+
+        Returns:
+            None: Ferme le flux si ouvert.
+        """
+        try:
+            if hasattr(terminal, "log") and terminal.log and not terminal.log.closed:
+                terminal.log.flush()
+                terminal.log.close()
+        except Exception:
+            pass
+
+    def _on_terminal_child_exited(self, terminal, status, tab):
+        """Gère la fin du processus enfant d'un terminal.
+
+        Args:
+            terminal (Vte.Terminal): Terminal concerné.
+            status (int): Code de sortie du processus enfant.
+            tab (NotebookTabLabel): Label d'onglet associé.
+
+        Returns:
+            None: Marque l'onglet comme fermé et ferme le log.
+        """
+        tab.mark_tab_as_closed()
+        self._close_terminal_log(terminal)
+
+    def set_terminal_logger(self, terminal, enable_logging=True, continuous_mode=False):
         """Active ou desactive le logging de session pour un terminal VTE.
 
-        Cree un fichier log horodate dans le dossier configure (conf.LOG_PATH).
+        Cree un fichier log horodate dans le dossier configure.
         Utilise le signal 'output-written' (VTE >= 0.60) ou 'contents-changed' (fallback).
 
         Args:
             terminal (Vte.Terminal): Terminal VTE cible.
             enable_logging (bool, optional): True pour activer, False pour desactiver.
                 Defaults to True.
+            continuous_mode (bool, optional): True pour le mode continu (fichiers dans
+                `~/.gcm/log` au format `nom_onglet+timestamp+.log`). Defaults to False.
 
         Returns:
             bool: True si l'operation a reussi, False en cas d'erreur (ex: fichier non writable).
         """
+        if conf.CONTINUOUS_TAB_LOG:
+            continuous_mode = True
+
         if enable_logging:
             terminal.last_logged_col, terminal.last_logged_row = terminal.get_cursor_position()
             if hasattr(terminal, "log_handler_id"):
@@ -4456,57 +5483,53 @@ class Wmain(GCMBase):
                         terminal.log_handler_id = terminal.connect(
                             "contents-changed", self.on_contents_changed
                         )
-                return True
-            # fix #88: idem pour la connexion initiale
-            if _HAS_OUTPUT_WRITTEN:
-                terminal.log_handler_id = terminal.connect(
-                    "output-written", self.on_output_written
-                )
             else:
-                terminal.log_handler_id = terminal.connect(
-                    "contents-changed", self.on_contents_changed
-                )
-            p = terminal.get_parent()
-            title = p.get_parent().get_tab_label(p).get_text().strip()
-            LOG_PATH = os.path.expanduser(conf.LOG_PATH)
-            prefix = "%s/%s-%s" % (LOG_PATH, title, time.strftime("%Y%m%d"))
-            if not os.path.exists(LOG_PATH):
-                os.makedirs(LOG_PATH)
-            filename = ""
-            for i in range(1, 1000):
-                if not os.path.exists("%s-%03i.log" % (prefix, i)):
-                    filename = "%s-%03i.log" % (prefix, i)
-                    break
-            if filename == "":
-                # End up appending to the latest log file...
-                filename = "%s-%03i.log" % (prefix, i)
-            filename == "%s-%03i.log" % (prefix, 1)
+                # fix #88: idem pour la connexion initiale
+                if _HAS_OUTPUT_WRITTEN:
+                    terminal.log_handler_id = terminal.connect(
+                        "output-written", self.on_output_written
+                    )
+                else:
+                    terminal.log_handler_id = terminal.connect(
+                        "contents-changed", self.on_contents_changed
+                    )
+
+            if hasattr(terminal, "log") and terminal.log and not terminal.log.closed:
+                return True
+
+            filename = self._build_terminal_log_file(terminal, continuous_mode=continuous_mode)
+            log_dir = os.path.dirname(filename)
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
             try:
-                prepend = ""
-                if os.path.exists(filename):
-                    msgbox("%s\n%s" % (_("Anexar el archivo de log existente"), filename))
-                    prepend = "\n\n===== %s =====\n\n" % (_("Fin del registro de sesión anterior"))
-                terminal.log = open(filename, "a", 1)
+                mode_label = "continuous" if continuous_mode else "manual"
+                p = terminal.get_parent()
+                title = p.get_parent().get_tab_label(p).get_text().strip() if p else "terminal"
+                terminal.log = open(filename, "a", 1, encoding="utf-8")
                 terminal.log.write(
-                    "%sSession '%s' opened at %s\n%s\n"
-                    % (prepend, title, time.strftime("%Y-%m-%d %H:%M:%S"), "-" * 80)
+                    "Session '%s' (%s) opened at %s\n%s\n"
+                    % (title, mode_label, time.strftime("%Y-%m-%d %H:%M:%S"), "-" * 80)
                 )
             except Exception as e:
-                print(e)
+                app_logger.exception(f"Impossible d'ouvrir le fichier de log terminal: {e}")
                 msgbox(
                     "%s\n%s"
                     % (
-                        _("No se puede abrir el archivo de log para escritura"),
+                        _("Can't open log file for writting"),
                         filename,
                     )
                 )
-                terminal.disconnect(terminal.log_handler_id)
-                del terminal.log_handler_id
+                if hasattr(terminal, "log_handler_id") and terminal.log_handler_id != 0:
+                    terminal.disconnect(terminal.log_handler_id)
+                    terminal.log_handler_id = 0
                 return False
         else:
+            if conf.CONTINUOUS_TAB_LOG:
+                return True
             if hasattr(terminal, "log_handler_id") and terminal.log_handler_id != 0:
                 terminal.disconnect(terminal.log_handler_id)
                 terminal.log_handler_id = 0
+            self._close_terminal_log(terminal)
         return True
 
     def registerUrlRegexes(self, terminal):
@@ -4619,7 +5642,7 @@ class Wmain(GCMBase):
                 "  %s  " % (host.name), self.nbConsole, scrollPane, self.popupMenuTab
             )
 
-            v.connect("child-exited", lambda *args: tab.mark_tab_as_closed())
+            v.connect("child-exited", self._on_terminal_child_exited, tab)
             v.connect("focus", self.on_tab_focus)
             v.connect("button_press_event", self.on_terminal_click)
             v.connect("key_press_event", self.on_terminal_keypress)
@@ -4646,7 +5669,7 @@ class Wmain(GCMBase):
             notebook.set_tab_detachable(scrollPane, True)
             self.wMain.set_focus(v)
             self.on_tab_focus(v)
-            self.set_terminal_logger(v, host.log)
+            self.set_terminal_logger(v, host.log or conf.CONTINUOUS_TAB_LOG)
 
             GLib.timeout_add(200, lambda: self.wMain.set_focus(v))
 
@@ -4741,9 +5764,8 @@ class Wmain(GCMBase):
             # guardar datos de consola para clonar consola
             v.host = host
         except Exception as e:
-            print("ERROR", e)
-            traceback.print_exc()
-            msgbox("%s: %s" % (_("Error al conectar con servidor"), sys.exc_info()[1]))
+            app_logger.exception(f"Erreur de connexion serveur: {e}")
+            msgbox("%s: %s" % (_("Error connecting to server"), sys.exc_info()[1]))
 
     def send_data(self, terminal, data):
         """Envoie des donnees au terminal actif.
@@ -4758,7 +5780,8 @@ class Wmain(GCMBase):
         """Initialise le panneau gauche avec l'arbre des serveurs."""
         global groups
 
-        self.treeModel = Gtk.TreeStore(GObject.TYPE_STRING, GObject.TYPE_PYOBJECT, str, str)
+        # col 0=name, 1=host_obj, 2=stock_id(connexion), 3=bg_color, 4=proto_icon_name
+        self.treeModel = Gtk.TreeStore(GObject.TYPE_STRING, GObject.TYPE_PYOBJECT, str, str, str)
         self.treeServers.set_model(self.treeModel)
 
         self.treeServers.set_level_indentation(5)
@@ -4768,10 +5791,18 @@ class Wmain(GCMBase):
         column.set_title("Servers")
         self.treeServers.append_column(column)
 
+        # Icône connexion (stock gtk-network / gtk-directory)
         renderer = Gtk.CellRendererPixbuf()
         column.pack_start(renderer, expand=False)
         column.add_attribute(renderer, "stock_id", 2)
         column.add_attribute(renderer, "cell-background", 3)
+
+        # Icône protocole (themed icon freedesktop)
+        renderer_proto = Gtk.CellRendererPixbuf()
+        renderer_proto.set_property("stock-size", Gtk.IconSize.MENU)
+        column.pack_start(renderer_proto, expand=False)
+        column.add_attribute(renderer_proto, "icon-name", 4)
+        column.add_attribute(renderer_proto, "cell-background", 3)
 
         renderer = Gtk.CellRendererText()
         column.pack_start(renderer, expand=True)
@@ -4869,6 +5900,12 @@ class Wmain(GCMBase):
             "options", "auto-copy-selection", conf.AUTO_COPY_SELECTION, bool
         )
         conf.LOG_PATH = _gopt("options", "log-path", conf.LOG_PATH)
+        conf.CONTINUOUS_TAB_LOG = _gopt(
+            "options", "continuous-tab-log", conf.CONTINUOUS_TAB_LOG, bool
+        )
+        conf.CONTINUOUS_LOG_PATH = _gopt(
+            "options", "continuous-log-path", conf.CONTINUOUS_LOG_PATH
+        )
         conf.VERSION = _gopt("options", "version", conf.VERSION)
         conf.AUTO_CLOSE_TAB = _gopt("options", "auto-close-tab", conf.AUTO_CLOSE_TAB, int)
         conf.CYCLE_TABS = _gopt("options", "cycle-tabs", conf.CYCLE_TABS, bool)
@@ -4932,7 +5969,7 @@ class Wmain(GCMBase):
                     cp.write(_f)
                 os.rename(CONFIG_FILE + ".tmp", CONFIG_FILE)
             except Exception as _e:
-                print("GCM: impossible d'écrire les templates série par défaut : %s" % _e)
+                app_logger.exception(f"Impossible d'écrire les templates série par défaut: {_e}")
 
         # Leer lista de hosts
         groups = {}
@@ -4948,12 +5985,8 @@ class Wmain(GCMBase):
 
                 groups[host.group].append(host)
             except:
-                print(
-                    "%s: %s"
-                    % (
-                        _("Entrada invalida en archivo de configuracion"),
-                        sys.exc_info()[1],
-                    )
+                app_logger.exception(
+                    f"{_('Invalid entry in configuration file')}: {sys.exc_info()[1]}"
                 )
 
     def is_node_collapsed(self, model, path, iter, nodes):
@@ -5011,8 +6044,19 @@ class Wmain(GCMBase):
         iconHost = "gtk-network"
         iconDir = "gtk-directory"
         grupos = groups.keys()
-        # grupos.sort(lambda x,y: cmp(y,x))
         grupos = sorted(grupos, reverse=True)
+
+        def _proto_icon(proto):
+            """Retourne l'icon-name freedesktop pour un protocole GCM."""
+            return {
+                "ssh": "utilities-terminal",
+                "telnet": "utilities-terminal",
+                "rdp": "computer",
+                "vnc": "video-display",
+                "spice": "video-display",
+                "serial": "modem",
+                "local": "user-home",
+            }.get(proto or "ssh", "network-workstation")
 
         for grupo in grupos:
             group = None
@@ -5023,7 +6067,7 @@ class Wmain(GCMBase):
                 path = path + "/" + folder
                 row = self.get_folder(self.treeModel, "", path)
                 if row == None:
-                    group = self.treeModel.prepend(group, [folder, None, iconDir, "#fff"])
+                    group = self.treeModel.prepend(group, [folder, None, iconDir, "#fff", ""])
                 else:
                     group = row.iter
 
@@ -5039,7 +6083,10 @@ class Wmain(GCMBase):
 
             groups[grupo].sort(key=operator.attrgetter("name"))
             for host in groups[grupo]:
-                self.treeModel.append(group, [host.name, host, iconHost, "#fff"])
+                proto = getattr(host, "protocol", "ssh") or "ssh"
+                self.treeModel.append(
+                    group, [host.name, host, iconHost, "#fff", _proto_icon(proto)]
+                )
                 mnuItem = Gtk.MenuItem(label=host.name)
                 mnuItem.show()
                 mnuItem.connect(
@@ -5155,6 +6202,8 @@ class Wmain(GCMBase):
         cp.set("options", "disable-hosts-stripes", conf.DISABLE_HOSTS_STRIPES)
         cp.set("options", "auto-copy-selection", conf.AUTO_COPY_SELECTION)
         cp.set("options", "log-path", conf.LOG_PATH)
+        cp.set("options", "continuous-tab-log", conf.CONTINUOUS_TAB_LOG)
+        cp.set("options", "continuous-log-path", conf.CONTINUOUS_LOG_PATH)
         cp.set("options", "version", app_fileversion)
         cp.set("options", "auto-close-tab", conf.AUTO_CLOSE_TAB)
         cp.set("options", "cycle-tabs", conf.CYCLE_TABS)
@@ -5445,12 +6494,12 @@ class Wmain(GCMBase):
             terminal (Vte.Terminal): Terminal source.
         """
         dlg = Gtk.FileChooserDialog(
-            title=_("Guardar como"),
+            title=_("Save as"),
             parent=self.wMain,
             action=Gtk.FileChooserAction.SAVE,
         )
-        dlg.add_button(_("Annuler"), Gtk.ResponseType.CANCEL)
-        dlg.add_button(_("Enregistrer"), Gtk.ResponseType.OK)
+        dlg.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
+        dlg.add_button(_("Save"), Gtk.ResponseType.OK)
         dlg.set_do_overwrite_confirmation(True)
         dlg.set_current_name(
             os.path.basename("gcm-buffer-%s.txt" % (time.strftime("%Y%m%d%H%M%S")))
@@ -5477,7 +6526,7 @@ class Wmain(GCMBase):
                 f.close()
             except:
                 dlg.destroy()
-                msgbox("%s: %s" % (_("No se puede abrir archivo para escritura"), filename))
+                msgbox("%s: %s" % (_("Can't open file for writting"), filename))
                 return
 
         dlg.destroy()
@@ -5544,9 +6593,9 @@ class Wmain(GCMBase):
             and msgconfirm(
                 "%s %d %s"
                 % (
-                    _("Hay"),
+                    _("There are"),
                     self.count,
-                    _("consolas abiertas, confirma que desea salir?"),
+                    _("open consoles, exit anyway?"),
                 )
             )
             != Gtk.ResponseType.OK
@@ -5578,10 +6627,10 @@ class Wmain(GCMBase):
             widget (Gtk.MenuItem): Widget declencheur.
         """
         filename = show_open_dialog(
-            parent=self.wMain, title=_("Abrir"), action=Gtk.FileChooserAction.OPEN
+            parent=self.wMain, title=_("Open"), action=Gtk.FileChooserAction.OPEN
         )
         if filename != None:
-            password = inputbox(_("Importar Servidores"), _("Ingrese clave: "), password=True)
+            password = inputbox(_("Import Servers"), _("Enter password"), password=True)
             if password == None:
                 return
 
@@ -5593,11 +6642,11 @@ class Wmain(GCMBase):
                 # validar el pass
                 s = decrypt(password, cp.get("gcm", "gcm"))
                 if s != password[::-1]:
-                    msgbox(_("Clave invalida"))
+                    msgbox(_("Invalid password"))
                     return
 
                 if (
-                    msgconfirm(_("Se sobreescribirá la lista de servidores, continuar?"))
+                    msgconfirm(_("Server list will be overwritten, continue?"))
                     != Gtk.ResponseType.OK
                 ):
                     return
@@ -5613,7 +6662,7 @@ class Wmain(GCMBase):
 
                     grupos[host.group].append(host)
             except:
-                msgbox(_("Archivo invalido"))
+                msgbox(_("Invalid file"))
                 return
             # sobreescribir lista de hosts
             global groups
@@ -5632,11 +6681,11 @@ class Wmain(GCMBase):
         """
         filename = show_open_dialog(
             parent=self.wMain,
-            title=_("Guardar como"),
+            title=_("Save as"),
             action=Gtk.FileChooserAction.SAVE,
         )
         if filename != None:
-            password = inputbox(_("Exportar Servidores"), _("Ingrese clave: "), password=True)
+            password = inputbox(_("Export Servers"), _("Enter password"), password=True)
             if password == None:
                 return
 
@@ -5658,7 +6707,7 @@ class Wmain(GCMBase):
                 f.close()
                 os.rename(filename + ".tmp", filename)
             except:
-                msgbox(_("Archivo invalido"))
+                msgbox(_("Invalid file"))
 
     # -- Wmain.on_exportar_servidores1_activate }
 
@@ -5867,7 +6916,7 @@ class Wmain(GCMBase):
                     self.treeServers.get_selection().get_selected()[1], 0
                 )
                 if (
-                    msgconfirm("%s [%s]?" % (_("Confirma que desea eliminar el host"), name))
+                    msgconfirm("%s [%s]?" % (_("Do you really want to remove host"), name))
                     == Gtk.ResponseType.OK
                 ):
                     host = self.treeModel.get_value(
@@ -5886,7 +6935,7 @@ class Wmain(GCMBase):
                     msgconfirm(
                         "%s [%s]?"
                         % (
-                            _("Confirma que desea eliminar todos los hosts del grupo"),
+                            _("Do you really want to remove all hosts in group"),
                             group,
                         )
                     )
@@ -6045,7 +7094,7 @@ class Wmain(GCMBase):
                     consoles.append((title, terminal))
 
         if len(consoles) == 0:
-            msgbox(_("No hay consolas abiertas"))
+            msgbox(_("No open consoles"))
             return True
 
         self.wCluster = Wcluster(terms=consoles).get_widget("wCluster")
@@ -6431,7 +7480,7 @@ class Whost(GCMBase):
         self.treeTunel.append_column(column)
         column = Gtk.TreeViewColumn(_("Host"), Gtk.CellRendererText(), text=1)
         self.treeTunel.append_column(column)
-        column = Gtk.TreeViewColumn(_("Remoto"), Gtk.CellRendererText(), text=2)
+        column = Gtk.TreeViewColumn(_("Remote"), Gtk.CellRendererText(), text=2)
         self.treeTunel.append_column(column)
 
     # -- Whost.new {
@@ -6517,7 +7566,174 @@ class Whost(GCMBase):
         # cmbProtocol = alias vers cmbType (le widget glade affiché à l'utilisateur)
         self.cmbProtocol = self.cmbType
 
+        # Frame SPICE contextuel (libvirt tunnel ou Proxmox proxy)
+        self._inject_spice_frame()
+
     # -- Whost.new }
+
+    def _inject_spice_frame(self):
+        """Injecte un frame SPICE contextuel sous la grille Properties.
+
+        Affiche des champs assistés pour construire extra_params SPICE :
+        - Mode libvirt (tunnel SSH) : URI + nom VM → '--connect URI vm'
+        - Mode Proxmox (proxy API)  : Node + VMID  → '--proxmox NODE VMID'
+        Le frame se montre/masque selon le protocole sélectionné.
+        """
+        nb = self.get_widget("nbHost")
+        sw_props = self.get_widget("swHostProps")
+        if nb is None or sw_props is None:
+            return
+
+        outer = sw_props.get_parent()  # GtkViewport's parent = swHostProps's child
+        # Conteneur englobant onglet Properties = sw_props lui-même
+        # On veut insérer un frame dans le VIEWPORT, sous le grid.
+        # Plus simple : on crée un VBox qui enveloppe [grid, spice_frame]
+        # et remplace le contenu du Viewport.
+        viewport = sw_props.get_child()
+        if viewport is None:
+            return
+        grid = viewport.get_child()
+        if grid is None:
+            return
+
+        # Créer un VBox englobant
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        vbox.set_visible(True)
+        grid.reparent(vbox)
+        vbox.reorder_child(grid, 0)
+
+        # ── Frame SPICE ────────────────────────────────────────────────────
+        frame = Gtk.Frame(label=_("SPICE connection mode"))
+        frame.set_margin_top(8)
+        frame.set_margin_bottom(4)
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        inner.set_margin_start(8)
+        inner.set_margin_end(8)
+        inner.set_margin_top(6)
+        inner.set_margin_bottom(6)
+        frame.add(inner)
+
+        # Radios
+        self._spice_radio_libvirt = Gtk.RadioButton(
+            label=_("libvirt — tunnel SSH (virt-viewer --connect)")
+        )
+        self._spice_radio_proxmox = Gtk.RadioButton.new_from_widget(self._spice_radio_libvirt)
+        self._spice_radio_proxmox.set_label(_("Proxmox — proxy API (pvesh spiceproxy)"))
+        inner.pack_start(self._spice_radio_libvirt, False, False, 0)
+        inner.pack_start(self._spice_radio_proxmox, False, False, 0)
+
+        # Section libvirt
+        self._spice_libvirt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        hb1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb1.pack_start(Gtk.Label(label=_("libvirt URI:")), False, False, 0)
+        self._spice_entry_uri = Gtk.Entry()
+        self._spice_entry_uri.set_placeholder_text("qemu+ssh://root@192.168.105.41/system")
+        self._spice_entry_uri.set_hexpand(True)
+        hb1.pack_start(self._spice_entry_uri, True, True, 0)
+        self._spice_libvirt_box.pack_start(hb1, False, False, 0)
+        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb2.pack_start(Gtk.Label(label=_("VM name:")), False, False, 0)
+        self._spice_entry_vmname = Gtk.Entry()
+        self._spice_entry_vmname.set_placeholder_text("spice-test")
+        self._spice_entry_vmname.set_hexpand(True)
+        hb2.pack_start(self._spice_entry_vmname, True, True, 0)
+        self._spice_libvirt_box.pack_start(hb2, False, False, 0)
+        inner.pack_start(self._spice_libvirt_box, False, False, 0)
+
+        # Section Proxmox
+        self._spice_proxmox_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        hb3 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb3.pack_start(Gtk.Label(label=_("Proxmox node:")), False, False, 0)
+        self._spice_entry_node = Gtk.Entry()
+        self._spice_entry_node.set_placeholder_text("DOCKER41")
+        self._spice_entry_node.set_hexpand(True)
+        hb3.pack_start(self._spice_entry_node, True, True, 0)
+        self._spice_proxmox_box.pack_start(hb3, False, False, 0)
+        hb4 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb4.pack_start(Gtk.Label(label=_("VMID:")), False, False, 0)
+        self._spice_entry_vmid = Gtk.Entry()
+        self._spice_entry_vmid.set_placeholder_text("100")
+        self._spice_entry_vmid.set_width_chars(8)
+        hb4.pack_start(self._spice_entry_vmid, False, False, 0)
+        self._spice_proxmox_box.pack_start(hb4, False, False, 0)
+        self._spice_proxmox_box.set_no_show_all(True)
+        self._spice_proxmox_box.hide()
+        inner.pack_start(self._spice_proxmox_box, False, False, 0)
+
+        # Bouton Appliquer
+        btn_apply = Gtk.Button(label=_("↩ Apply to Extra arguments"))
+        btn_apply.get_style_context().add_class("suggested-action")
+        btn_apply.connect("clicked", self._on_spice_apply)
+        inner.pack_start(btn_apply, False, False, 4)
+
+        lbl_hint = Gtk.Label()
+        lbl_hint.set_markup(_("<small><i>Or type directly in 'Extra arguments' below</i></small>"))
+        lbl_hint.set_xalign(0)
+        inner.pack_start(lbl_hint, False, False, 0)
+
+        frame.show_all()
+        self._spice_proxmox_box.hide()  # masqué par défaut
+        vbox.pack_start(frame, False, False, 0)
+        viewport.add(vbox)
+        vbox.show()
+
+        self._spice_frame = frame
+        self._spice_frame.set_no_show_all(True)
+        self._spice_frame.hide()
+
+        # Connecter les radios
+        self._spice_radio_libvirt.connect("toggled", self._on_spice_mode_toggled)
+        self._spice_radio_proxmox.connect("toggled", self._on_spice_mode_toggled)
+
+        # Pré-remplir depuis extra_params si déjà en mode spice
+        self._spice_prefill_from_extra_params()
+
+    def _on_spice_mode_toggled(self, widget):
+        """Affiche la section libvirt ou Proxmox selon le radio sélectionné."""
+        is_libvirt = self._spice_radio_libvirt.get_active()
+        if is_libvirt:
+            self._spice_libvirt_box.show()
+            self._spice_proxmox_box.hide()
+        else:
+            self._spice_libvirt_box.hide()
+            self._spice_proxmox_box.show()
+
+    def _on_spice_apply(self, widget):
+        """Construit extra_params SPICE depuis les champs du frame et remplit txtExtraParams."""
+        if self._spice_radio_libvirt.get_active():
+            uri = self._spice_entry_uri.get_text().strip()
+            vm = self._spice_entry_vmname.get_text().strip()
+            if uri and vm:
+                self.txtExtraParams.set_text(f"--connect {uri} {vm}")
+            elif uri:
+                self.txtExtraParams.set_text(f"--connect {uri}")
+        else:
+            node = self._spice_entry_node.get_text().strip()
+            vmid = self._spice_entry_vmid.get_text().strip()
+            if node and vmid:
+                self.txtExtraParams.set_text(f"--proxmox {node} {vmid}")
+
+    def _spice_prefill_from_extra_params(self):
+        """Pré-remplit les champs SPICE si extra_params contient déjà --connect ou --proxmox."""
+        if not hasattr(self, "txtExtraParams"):
+            return
+        val = self.txtExtraParams.get_text().strip()
+        if val.startswith("--connect "):
+            parts = val.split(None, 2)
+            if len(parts) >= 2 and hasattr(self, "_spice_entry_uri"):
+                self._spice_entry_uri.set_text(parts[1])
+            if len(parts) >= 3 and hasattr(self, "_spice_entry_vmname"):
+                self._spice_entry_vmname.set_text(parts[2])
+            if hasattr(self, "_spice_radio_libvirt"):
+                self._spice_radio_libvirt.set_active(True)
+        elif val.startswith("--proxmox "):
+            parts = val.split()
+            if len(parts) >= 2 and hasattr(self, "_spice_entry_node"):
+                self._spice_entry_node.set_text(parts[1])
+            if len(parts) >= 3 and hasattr(self, "_spice_entry_vmid"):
+                self._spice_entry_vmid.set_text(parts[2])
+            if hasattr(self, "_spice_radio_proxmox"):
+                self._spice_radio_proxmox.set_active(True)
 
     # -- Whost custom methods {
     def _on_proto_changed(self, cmb):
@@ -6626,21 +7842,26 @@ class Whost(GCMBase):
         _par = getattr(host, "serial_parity", "n")
         _sb = getattr(host, "serial_stopbits", "1")
         _fl = getattr(host, "serial_flow", "n")
-        self._serial_cmb_databits.set_active(
-            _databits_vals.index(_db) if _db in _databits_vals else 3
-        )
-        self._serial_cmb_parity.set_active(
-            _parity_codes.index(_par) if _par in _parity_codes else 0
-        )
-        self._serial_cmb_stopbits.set_active(
-            _stopbits_vals.index(_sb) if _sb in _stopbits_vals else 0
-        )
-        self._serial_cmb_flow.set_active(_flow_codes.index(_fl) if _fl in _flow_codes else 0)
-        # Afficher/masquer le frame série
-        if proto == "serial":
-            self._serial_frame.show()
-        else:
-            self._serial_frame.hide()
+        if hasattr(self, "_serial_cmb_databits"):
+            self._serial_cmb_databits.set_active(
+                _databits_vals.index(_db) if _db in _databits_vals else 3
+            )
+        if hasattr(self, "_serial_cmb_parity"):
+            self._serial_cmb_parity.set_active(
+                _parity_codes.index(_par) if _par in _parity_codes else 0
+            )
+        if hasattr(self, "_serial_cmb_stopbits"):
+            self._serial_cmb_stopbits.set_active(
+                _stopbits_vals.index(_sb) if _sb in _stopbits_vals else 0
+            )
+        if hasattr(self, "_serial_cmb_flow"):
+            self._serial_cmb_flow.set_active(_flow_codes.index(_fl) if _fl in _flow_codes else 0)
+        # Afficher/masquer le frame série si présent
+        if hasattr(self, "_serial_frame"):
+            if proto == "serial":
+                self._serial_frame.show()
+            else:
+                self._serial_frame.hide()
 
     def update_texttags(self, *args):
         """Met a jour les tags de texte (couleurs, polices) dans la vue."""
@@ -6679,11 +7900,18 @@ class Whost(GCMBase):
         Args:
             widget (Gtk.Button): Bouton clique.
         """
-        group = self.cmbGroup.get_active_text().strip()
+        group_txt = self.cmbGroup.get_active_text()
+        if (
+            not group_txt
+            and self.cmbGroup.get_has_entry()
+            and self.cmbGroup.get_child() is not None
+        ):
+            group_txt = self.cmbGroup.get_child().get_text()
+        group = (group_txt or "").strip()
         name = self.txtName.get_text().strip()
         description = self.txtDescription.get_text().strip()
         host = self.txtHost.get_text().strip()
-        ctype = self.cmbType.get_active_text().strip()
+        ctype = (self.cmbType.get_active_text() or "").strip()
         user = self.txtUser.get_text().strip()
         password = self.txtPass.get_text().strip()
         private_key = self.txtPrivateKey.get_text().strip()
@@ -6722,24 +7950,34 @@ class Whost(GCMBase):
 
         # Validar datos
         if group == "" or name == "" or (host == "" and ctype != "local"):
-            msgbox(_("Los campos grupo, nombre y host son obligatorios"))
+            msgbox(_("Fields group, name and host are required"))
             return
 
-        if not (port and port.isdigit() and 1 <= int(port) <= 65535):
-            msgbox(_("Puerto invalido"))
+        if ctype != "local" and not (port and port.isdigit() and 1 <= int(port) <= 65535):
+            msgbox(_("Invalid port"))
             return
 
         term = self.txtTerm.get_text()
-        protocol = self.cmbProtocol.get_active_text() if hasattr(self, "cmbProtocol") else "ssh"
+        protocol = (
+            self.cmbProtocol.get_active_text().strip()
+            if hasattr(self, "cmbProtocol") and self.cmbProtocol.get_active_text()
+            else "ssh"
+        )
         # Lire les paramètres série depuis les combos dédiés
         _parity_codes = ["n", "e", "o"]
         _flow_codes = ["n", "x", "h", "d"]
         _databits_vals = ["5", "6", "7", "8"]
         _stopbits_vals = ["1", "2"]
-        _si_db = self._serial_cmb_databits.get_active()
-        _si_par = self._serial_cmb_parity.get_active()
-        _si_sb = self._serial_cmb_stopbits.get_active()
-        _si_fl = self._serial_cmb_flow.get_active()
+        _si_db = (
+            self._serial_cmb_databits.get_active() if hasattr(self, "_serial_cmb_databits") else -1
+        )
+        _si_par = (
+            self._serial_cmb_parity.get_active() if hasattr(self, "_serial_cmb_parity") else -1
+        )
+        _si_sb = (
+            self._serial_cmb_stopbits.get_active() if hasattr(self, "_serial_cmb_stopbits") else -1
+        )
+        _si_fl = self._serial_cmb_flow.get_active() if hasattr(self, "_serial_cmb_flow") else -1
         serial_databits = _databits_vals[_si_db] if 0 <= _si_db < 4 else "8"
         serial_parity = _parity_codes[_si_par] if 0 <= _si_par < 3 else "n"
         serial_stopbits = _stopbits_vals[_si_sb] if 0 <= _si_sb < 2 else "1"
@@ -6788,9 +8026,9 @@ class Whost(GCMBase):
                         msgbox(
                             "%s [%s] %s [%s]"
                             % (
-                                _("El nombre"),
+                                _("Host name"),
                                 name,
-                                _("ya existe para el grupo"),
+                                _("already exists for group"),
                                 group,
                             )
                         )
@@ -6808,9 +8046,9 @@ class Whost(GCMBase):
                                 msgbox(
                                     "%s [%s] %s [%s]"
                                     % (
-                                        _("El nombre"),
+                                        _("Host name"),
                                         name,
-                                        _("ya existe para el grupo"),
+                                        _("already exists for group"),
                                         group,
                                     )
                                 )
@@ -6827,9 +8065,9 @@ class Whost(GCMBase):
                                 msgbox(
                                     "%s [%s] %s [%s]"
                                     % (
-                                        _("El nombre"),
+                                        _("Host name"),
                                         name,
-                                        _("ya existe para el grupo"),
+                                        _("already exists for group"),
                                         group,
                                     )
                                 )
@@ -6846,7 +8084,7 @@ class Whost(GCMBase):
                                 groups[self.oldGroup][index] = host
                                 break
         except:
-            msgbox("%s [%s]" % (_("Error al guardar el host. Descripcion"), sys.exc_info()[1]))
+            msgbox("%s [%s]" % (_("Error saving host. Description"), sys.exc_info()[1]))
 
         global wMain
         wMain.updateTree()
@@ -6910,6 +8148,15 @@ class Whost(GCMBase):
                 self._serial_frame.show()
             else:
                 self._serial_frame.hide()
+
+        # Afficher/masquer le frame SPICE
+        is_spice = proto == "spice"
+        if hasattr(self, "_spice_frame"):
+            if is_spice:
+                self._spice_frame.show()
+                self._spice_prefill_from_extra_params()
+            else:
+                self._spice_frame.hide()
 
     # -- Whost.on_cmbType_changed }
 
@@ -6978,12 +8225,12 @@ class Whost(GCMBase):
 
         # Validar datos del tunel
         if host == "":
-            msgbox(_("Debe ingresar host remoto"))
+            msgbox(_("Enter remote host"))
             return
 
         for x in self.treeModel:
             if x[0] == local:
-                msgbox(_("Puerto local ya fue asignado"))
+                msgbox(_("Local port already assigned"))
                 return
 
         tunel = self.treeModel.append([local, host, remote, "%s:%s:%s" % (local, host, remote)])
@@ -7056,7 +8303,7 @@ class Whost(GCMBase):
         """
         global wMain
         filename = show_open_dialog(
-            parent=wMain.wMain, title=_("Abrir"), action=Gtk.FileChooserAction.OPEN
+            parent=wMain.wMain, title=_("Open"), action=Gtk.FileChooserAction.OPEN
         )
         if filename != None:
             self.txtPrivateKey.set_text(filename)
@@ -7139,45 +8386,50 @@ class Wconfig(GCMBase):
         self.lblFont = self.get_widget("lblFont")
         self.treeCmd = self.get_widget("treeCommands")
         self.treeCustom = self.get_widget("treeCustom")
+        self.nbConfig = self.get_widget("nbConfig")
         self.dlgColor = None
         self.capture_keys = False
 
+        if isinstance(self.nbConfig, Gtk.Notebook):
+            self.nbConfig.set_scrollable(True)
+
         self.tblGeneral.rows = 0
-        self.addParam(_("Separador de Palabras"), "conf.WORD_SEPARATORS", str)
-        self.addParam(_("Tamaño del buffer"), "conf.BUFFER_LINES", int, 1, 1000000)
-        self.addParam(_("Transparencia"), "conf.TRANSPARENCY", int, 0, 100)
+        self.addParam(_("Word separator"), "conf.WORD_SEPARATORS", str)
+        self.addParam(_("Buffer size"), "conf.BUFFER_LINES", int, 1, 1000000)
+        self.addParam(_("Transparency"), "conf.TRANSPARENCY", int, 0, 100)
         self.addParam(_("TERM"), "conf.TERM", str)
-        self.addParam(_("Ruta de logs"), "conf.LOG_PATH", str)
-        self.addParam(_("Abrir consola local al inicio"), "conf.STARTUP_LOCAL", bool)
-        self.addParam(_("Log consola local"), "conf.LOG_LOCAL", bool)
-        self.addParam(_("Pegar con botón derecho"), "conf.PASTE_ON_RIGHT_CLICK", bool)
-        self.addParam(_("Copiar selección al portapapeles"), "conf.AUTO_COPY_SELECTION", bool)
-        self.addParam(_("Confirmar al cerrar una consola"), "conf.CONFIRM_ON_CLOSE_TAB", bool)
+        self.addParam(_("Logs path"), "conf.LOG_PATH", str)
+        self.addParam(_("Continuous VTE tab logging mode"), "conf.CONTINUOUS_TAB_LOG", bool)
+        self.addParam(_("Open local console on startup"), "conf.STARTUP_LOCAL", bool)
+        self.addParam(_("Log local console sessions"), "conf.LOG_LOCAL", bool)
+        self.addParam(_("Paste on right click"), "conf.PASTE_ON_RIGHT_CLICK", bool)
+        self.addParam(_("Copy selection to clipboard"), "conf.AUTO_COPY_SELECTION", bool)
+        self.addParam(_("Confirm on close console"), "conf.CONFIRM_ON_CLOSE_TAB", bool)
         self.addParam(
-            _("Confirmar al cerrar una consola con botón central del mouse"),
+            _("Confirm on close console with middle click"),
             "conf.CONFIRM_ON_CLOSE_TAB_MIDDLE",
             bool,
         )
         self.addParam(
-            _("Reiniciar en el primer/último tab al llegar al final"),
+            _("Circle around tabs when going to the previous/next tab"),
             "conf.CYCLE_TABS",
             bool,
         )
         self.addParam(
-            _("Cerrar consola"),
+            _("Close console"),
             "conf.AUTO_CLOSE_TAB",
             list,
-            [_("Nunca"), _("Siempre"), _("Sólo si no hay errores")],
+            [_("Never"), _("Always"), _("Only on clean exit")],
         )
-        self.addParam(_("Confirmar al salir"), "conf.CONFIRM_ON_EXIT", bool)
-        self.addParam(_("Comprobar actualizaciones"), "conf.CHECK_UPDATES", bool)
+        self.addParam(_("Confirm on exit"), "conf.CONFIRM_ON_EXIT", bool)
+        self.addParam(_("Check updates"), "conf.CHECK_UPDATES", bool)
         self.addParam(
-            _("Deshabilitar franjas alternas en la ventana de hosts"),
+            _("Disable alternating stripes in hosts window"),
             "conf.DISABLE_HOSTS_STRIPES",
             bool,
         )
-        self.addParam(_("Título dinámico"), "conf.UPDATE_TITLE", bool)
-        self.addParam(_("Título"), "conf.APP_TITLE", str)
+        self.addParam(_("Dynamic title"), "conf.UPDATE_TITLE", bool)
+        self.addParam(_("Title"), "conf.APP_TITLE", str)
 
         if len(conf.FONT_COLOR) == 0:
             self.get_widget("chkDefaultColors1").set_active(True)
@@ -7210,7 +8462,7 @@ class Wconfig(GCMBase):
         # commandos
         self.treeModel = Gtk.TreeStore(GObject.TYPE_STRING, GObject.TYPE_STRING)
         self.treeCmd.set_model(self.treeModel)
-        column = Gtk.TreeViewColumn(_("Acción"), Gtk.CellRendererText(), text=0)
+        column = Gtk.TreeViewColumn(_("Action"), Gtk.CellRendererText(), text=0)
         column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
         column.set_expand(True)
         self.treeCmd.append_column(column)
@@ -7219,7 +8471,7 @@ class Wconfig(GCMBase):
         renderer.set_property("editable", True)
         renderer.connect("edited", self.on_edited, self.treeModel, 1)
         renderer.connect("editing-started", self.on_editing_started, self.treeModel, 1)
-        column = Gtk.TreeViewColumn(_("Atajo"), renderer, text=1)
+        column = Gtk.TreeViewColumn(_("Shortcut"), renderer, text=1)
         column.set_sizing(Gtk.TreeViewColumnSizing.AUTOSIZE)
         column.set_expand(False)
         self.treeCmd.append_column(column)
@@ -7229,7 +8481,7 @@ class Wconfig(GCMBase):
         renderer = MultilineCellRenderer()
         renderer.set_property("editable", True)
         renderer.connect("edited", self.on_edited, self.treeModel2, 0)
-        column = Gtk.TreeViewColumn(_("Comando"), renderer, text=0)
+        column = Gtk.TreeViewColumn(_("Command"), renderer, text=0)
         column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
         column.set_expand(True)
         self.treeCustom.append_column(column)
@@ -7237,7 +8489,7 @@ class Wconfig(GCMBase):
         renderer.set_property("editable", True)
         renderer.connect("edited", self.on_edited, self.treeModel2, 1)
         renderer.connect("editing-started", self.on_editing_started, self.treeModel2, 1)
-        column = Gtk.TreeViewColumn(_("Atajo"), renderer, text=1)
+        column = Gtk.TreeViewColumn(_("Shortcut"), renderer, text=1)
         column.set_sizing(Gtk.TreeViewColumnSizing.AUTOSIZE)
         column.set_expand(False)
         self.treeCustom.append_column(column)
@@ -7253,11 +8505,9 @@ class Wconfig(GCMBase):
 
         self.treeModel2.append(None, ["", ""])
 
-        # Onglets dans les préférences
-        nb = self.tblGeneral.get_parent().get_parent()
-        if isinstance(nb, Gtk.Notebook):
-            self._lv_prefs = LibvirtPrefsTab(nb, conf.__dict__)
-            self._serial_tpl_prefs = SerialTemplatesTab(nb)
+        # Onglet supplémentaire dans les préférences
+        if isinstance(self.nbConfig, Gtk.Notebook):
+            self._serial_tpl_prefs = SerialTemplatesTab(self.nbConfig)
 
     # -- Wconfig.new }
 
@@ -7515,7 +8765,7 @@ class Wconfig(GCMBase):
         Args:
             widget (Gtk.Button): Bouton clique.
         """
-        show_font_dialog(self, _("Seleccione la fuente"), self.btnFont)
+        show_font_dialog(self, _("Select font"), self.btnFont)
 
     # -- Wconfig.on_btnFont_clicked }
 
@@ -7579,7 +8829,7 @@ class Wcluster(GCMBase):
         crt = Gtk.CellRendererToggle()
         crt.set_property("activatable", True)
         crt.connect("toggled", self.on_active_toggled)
-        col = Gtk.TreeViewColumn(_("Activar"), crt, active=0)
+        col = Gtk.TreeViewColumn(_("Activate"), crt, active=0)
         self.treeHosts.append_column(col)
         self.treeHosts.append_column(Gtk.TreeViewColumn(_("Host"), Gtk.CellRendererText(), text=1))
         self.get_widget("txtCommands1").history = []
@@ -7789,7 +9039,7 @@ class NotebookTabLabel(Gtk.Box):
         """
         if (
             conf.CONFIRM_ON_CLOSE_TAB
-            and msgconfirm("%s [%s]?" % (_("Cerrar consola"), self.label.get_text().strip()))
+            and msgconfirm("%s [%s]?" % (_("Close console"), self.label.get_text().strip()))
             != Gtk.ResponseType.OK
         ):
             return True
@@ -7872,7 +9122,7 @@ class NotebookTabLabel(Gtk.Box):
         elif event.type == Gdk.EventType.BUTTON_PRESS and event.button == 2:
             if (
                 conf.CONFIRM_ON_CLOSE_TAB_MIDDLE
-                and msgconfirm("%s [%s]?" % (_("Cerrar consola"), self.label.get_text().strip()))
+                and msgconfirm("%s [%s]?" % (_("Close console"), self.label.get_text().strip()))
                 != Gtk.ResponseType.OK
             ):
                 return True
@@ -7917,7 +9167,7 @@ class EntryDialog(Gtk.Dialog):
         self.action_area.pack_start(button, True, True, 0)
         button.show()
         button.grab_default()
-        button = Gtk.Button(label=_("Annuler"))
+        button = Gtk.Button(label=_("Cancel"))
         button.connect("clicked", self.quit)
         button.set_can_default(True)
         self.action_area.pack_start(button, True, True, 0)
@@ -8076,9 +9326,6 @@ class MultilineCellRenderer(Gtk.CellRendererText):
         return editor
 
 
-
-
-
 class CheckUpdates(Thread):
     def __init__(self, p):
         """Initialise l'instance.
@@ -8136,7 +9383,7 @@ class CheckUpdates(Thread):
                         "%s\n\nCURRENT VERSION: %s\nNEW VERSION: %s"
                         % (
                             _(
-                                "Une nouvelle version est disponible : https://github.com/MathildeDec/gnome-connection-manager/releases"
+                                "A new version is available: https://github.com/MathildeDec/gnome-connection-manager/releases"
                             ),
                             app_version,
                             new_version,

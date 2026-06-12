@@ -51,6 +51,8 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Interface:
+    """Interface réseau d'une VM avec MAC et IP éventuelle."""
+
     mac: str
     ip: str | None = None
     source_network: str | None = None
@@ -58,6 +60,8 @@ class Interface:
 
 @dataclass
 class OSInfo:
+    """Métadonnées OS collectées depuis libvirt, agent invité et SSH."""
+
     # Depuis le XML libvirt
     libvirt_type: str | None = None
     libvirt_arch: str | None = None
@@ -94,6 +98,8 @@ class PortInfo:
 
 @dataclass
 class VM:
+    """Représentation d'une VM inventoriée."""
+
     name: str
     uuid: str
     state: str
@@ -106,6 +112,8 @@ class VM:
 
 @dataclass
 class Hypervisor:
+    """Hyperviseur libvirt cible et son inventaire de VMs."""
+
     uri: str
     host: str
     user: str
@@ -118,6 +126,11 @@ class Hypervisor:
 
 
 def get_libvirt_uris() -> list[str]:
+    """Lit les URIs libvirt configurées dans dconf (virt-manager).
+
+    Returns:
+        list[str]: Liste d'URIs libvirt détectées.
+    """
     try:
         result = subprocess.run(
             ["dconf", "read", "/org/virt-manager/virt-manager/connections/uris"],
@@ -144,6 +157,14 @@ def get_libvirt_uris() -> list[str]:
 
 
 def parse_libvirt_uri(uri: str) -> Hypervisor | None:
+    """Parse une URI libvirt en structure Hypervisor.
+
+    Args:
+        uri (str): URI libvirt brute.
+
+    Returns:
+        Hypervisor | None: Hyperviseur parsé, ou None si invalide.
+    """
     parsed = urlparse(uri)
     scheme = parsed.scheme
     if "+" in scheme:
@@ -205,6 +226,16 @@ def ssh_connect(
 
 
 def ssh_run(client: paramiko.SSHClient, cmd: str, timeout: int = 30) -> str:
+    """Exécute une commande SSH et retourne stdout.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        cmd (str): Commande shell à exécuter.
+        timeout (int, optional): Timeout d'exécution en secondes. Defaults to 30.
+
+    Returns:
+        str: Sortie standard décodée.
+    """
     _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
     out = stdout.read().decode(errors="replace").strip()
     err = stderr.read().decode(errors="replace").strip()
@@ -217,6 +248,14 @@ def ssh_run(client: paramiko.SSHClient, cmd: str, timeout: int = 30) -> str:
 
 
 def get_vms(client: paramiko.SSHClient) -> list[VM]:
+    """Liste les VMs libvirt et enrichit CPU/RAM.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté à l'hyperviseur.
+
+    Returns:
+        list[VM]: Liste des VMs détectées.
+    """
     out = ssh_run(client, "virsh list --all --name")
     names = [n for n in out.splitlines() if n.strip()]
     vms = []
@@ -247,6 +286,15 @@ def get_vms(client: paramiko.SSHClient) -> list[VM]:
 
 
 def get_interfaces(client: paramiko.SSHClient, vm: VM) -> list[Interface]:
+    """Extrait les interfaces réseau (MAC/réseau) et ports display depuis le XML VM.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        vm (VM): VM cible.
+
+    Returns:
+        list[Interface]: Interfaces réseau détectées.
+    """
     xml = ssh_run(client, f"virsh dumpxml {vm.name}")
     interfaces = []
     for block in re.findall(r"<interface.*?</interface>", xml, re.DOTALL):
@@ -298,6 +346,15 @@ OSINFO_MAP = {
 
 
 def get_os_from_xml(client: paramiko.SSHClient, vm: VM) -> None:
+    """Renseigne les informations OS depuis le XML libvirt.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        vm (VM): VM cible à enrichir.
+
+    Returns:
+        None: Met à jour `vm.os` en place.
+    """
     xml = ssh_run(client, f"virsh dumpxml {vm.name}")
     o = vm.os
 
@@ -327,6 +384,15 @@ def get_os_from_xml(client: paramiko.SSHClient, vm: VM) -> None:
 
 
 def get_os_from_agent(client: paramiko.SSHClient, vm: VM) -> bool:
+    """Récupère les infos OS depuis qemu-guest-agent.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        vm (VM): VM cible.
+
+    Returns:
+        bool: True si des données agent ont été trouvées.
+    """
     if vm.state != "running":
         return False
     out = ssh_run(client, f"virsh guestinfo {vm.name} --os 2>/dev/null")
@@ -366,6 +432,15 @@ def get_os_from_agent(client: paramiko.SSHClient, vm: VM) -> bool:
 
 
 def get_os_from_ssh(hv_client: paramiko.SSHClient, vm: VM) -> bool:
+    """Tente une détection OS par SSH direct vers la VM.
+
+    Args:
+        hv_client (paramiko.SSHClient): Client SSH de l'hyperviseur.
+        vm (VM): VM cible.
+
+    Returns:
+        bool: True si la détection SSH a réussi.
+    """
     if vm.state != "running":
         return False
     ip = next((i.ip for i in vm.interfaces if i.ip), None)
@@ -486,6 +561,14 @@ def detect_ports(client: paramiko.SSHClient, vms: list[VM]) -> None:
 
 
 def get_host_subnets(client: paramiko.SSHClient) -> list[str]:
+    """Détermine les sous-réseaux IPv4 de l'hyperviseur.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+
+    Returns:
+        list[str]: Liste de sous-réseaux CIDR uniques.
+    """
     out = ssh_run(client, "ip -o -f inet addr show")
     subnets, seen = [], set()
     for line in out.splitlines():
@@ -514,6 +597,15 @@ def get_host_subnets(client: paramiko.SSHClient) -> list[str]:
 
 
 def nmap_ping_scan(client: paramiko.SSHClient, subnets: list[str]) -> dict[str, str]:
+    """Exécute un scan nmap ping et retourne une table MAC→IP.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        subnets (list[str]): Sous-réseaux CIDR à scanner.
+
+    Returns:
+        dict[str, str]: Mapping mac_lower -> ip.
+    """
     result: dict[str, str] = {}
     if not subnets:
         return result
@@ -547,6 +639,14 @@ def nmap_ping_scan(client: paramiko.SSHClient, subnets: list[str]) -> dict[str, 
 
 
 def build_arp_table(client: paramiko.SSHClient) -> dict[str, str]:
+    """Construit une table MAC→IP depuis ARP/neigh.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+
+    Returns:
+        dict[str, str]: Mapping mac_lower -> ip.
+    """
     arp = {}
     for line in ssh_run(client, "ip neigh show 2>/dev/null || arp -n 2>/dev/null").splitlines():
         m = re.search(r"(\d+\.\d+\.\d+\.\d+).*?([0-9a-f]{2}(?::[0-9a-f]{2}){5})", line, re.I)
@@ -556,6 +656,14 @@ def build_arp_table(client: paramiko.SSHClient) -> dict[str, str]:
 
 
 def build_dhcp_table(client: paramiko.SSHClient) -> dict[str, str]:
+    """Construit une table MAC→IP depuis les baux DHCP libvirt.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+
+    Returns:
+        dict[str, str]: Mapping mac_lower -> ip.
+    """
     leases: dict[str, str] = {}
     for net in ssh_run(client, "virsh net-list --name").splitlines():
         net = net.strip()
@@ -575,6 +683,16 @@ def build_dhcp_table(client: paramiko.SSHClient) -> dict[str, str]:
 
 
 def resolve_ips(client: paramiko.SSHClient, vms: list[VM], use_nmap: bool = True) -> None:
+    """Résout les IP des interfaces VM via domifaddr, DHCP, ARP puis nmap.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        vms (list[VM]): VMs à enrichir.
+        use_nmap (bool, optional): Active le scan nmap complémentaire. Defaults to True.
+
+    Returns:
+        None: Met à jour les IP des interfaces en place.
+    """
     for vm in vms:
         if vm.state != "running":
             continue
@@ -612,6 +730,14 @@ def resolve_ips(client: paramiko.SSHClient, vms: list[VM], use_nmap: bool = True
 
 
 def print_report(hypervisors: list[Hypervisor]) -> None:
+    """Affiche un rapport texte de l'inventaire collecté.
+
+    Args:
+        hypervisors (list[Hypervisor]): Hyperviseurs à afficher.
+
+    Returns:
+        None: Écrit le rapport sur stdout.
+    """
     print("\n" + "═" * 68 + "\n  INVENTAIRE LIBVIRT\n" + "═" * 68)
     total_vms = sum(len(hv.vms) for hv in hypervisors)
     total_running = sum(1 for hv in hypervisors for vm in hv.vms if vm.state == "running")
@@ -658,6 +784,15 @@ def print_report(hypervisors: list[Hypervisor]) -> None:
 
 
 def export_json(hypervisors: list[Hypervisor], path: str = "inventory.json") -> None:
+    """Exporte l'inventaire complet au format JSON.
+
+    Args:
+        hypervisors (list[Hypervisor]): Données d'inventaire.
+        path (str, optional): Chemin du fichier JSON. Defaults to "inventory.json".
+
+    Returns:
+        None: Écrit le fichier sur disque.
+    """
     data = []
     for hv in hypervisors:
         hv_dict = {"host": hv.host, "uri": hv.uri, "vms": []}
@@ -995,6 +1130,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Point d'entrée CLI de l'inventaire libvirt.
+
+    Returns:
+        None: Exécute la collecte et les exports demandés.
+    """
     args = _build_parser().parse_args()
 
     uris = args.uris or get_libvirt_uris()

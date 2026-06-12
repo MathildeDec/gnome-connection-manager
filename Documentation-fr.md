@@ -1,6 +1,6 @@
 # GCM — Documentation utilisateur (français)
 
-**Gnome Connection Manager v1.3.2**
+**Gnome Connection Manager v1.3.3**
 Fork maintenu par [MathildeDec](https://github.com/MathildeDec/gnome-connection-manager)
 
 ---
@@ -19,14 +19,15 @@ Fork maintenu par [MathildeDec](https://github.com/MathildeDec/gnome-connection-
 10. [Protocole Telnet](#10-protocole-telnet)
 11. [Terminal local](#11-terminal-local)
 12. [Import libvirt / KVM](#12-import-libvirt--kvm)
-13. [Mode cluster (multi-hôtes)](#13-mode-cluster-multi-hôtes)
-14. [Tunnels SSH](#14-tunnels-ssh)
-15. [Chiffrement des mots de passe](#15-chiffrement-des-mots-de-passe)
-16. [Personnalisation de l'apparence](#16-personnalisation-de-lapparence)
-17. [Langues / Internationalisation](#17-langues--internationalisation)
-18. [Sauvegarde et restauration de la configuration](#18-sauvegarde-et-restauration-de-la-configuration)
-19. [Raccourcis clavier](#19-raccourcis-clavier)
-20. [Dépannage](#20-dépannage)
+13. [Import Proxmox](#13-import-proxmox)
+14. [Mode cluster (multi-hôtes)](#14-mode-cluster-multi-hôtes)
+15. [Tunnels SSH](#15-tunnels-ssh)
+16. [Chiffrement des mots de passe](#16-chiffrement-des-mots-de-passe)
+17. [Personnalisation de l'apparence](#17-personnalisation-de-lapparence)
+18. [Langues / Internationalisation](#18-langues--internationalisation)
+19. [Sauvegarde et restauration de la configuration](#19-sauvegarde-et-restauration-de-la-configuration)
+20. [Raccourcis clavier](#20-raccourcis-clavier)
+21. [Dépannage](#21-dépannage)
 
 ---
 
@@ -43,7 +44,7 @@ fenêtre unique, ce qui évite de jongler entre de nombreuses fenêtres et appli
 | **SSH** | `ssh` + `expect` | Terminal VTE embarqué |
 | **RDP** | `xfreerdp` | Bureau XEmbed (onglet) ou fenêtre externe |
 | **VNC** | `vncviewer` / `vinagre` / `remmina` | Fenêtre ou URI |
-| **SPICE** | `remote-viewer` / `virt-viewer` | URI `spice://` |
+| **SPICE** | `remote-viewer` / `virt-viewer` | URI `spice://`, tunnel libvirt ou ticket Proxmox |
 | **Série** | `picocom` / `minicom` / `screen` | Terminal VTE embarqué |
 | **Telnet** | `telnet` + `expect` | Terminal VTE embarqué |
 | **Local** | shell système | Terminal VTE embarqué |
@@ -536,15 +537,77 @@ Pour chaque VM, GCM tente dans l'ordre :
 ### Convention de nommage des groupes
 
 ```
-prod_web-01  →  groupe PROD    / hôte web-01 [SSH]
-dev-mysql    →  groupe DEV     / hôte mysql [SSH]
-win-dc       →  groupe WIN     / hôte dc [RDP]
-standalone   →  groupe LIBVIRT / hôte standalone [SSH]
+prod_web-01  →  groupe prod    / hote web-01  (sous-groupe prod/ssh, prod/rdp...)
+dev-mysql    →  groupe dev     / hote mysql
+win-dc       →  groupe win     / hote dc
+standalone   →  (racine)       / hote standalone
 ```
+
+Organisation par protocole : chaque protocole importé crée un sous-groupe `groupe/ssh`, `groupe/spice`, `groupe/rdp`, `groupe/vnc`.
 
 ---
 
-## 13. Mode cluster (multi-hôtes)
+## 13. Import Proxmox
+
+### Présentation
+
+GCM interroge les hyperviseurs Proxmox via SSH et importe les VMs via les outils
+nativement Proxmox (`qm`, `pvesh`). Fonctionne indépendamment de libvirt.
+
+### Accès
+
+**Menu → Fichier → Importer depuis Proxmox…**
+
+### Phase 1 — Paramètres du scan
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ URI hyperviseurs Proxmox :                                              │
+│ [+] qemu+ssh://root@192.168.105.41/system                              │
+│ [+] qemu+ssh://root@192.168.105.42/system                              │
+│                                                                        │
+│ User SSH VMs : [ubuntu   ]                                             │
+│                                                                        │
+│ Types à importer :                                                     │
+│   [☑] SSH   [☑] SPICE (qxl requis)   [☑] RDP   [ ] VNC               │
+│                                                                        │
+│ Log : [zone de log en temps réel]                                      │
+│ Progression : [████████████████████          ] 1/2                     │
+│                                              [🔍 Scanner]               │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### Stratégie de connexion par protocole
+
+| Protocole | Comportement |
+|-----------|--------------|
+| **SSH** (IP connue) | `ssh -J root@hv:port user@ip_vm` — ProxyJump |
+| **SSH** (IP inconnue) | Shell HV puis `-t ssh user@vm_name` |
+| **SPICE** | `pvesh create /nodes/NODE/qemu/VMID/spiceproxy` → ticket `.vv` |
+| **RDP** | Uniquement si port 3389 ouvert (nc/nmap depuis l'HV) |
+| **VNC** | Uniquement si port 5900 ouvert (nc/nmap depuis l'HV) |
+
+### Résolution IP (pipeline 4 niveaux)
+
+Pour chaque VM, GCM tente dans l'ordre :
+1. **QGA** : `qm guest cmd {vmid} network-get-interfaces` (guest-agent actif)
+2. **ipconfig0** : `qm config {vmid} | grep ipconfig` (IP cloud-init ou statique)
+3. **ARP filtré par MAC** : MAC récupérée depuis `qm config`, puis `ip neigh show` filtré
+4. **nmap ping scan** : scan des sous-réseaux de l'HV, matching par MAC VM
+
+### Prérequis SPICE Proxmox
+
+- La VM doit avoir `vga: qxl` dans sa configuration (`qm config VMID | grep vga`)
+- L'utilisateur SSH doit avoir accès à `pvesh` sur le noeud Proxmox
+- `virt-viewer` / `remote-viewer` doit être installé sur la machine cliente
+
+### Convention de nommage des groupes
+
+Identique à libvirt : `groupe/ssh`, `groupe/spice`, `groupe/rdp`, `groupe/vnc`.
+
+---
+
+## 14. Mode cluster (multi-hôtes)
 
 Le mode cluster permet d'envoyer des commandes simultanément à plusieurs hôtes SSH.
 
@@ -563,7 +626,7 @@ Le mode cluster permet d'envoyer des commandes simultanément à plusieurs hôte
 
 ---
 
-## 14. Tunnels SSH
+## 15. Tunnels SSH
 
 ### Configurer un tunnel
 
@@ -589,7 +652,7 @@ l'onglet SSH est ouvert.
 
 ---
 
-## 15. Chiffrement des mots de passe
+## 16. Chiffrement des mots de passe
 
 ### Algorithme
 
@@ -618,7 +681,21 @@ sans l'avoir purgé (utilisez l'export avec redaction).
 
 ---
 
-## 16. Personnalisation de l'apparence
+## 17. Personnalisation de l'apparence
+
+### Thème GTK
+
+Depuis v1.3.3, GCM suit automatiquement le thème GTK du bureau :
+
+1. Lecture de `gsettings get org.gnome.desktop.interface gtk-theme` (GNOME, XFCE, MATE)
+2. Fallback : `~/.config/gtk-3.0/settings.ini`
+3. Si `gsettings get org.gnome.desktop.interface color-scheme` retourne `prefer-dark`, le mode sombre GTK est activé
+
+Pour forcer un thème en ligne de commande :
+```bash
+GTK_THEME=Adwaita:dark ./gnome_connection_manager.py
+GTK_THEME=Yaru        ./gnome_connection_manager.py
+```
 
 ### Police du terminal
 
@@ -640,7 +717,7 @@ La taille et la position de la fenêtre principale sont mémorisées à la ferme
 
 ---
 
-## 17. Langues / Internationalisation
+## 18. Langues / Internationalisation
 
 GCM détecte automatiquement la langue via la variable `LANG` du système.
 
@@ -675,7 +752,7 @@ LANG=ja_JP.UTF-8 ./gnome_connection_manager.py
 
 ---
 
-## 18. Sauvegarde et restauration de la configuration
+## 19. Sauvegarde et restauration de la configuration
 
 ### Emplacement du fichier
 
@@ -711,7 +788,7 @@ cp /tmp/gcm-export.ini ~/.config/gnome-connection-manager/config.ini
 
 ---
 
-## 19. Raccourcis clavier
+## 20. Raccourcis clavier
 
 | Raccourci | Action |
 |-----------|--------|
@@ -728,7 +805,7 @@ cp /tmp/gcm-export.ini ~/.config/gnome-connection-manager/config.ini
 
 ---
 
-## 20. Dépannage
+## 21. Dépannage
 
 ### Le port série n'est pas accessible
 
@@ -830,7 +907,7 @@ sudo apt install python3-gi
 
 ---
 
-## 21. Outils CLI (`tools/`)
+## 22. Outils CLI (`tools/`)
 
 Le répertoire `tools/` contient des scripts autonomes pour la gestion des
 hyperviseurs libvirt en dehors de l'interface GCM.
@@ -933,4 +1010,4 @@ python3 tools/ssh_deploy.py \
 
 ---
 
-*Documentation GCM v1.3.2 — [github.com/MathildeDec/gnome-connection-manager](https://github.com/MathildeDec/gnome-connection-manager)*
+*Documentation GCM v1.3.3 — [github.com/MathildeDec/gnome-connection-manager](https://github.com/MathildeDec/gnome-connection-manager)*

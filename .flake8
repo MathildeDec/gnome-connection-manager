@@ -33,3 +33,5 @@ extend-ignore =
 per-file-ignores =
     # _ est installé globalement par gettext.install(), pas un vrai F821
     gnome_connection_manager.py: F821
+    # W605: séquences d'échappement invalides dans regex complexes pré-existantes
+    urlregex.py: W605

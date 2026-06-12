@@ -1,6 +1,6 @@
 # Conversation : Libvirt Inventory & SSH Deploy
 
-Date : 2026-06-08  
+Date : 2026-06-08
 Mise à jour : 2026-06-09
 
 ---

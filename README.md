@@ -1,11 +1,11 @@
-# Gnome Connection Manager (GCM) — v1.3.2
+# Gnome Connection Manager (GCM) — v1.3.3
 
 > **Le gestionnaire de connexions multi-protocoles le plus complet pour GNOME / GTK3.**
 
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://python.org)
 [![GTK 3](https://img.shields.io/badge/GTK-3.24-green.svg)](https://gtk.org)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
-[![Tests](https://img.shields.io/badge/tests-379%20passés-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-491%20passés-brightgreen.svg)](tests/)
 [![Ruff](https://img.shields.io/badge/ruff-pass-brightgreen.svg)](pyproject.toml)
 
 **Fork de [kuthulux/gnome-connection-manager](https://github.com/kuthulux/gnome-connection-manager)**
@@ -24,7 +24,7 @@ telnet et session locale. Plus besoin de jongler entre dix outils différents.
 | **SSH** | VTE intégré | Terminal complet avec agent, tunnels, cluster mode |
 | **RDP** | XEmbed + xfreerdp | Bureau Windows **directement dans l'onglet** GCM (XEmbed X11) ou fenêtre externe (Wayland) |
 | **VNC** | vncviewer / vinagre / remmina | Connexion VNC avec authentification |
-| **SPICE** | remote-viewer / virt-viewer | Console VM SPICE haute performance |
+| **SPICE** | remote-viewer / virt-viewer | Console VM SPICE haute performance (mode URI, tunnel libvirt, ticket Proxmox) |
 | **Série** | picocom / minicom / screen | Port série RS-232/RS-485 avec **11 templates constructeurs** |
 | **Telnet** | telnet / expect | Sessions Telnet classiques |
 | **Local** | shell | Terminal local |
@@ -64,14 +64,21 @@ telnet et session locale. Plus besoin de jongler entre dix outils différents.
   | Libre (manuel) | configurable | configurable |
 
 ### 📦 Import libvirt — dialogue en 2 phases
-- **Phase 1 — Scan** : saisie des URIs libvirt, user SSH, cases à cocher SSH/SPICE/RDP, log en temps réel, barre de progression
+- **Phase 1 — Scan** : saisie des URIs libvirt, user SSH, cases à cocher SSH/SPICE/RDP/VNC, log en temps réel, barre de progression
 - **Phase 2 — Prévisualisation** : tableau des connexions découvertes (scroll, > 250 lignes) avant import
   — colonnes : Proto | Nom VM | Groupe | IP/Hôte | État | Importé
   — lignes déjà importées grisées / cases décochées, nouvelles cochées par défaut
   — case «Écraser existants», boutons **Tout cocher / Tout décocher**
 - **SSH** : jamais direct — ProxyJump (`-J user@hv:port`) si IP connue, sinon shell HV + `-t ssh user@vm`
-- **SPICE** : `virt-viewer --connect qemu+ssh://user@hv/system vm` (tunnel SSH natif, pas d’URI `spice://`)
-- **RDP** : uniquement si port 3389 confirmé ouvert (sondé depuis l’HV via `nc`/`nmap`)
+- **SPICE** : `virt-viewer --connect qemu+ssh://user@hv/system vm` (tunnel SSH natif, pas d'URI `spice://`)
+- **RDP** : uniquement si port 3389 confirmé ouvert (sondé depuis l'HV via `nc`/`nmap`)
+- **VNC** : uniquement si port 5900 confirmé ouvert
+
+### 🖥️ Import Proxmox — nativement via `qm`
+- **Menu Fichier → Importer depuis Proxmox…** — idem libvirt mais inventaire via `qm list` / `qm config`
+- **SPICE** : détecte `vga: qxl` → génère un ticket SPICE Proxmox à la connexion via `pvesh` + SSH → fichier `.vv` temporaire → `remote-viewer`
+- **Résolution IP améliorée** : pipeline 4 niveaux — QGA → `ipconfig0` → ARP filtré par MAC → nmap ping scan
+- **VNC** : sonde le port 5900 depuis l'hyperviseur
 
 ### 🛠️ Outils en ligne de commande (`tools/`)
 
@@ -101,10 +108,15 @@ python3 tools/ssh_deploy.py --inventory inventory.json --vm-user ubuntu
 ### 🌐 16 langues supportées
 ar · cs · de · en · fr · it · ja · ko · nb · nl · pl · pt · ru · sv · tr · uk
 
+### 🎨 Thème GTK bureau
+- GCM lit automatiquement le thème GTK du bureau au démarrage (`gsettings org.gnome.desktop.interface gtk-theme`)
+- Fallback : `~/.config/gtk-3.0/settings.ini`
+- Mode sombre activé si `color-scheme = prefer-dark`
+
 ### 🧙 Qualité du code
-- **ruff** (linter + formateur, style Google docstring) + **black** + **flake8**
+- **ruff** (linter + formateur, style Google docstring) + **flake8**
 - **pre-commit** : hooks automatisés à chaque commit (`pre-commit install`)
-- 379 tests unitaires pytest (chiffrement, Host, HostUtils, Serial, RDP, VNC, SPICE, libvirt)
+- 491 tests unitaires pytest (chiffrement, Host, HostUtils, Serial, RDP, VNC, SPICE, libvirt, Proxmox, proto-icons, validation port)
 
 ---
 
@@ -180,9 +192,16 @@ pre-commit run --all-files  # vérification manuelle
 ### Importer des VMs libvirt
 1. Menu **Fichier → Importer depuis libvirt…**
 2. Les URIs virt-manager sont pré-remplies depuis dconf
-3. Cocher les protocoles à importer : SSH / SPICE / RDP
-4. Cliquer **🔍 Scanner les hyperviseurs** — le log s’affiche en temps réel
+3. Cocher les protocoles à importer : SSH / SPICE / RDP / VNC
+4. Cliquer **🔍 Scanner les hyperviseurs** — le log s'affiche en temps réel
 5. Phase 2 : vérifier le tableau, cocher/décocher les VMs, cliquer **⬇ Importer les sélectionnés**
+
+### Importer des VMs Proxmox
+1. Menu **Fichier → Importer depuis Proxmox…**
+2. Saisir l'URI de l'hyperviseur : `qemu+ssh://root@192.168.105.41/system`
+3. Cocher les protocoles : SSH / SPICE / RDP / VNC
+4. Pour SPICE : la VM doit avoir `vga: qxl` (GCM le détecte automatiquement)
+5. À la connexion SPICE, GCM génère un ticket via `pvesh` — aucune configuration manuelle nécessaire
 
 ---
 
@@ -216,6 +235,13 @@ make rpm    # rpm seulement
 
 ## Nouveautés
 
+### v1.3.3
+- **Résolution IP Proxmox améliorée** : pipeline 4 niveaux QGA → `ipconfig0` → ARP filtré par MAC → nmap ping scan (identique libvirt)
+- **Thème GTK bureau** : lecture `gsettings gtk-theme` + `color-scheme` (mode sombre) au démarrage
+- **491 tests unitaires** : +44 tests (SPICE Proxmox mock, icônes protocole, résolution IP, détection QXL, sous-groupes import, validation port, VNC)
+- Fix `UnboundLocalError` : variable `_stdin` pour unpacking `exec_command` (conflit avec `gettext._`)
+- Fix ARP Proxmox : filtrage par MAC VM (évitait de retourner l'IP d'une autre VM)
+
 ### v1.3.2
 - **Import libvirt refondu** : dialogue 2 phases (scan → tableau de prévisualisation)
   - SSH via ProxyJump (`-J`), SPICE via tunnel libvirt natif, RDP conditionnel (port 3389)
@@ -226,7 +252,7 @@ make rpm    # rpm seulement
   - Exports JSON / CSV / Ansible INI / Ansible YAML
   - Détection OS (XML, guest-agent, SSH), vCPUs, RAM, ports SPICE/VNC/RDP
   - `--ssh-password`, `--ssh-timeout`, `--detect-ports`, `--no-nmap`
-- **Qualité** : `pyproject.toml` + `.pre-commit-config.yaml` (ruff Google style + black + flake8)
+- **Qualité** : `pyproject.toml` + `.pre-commit-config.yaml` (ruff Google style + flake8)
 - **Corrections GTK3** : audit complet dépréciations v1.3.2 (`override_font→CssProvider`, `GtkPaned`, `get_color→get_rgba`, etc.)
 
 ### v1.3.1

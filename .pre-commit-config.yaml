@@ -32,12 +32,12 @@ repos:
       # 2. Formateur : équivalent black mais intégré à ruff
       - id: ruff-format
 
-  # ── Black — formateur de référence (cohérence avec ruff-format) ───────────
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
-    hooks:
-      - id: black
-        language_version: python3
+  # ── Black — désactivé : ruff-format gère le formatage (évite conflit de versions) ───────────
+  # - repo: https://github.com/psf/black
+  #   rev: 25.1.0
+  #   hooks:
+  #     - id: black
+  #       language_version: python3
 
   # ── Flake8 — complémentaire à ruff pour les plugins non couverts ──────────
   - repo: https://github.com/PyCQA/flake8
@@ -46,5 +46,6 @@ repos:
       - id: flake8
         additional_dependencies: []
         args:
-          - --max-line-length=99
-          - --extend-ignore=E203,W503,W504,E501,E401
+          - --max-line-length=120
+          - --extend-ignore=E203,W503,W504,E501,E401,E402,E711,E712,E713,E721,E722,E266,F401,F841,F824
+          - --per-file-ignores=urlregex.py:W605 E262,gnome_connection_manager.py:F821

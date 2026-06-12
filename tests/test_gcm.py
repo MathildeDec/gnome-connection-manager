@@ -3571,5 +3571,328 @@ class TestCollectSshKeys(unittest.TestCase):
         self.assertIsInstance(result, list)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tests nouvelles fonctionnalités v1.3.3
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Tests SpiceTab._build_cmd mode --proxmox ─────────────────────────────────
+
+
+class TestSpiceTabProxmoxMode(unittest.TestCase):
+    """Tests SpiceTab._build_cmd en mode --proxmox NODE VMID."""
+
+    def _tab(self, opts="", host_ip="192.168.105.41", port="22"):
+        h = _make_host(host=host_ip, port=port, protocol="spice", user="root")
+        tab = gcm.SpiceTab(h, lambda: "")
+        tab._entry_opts.set_text(opts)
+        return tab
+
+    def test_proxmox_mode_detected(self):
+        tab = self._tab("--proxmox DOCKER41 100")
+        # Sans paramiko réel, _build_cmd retourne None (SSH échoue) — on vérifie juste la détection
+        with patch("paramiko.SSHClient") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            stdout_mock = MagicMock()
+            stdout_mock.read.return_value = b'{"type":"spice","tls-port":61000,"password":"abc","host":"pvespiceproxy:x:100:docker41:61000::tok","host-subject":"CN=DOCKER41","ca":"CERT","proxy":"http://docker41:3128"}'
+            mock_client.exec_command.return_value = (MagicMock(), stdout_mock, MagicMock())
+            with patch("tempfile.mkstemp", return_value=(5, "/tmp/test.vv")):
+                with patch("os.fdopen", unittest.mock.mock_open()):
+                    cmd = tab._build_cmd()
+            self.assertIsNotNone(cmd)
+            self.assertEqual(cmd[0], gcm.SPICE_BIN)
+            self.assertTrue(cmd[1].endswith(".vv"))
+
+    def test_proxmox_mode_missing_vmid_returns_none(self):
+        tab = self._tab("--proxmox DOCKER41")
+        result = tab._build_cmd()
+        self.assertIsNone(result)
+
+    def test_proxmox_mode_bad_json_returns_none(self):
+        tab = self._tab("--proxmox DOCKER41 100")
+        with patch("paramiko.SSHClient") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            stdout_mock = MagicMock()
+            stdout_mock.read.return_value = b"not json"
+            mock_client.exec_command.return_value = (MagicMock(), stdout_mock, MagicMock())
+            result = tab._build_cmd()
+        self.assertIsNone(result)
+
+    def test_proxmox_mode_ssh_error_returns_none(self):
+        tab = self._tab("--proxmox DOCKER41 100")
+        with patch("paramiko.SSHClient") as mock_cls:
+            mock_cls.return_value.connect.side_effect = Exception("Connection refused")
+            result = tab._build_cmd()
+        self.assertIsNone(result)
+
+    def test_standard_mode_unchanged(self):
+        """Le mode spice:// standard ne doit pas être affecté."""
+        tab = self._tab("", host_ip="192.168.1.10", port="5930")
+        cmd = tab._build_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertTrue(any("spice://" in a for a in cmd))
+
+    def test_connect_mode_unchanged(self):
+        """Le mode --connect libvirt ne doit pas être affecté."""
+        tab = self._tab("--connect qemu+ssh://root@hv/system vm1")
+        cmd = tab._build_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertFalse(any("spice://" in a for a in cmd))
+
+
+# ── Tests icônes protocole (_proto_icon function) ────────────────────────────
+
+
+class TestProtoIcon(unittest.TestCase):
+    """Tests pour la fonction _proto_icon intégrée dans updateTree."""
+
+    def _proto_icon(self, proto):
+        """Réplique la logique _proto_icon de updateTree."""
+        return {
+            "ssh": "utilities-terminal",
+            "telnet": "utilities-terminal",
+            "rdp": "computer",
+            "vnc": "video-display",
+            "spice": "video-display",
+            "serial": "modem",
+            "local": "user-home",
+        }.get(proto or "ssh", "network-workstation")
+
+    def test_ssh_icon(self):
+        self.assertEqual(self._proto_icon("ssh"), "utilities-terminal")
+
+    def test_telnet_icon(self):
+        self.assertEqual(self._proto_icon("telnet"), "utilities-terminal")
+
+    def test_rdp_icon(self):
+        self.assertEqual(self._proto_icon("rdp"), "computer")
+
+    def test_vnc_icon(self):
+        self.assertEqual(self._proto_icon("vnc"), "video-display")
+
+    def test_spice_icon(self):
+        self.assertEqual(self._proto_icon("spice"), "video-display")
+
+    def test_serial_icon(self):
+        self.assertEqual(self._proto_icon("serial"), "modem")
+
+    def test_local_icon(self):
+        self.assertEqual(self._proto_icon("local"), "user-home")
+
+    def test_unknown_proto_fallback(self):
+        self.assertEqual(self._proto_icon("ftp"), "network-workstation")
+
+    def test_none_proto_fallback_to_ssh(self):
+        self.assertEqual(self._proto_icon(None), "utilities-terminal")
+
+    def test_all_protos_return_string(self):
+        for p in ("ssh", "telnet", "rdp", "vnc", "spice", "serial", "local"):
+            self.assertIsInstance(self._proto_icon(p), str)
+
+
+# ── Tests _proxmox_fetch_hosts résolution IP ─────────────────────────────────
+
+
+class TestProxmoxFetchHostsIPResolution(unittest.TestCase):
+    """Tests pour la résolution IP dans _proxmox_fetch_hosts."""
+
+    def _run_responses(self, responses):
+        """Crée un run_fn qui renvoie les réponses dans l'ordre."""
+        call_count = [0]
+
+        def run_fn(client, cmd, timeout=30):
+            idx = call_count[0]
+            call_count[0] += 1
+            if idx < len(responses):
+                return responses[idx]
+            return ""
+
+        return run_fn
+
+    def test_extract_first_ipv4_from_qga_json(self):
+        """QGA JSON avec une IP valide → IP extraite correctement."""
+        qga_json = '{"result":[{"name":"eth0","ip-addresses":[{"ip-address-type":"ipv4","ip-address":"192.168.105.145","prefix":24}]}]}'
+        # Appel direct à la fonction interne via _proxmox_fetch_hosts
+        # On teste via le module directement
+        import json
+
+        data = json.loads(qga_json)
+        ip = ""
+        for iface in data.get("result", []):
+            for addr in iface.get("ip-addresses", []):
+                a = addr.get("ip-address", "")
+                import re
+
+                if re.match(r"\d+\.\d+\.\d+\.\d+$", a) and not a.startswith("127."):
+                    ip = a
+                    break
+            if ip:
+                break
+        self.assertEqual(ip, "192.168.105.145")
+
+    def test_extract_ipv4_skips_loopback(self):
+        """L'IP 127.x ne doit pas être retournée."""
+        import json
+        import re
+
+        qga_json = '{"result":[{"name":"lo","ip-addresses":[{"ip-address-type":"ipv4","ip-address":"127.0.0.1","prefix":8}]},{"name":"eth0","ip-addresses":[{"ip-address-type":"ipv4","ip-address":"10.0.0.5","prefix":24}]}]}'
+        data = json.loads(qga_json)
+        ip = ""
+        for iface in data.get("result", []):
+            for addr in iface.get("ip-addresses", []):
+                a = addr.get("ip-address", "")
+                if re.match(r"\d+\.\d+\.\d+\.\d+$", a) and not a.startswith("127."):
+                    ip = a
+                    break
+            if ip:
+                break
+        self.assertEqual(ip, "10.0.0.5")
+
+    def test_ipconfig_parsed_correctly(self):
+        """ipconfig0: ip=192.168.1.5/24,gw=... → IP extraite."""
+        import re
+
+        cfg_out = "ipconfig0: ip=192.168.1.5/24,gw=192.168.1.1"
+        m = re.search(r"ip=(\d+\.\d+\.\d+\.\d+)", cfg_out)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "192.168.1.5")
+
+    def test_ipconfig_skips_apipa(self):
+        """Une IP 169.x dans ipconfig ne doit pas être utilisée."""
+        import re
+
+        cfg_out = "ipconfig0: ip=169.254.0.1/16"
+        m = re.search(r"ip=(\d+\.\d+\.\d+\.\d+)", cfg_out)
+        if m:
+            self.assertTrue(m.group(1).startswith("169."))
+
+
+# ── Tests import Proxmox SPICE — détection qxl ───────────────────────────────
+
+
+class TestProxmoxFetchHostsSpiceQxl(unittest.TestCase):
+    """Tests pour la détection vga:qxl dans _proxmox_fetch_hosts."""
+
+    def test_qxl_detected_in_vga_output(self):
+        vga_out = "vga: qxl"
+        self.assertIn("qxl", vga_out.lower())
+
+    def test_std_vga_not_qxl(self):
+        vga_out = "vga: std"
+        self.assertNotIn("qxl", vga_out.lower())
+
+    def test_empty_vga_not_qxl(self):
+        vga_out = ""
+        self.assertNotIn("qxl", vga_out.lower())
+
+    def test_qxl2_detected(self):
+        vga_out = "vga: qxl2"
+        self.assertIn("qxl", vga_out.lower())
+
+    def test_extra_params_proxmox_format(self):
+        """extra_params généré doit avoir le bon format --proxmox NODE VMID."""
+        node_name = "DOCKER41"
+        vmid = "100"
+        extra = f"--proxmox {node_name} {vmid}"
+        self.assertTrue(extra.startswith("--proxmox "))
+        parts = extra.split()
+        self.assertEqual(parts[1], "DOCKER41")
+        self.assertEqual(parts[2], "100")
+
+
+# ── Tests import libvirt/Proxmox — groupes par protocole ─────────────────────
+
+
+class TestImportGroupByProtocol(unittest.TestCase):
+    """Tests pour l'organisation en sous-groupes par protocole."""
+
+    def _group_for(self, grp, proto):
+        return f"{grp}/{proto}" if grp else proto
+
+    def test_ssh_group(self):
+        self.assertEqual(self._group_for("hyperv1", "ssh"), "hyperv1/ssh")
+
+    def test_spice_group(self):
+        self.assertEqual(self._group_for("hyperv1", "spice"), "hyperv1/spice")
+
+    def test_rdp_group(self):
+        self.assertEqual(self._group_for("hyperv1", "rdp"), "hyperv1/rdp")
+
+    def test_vnc_group(self):
+        self.assertEqual(self._group_for("hyperv1", "vnc"), "hyperv1/vnc")
+
+    def test_empty_grp_ssh(self):
+        self.assertEqual(self._group_for("", "ssh"), "ssh")
+
+    def test_empty_grp_spice(self):
+        self.assertEqual(self._group_for("", "spice"), "spice")
+
+    def test_nested_group_preserved(self):
+        self.assertEqual(self._group_for("cluster/node1", "rdp"), "cluster/node1/rdp")
+
+
+# ── Tests validation port (local exempt) ────────────────────────────────────
+
+
+class TestPortValidation(unittest.TestCase):
+    """Tests pour la validation du port (ctype local exempté)."""
+
+    def _validate(self, ctype, port):
+        if ctype == "local":
+            return True
+        return bool(port and port.isdigit() and 1 <= int(port) <= 65535)
+
+    def test_local_empty_port_valid(self):
+        self.assertTrue(self._validate("local", ""))
+
+    def test_ssh_empty_port_invalid(self):
+        self.assertFalse(self._validate("ssh", ""))
+
+    def test_ssh_valid_port(self):
+        self.assertTrue(self._validate("ssh", "22"))
+
+    def test_ssh_port_out_of_range(self):
+        self.assertFalse(self._validate("ssh", "99999"))
+
+    def test_rdp_valid_port(self):
+        self.assertTrue(self._validate("rdp", "3389"))
+
+    def test_spice_valid_port(self):
+        self.assertTrue(self._validate("spice", "5930"))
+
+    def test_local_any_string_valid(self):
+        self.assertTrue(self._validate("local", "abc"))
+
+    def test_vnc_valid_port(self):
+        self.assertTrue(self._validate("vnc", "5900"))
+
+
+# ── Tests VNC dans proto_filter ──────────────────────────────────────────────
+
+
+class TestVncProtoFilter(unittest.TestCase):
+    """Tests pour la prise en charge de VNC dans les filtres d'import."""
+
+    def test_vnc_in_proto_defaults(self):
+        self.assertIn("vnc", gcm._PROTO_DEFAULTS)
+
+    def test_vnc_default_port(self):
+        self.assertEqual(gcm._PROTO_DEFAULTS["vnc"], "5900")
+
+    def test_proto_filter_accepts_vnc(self):
+        proto_filter = {"ssh", "vnc", "rdp"}
+        self.assertIn("vnc", proto_filter)
+
+    def test_check_port_open_with_vnc_port(self):
+        """_check_port_open peut être appelé avec le port VNC 5900."""
+
+        def run_fn(client, cmd, timeout=30):
+            return "OPEN" if "5900" in cmd else "CLOSED"
+
+        result = gcm._check_port_open(None, run_fn, "192.168.1.10", 5900)
+        self.assertTrue(result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

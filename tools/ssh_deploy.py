@@ -37,6 +37,8 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class VMTarget:
+    """Cible VM pour déploiement de clé SSH."""
+
     name: str
     ip: str
     user: str = "root"
@@ -47,6 +49,8 @@ class VMTarget:
 
 @dataclass
 class Hypervisor:
+    """Hyperviseur et résultats de déploiement de ses VMs."""
+
     uri: str
     host: str
     user: str
@@ -56,6 +60,11 @@ class Hypervisor:
 
 
 def get_libvirt_uris():
+    """Lit les URIs libvirt depuis dconf.
+
+    Returns:
+        list[str]: URIs trouvées, ou liste vide.
+    """
     try:
         result = subprocess.run(
             ["dconf", "read", "/org/virt-manager/virt-manager/connections/uris"],
@@ -73,6 +82,14 @@ def get_libvirt_uris():
 
 
 def parse_libvirt_uri(uri):
+    """Convertit une URI libvirt en objet Hypervisor.
+
+    Args:
+        uri (str): URI libvirt source.
+
+    Returns:
+        Hypervisor: Hyperviseur parsé.
+    """
     parsed = urlparse(uri)
     scheme = parsed.scheme
     transport = scheme.split("+")[1] if "+" in scheme else ("tcp" if parsed.hostname else "local")
@@ -86,6 +103,18 @@ def parse_libvirt_uri(uri):
 
 
 def ssh_connect(host, user, port=22, password=None, timeout=10):
+    """Établit une connexion SSH vers un hôte.
+
+    Args:
+        host (str): Adresse de l'hôte.
+        user (str): Utilisateur SSH.
+        port (int, optional): Port SSH. Defaults to 22.
+        password (str | None, optional): Mot de passe SSH. Defaults to None.
+        timeout (int, optional): Timeout de connexion en secondes. Defaults to 10.
+
+    Returns:
+        paramiko.SSHClient | None: Client connecté ou None.
+    """
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     kwargs = dict(hostname=host, port=port, timeout=timeout, look_for_keys=True, allow_agent=True)
@@ -102,6 +131,16 @@ def ssh_connect(host, user, port=22, password=None, timeout=10):
 
 
 def ssh_run(client, cmd, timeout=30):
+    """Exécute une commande SSH et retourne code, stdout, stderr.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH connecté.
+        cmd (str): Commande shell.
+        timeout (int, optional): Timeout d'exécution. Defaults to 30.
+
+    Returns:
+        tuple[int, str, str]: Code de retour, stdout, stderr.
+    """
     _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
     rc = stdout.channel.recv_exit_status()
     return (
@@ -126,6 +165,15 @@ KEY_TYPES = [
 
 
 def ensure_ssh_keys(client, hv_host):
+    """Vérifie/crée les clés SSH de l'hyperviseur et retourne les clés publiques.
+
+    Args:
+        client (paramiko.SSHClient): Client SSH hyperviseur.
+        hv_host (str): Nom/IP de l'hyperviseur (log).
+
+    Returns:
+        list[str]: Contenus des clés publiques disponibles.
+    """
     ssh_run(client, "mkdir -p /root/.ssh && chmod 700 /root/.ssh")
     pubkeys = []
     for ktype, privpath, keygen_cmd in KEY_TYPES:
@@ -146,6 +194,14 @@ def ensure_ssh_keys(client, hv_host):
 
 
 def load_inventory(path="inventory.json"):
+    """Charge l'inventaire JSON généré en amont.
+
+    Args:
+        path (str, optional): Chemin de l'inventaire JSON. Defaults to "inventory.json".
+
+    Returns:
+        list[dict]: Contenu d'inventaire.
+    """
     try:
         with open(path) as f:
             return json.load(f)
@@ -155,6 +211,16 @@ def load_inventory(path="inventory.json"):
 
 
 def get_vm_targets(inventory, hv_host, default_user="root"):
+    """Extrait les VMs running avec IP pour un hyperviseur donné.
+
+    Args:
+        inventory (list[dict]): Inventaire complet.
+        hv_host (str): Hôte hyperviseur à filtrer.
+        default_user (str, optional): Utilisateur SSH VM. Defaults to "root".
+
+    Returns:
+        list[VMTarget]: Cibles VM prêtes au déploiement.
+    """
     targets = []
     for hv in inventory:
         if hv["host"] != hv_host:
@@ -178,6 +244,15 @@ def _subnet_key(ip, user):
 
 
 def get_password(ip, user):
+    """Récupère/cache le mot de passe SSH pour une cible.
+
+    Args:
+        ip (str): IP de la VM cible.
+        user (str): Utilisateur SSH.
+
+    Returns:
+        str | None: Mot de passe saisi ou None si ignoré.
+    """
     exact = (user, ip)
     if exact in _password_cache:
         return _password_cache[exact]
@@ -196,6 +271,15 @@ def get_password(ip, user):
 
 
 def test_ssh_key_from_hypervisor(hv_client, vm):
+    """Teste une connexion SSH par clé de l'hyperviseur vers la VM.
+
+    Args:
+        hv_client (paramiko.SSHClient): Client SSH hyperviseur.
+        vm (VMTarget): VM cible.
+
+    Returns:
+        bool: True si la connexion par clé fonctionne.
+    """
     cmd = f"ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 {vm.user}@{vm.ip} echo OK 2>/dev/null"
     rc, out, _ = ssh_run(hv_client, cmd, timeout=15)
     return rc == 0 and "OK" in out
@@ -206,6 +290,16 @@ def _shell_quote(s):
 
 
 def copy_id_from_hypervisor(hv_client, vm, password):
+    """Déploie la clé publique hyperviseur vers une VM via ssh-copy-id.
+
+    Args:
+        hv_client (paramiko.SSHClient): Client SSH hyperviseur.
+        vm (VMTarget): VM cible.
+        password (str): Mot de passe SSH de la VM.
+
+    Returns:
+        bool: True si déploiement réussi ou clé déjà présente.
+    """
     rc_sp, sshpass_path, _ = ssh_run(hv_client, "which sshpass 2>/dev/null")
     if rc_sp == 0 and sshpass_path.strip():
         cmd = f"sshpass -p {_shell_quote(password)} ssh-copy-id -o StrictHostKeyChecking=no -o ConnectTimeout=5 {vm.user}@{vm.ip} 2>&1"
@@ -221,6 +315,17 @@ def copy_id_from_hypervisor(hv_client, vm, password):
 
 
 def process_hypervisor(hv, inventory, default_vm_user="root"):
+    """Exécute le workflow complet de déploiement de clés pour un hyperviseur.
+
+    Args:
+        hv (Hypervisor): Hyperviseur cible.
+        inventory (list[dict]): Inventaire JSON des VMs.
+        default_vm_user (str, optional): Utilisateur SSH par défaut pour les VMs.
+            Defaults to "root".
+
+    Returns:
+        None: Met à jour `hv.vm_targets` en place.
+    """
     print(f"\n{'═' * 60}\n  Hyperviseur : {hv.host}\n{'═' * 60}")
     hv_client = ssh_connect(hv.host, hv.user, hv.port)
     if not hv_client:
@@ -274,6 +379,15 @@ def process_hypervisor(hv, inventory, default_vm_user="root"):
 
 
 def export_report(hypervisors, path="ssh_deploy_report.json"):
+    """Exporte un rapport JSON de déploiement SSH.
+
+    Args:
+        hypervisors (list[Hypervisor]): Hyperviseurs traités.
+        path (str, optional): Fichier de sortie. Defaults to "ssh_deploy_report.json".
+
+    Returns:
+        None: Écrit le rapport sur disque.
+    """
     data = [
         {
             "host": hv.host,
@@ -298,6 +412,11 @@ def export_report(hypervisors, path="ssh_deploy_report.json"):
 
 
 def main():
+    """Point d'entrée CLI du déploiement SSH inter-VM.
+
+    Returns:
+        None: Exécute le flux complet de traitement.
+    """
     import argparse
 
     p = argparse.ArgumentParser()
