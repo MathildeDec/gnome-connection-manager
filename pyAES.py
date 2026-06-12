@@ -450,5 +450,11 @@ def decrypt(text, password):
     fp.close()
     s = outfile.getvalue()
     outfile.close()
-    return bytes(s, 'iso-8859-1').decode('utf-8') #python2 default is iso-8859-1, so treat it as iso-8859-1 and convert it to utf8
+    # Python 2 used iso-8859-1 internally; try UTF-8 first, fall back to
+    # iso-8859-1 (latin-1) which accepts all 256 byte values without error.
+    raw = bytes(s, "iso-8859-1")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("iso-8859-1")
 
