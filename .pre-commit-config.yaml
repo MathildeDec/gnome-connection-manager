@@ -49,3 +49,23 @@ repos:
           - --max-line-length=120
           - --extend-ignore=E203,W503,W504,E501,E401,E402,E711,E712,E713,E721,E722,E266,F401,F841,F824
           - --per-file-ignores=urlregex.py:W605 E262,gnome_connection_manager.py:F821
+
+  # ── Validation .po / .mo (gettext) ────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: validate-po
+        name: validate .po files (msgfmt --check)
+        language: python
+        entry: python3 tools/validate_po.py
+        files: \.po$
+        pass_filenames: true
+
+  # ── Validation XML / Glade / JSON ─────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: validate-xml-glade-json
+        name: validate XML / Glade / JSON syntax
+        language: python
+        entry: python3 tools/validate_xml_json.py
+        files: \.(glade|xml|json)$
+        pass_filenames: true
