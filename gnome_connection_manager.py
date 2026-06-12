@@ -5142,6 +5142,20 @@ class Wmain(GCMBase):
         menuItem.connect("activate", self.on_btnAdd_clicked)
         menuItem.show()
 
+        self.popupMenuFolder.mnuNewGroup = menuItem = Gtk.MenuItem(label=_("New Group…"))
+        self.popupMenuFolder.append(menuItem)
+        menuItem.connect("activate", self._on_new_group_clicked)
+        menuItem.show()
+
+        self.popupMenuFolder.mnuRenameGroup = menuItem = Gtk.MenuItem(label=_("Rename Group…"))
+        self.popupMenuFolder.append(menuItem)
+        menuItem.connect("activate", self._on_rename_group_clicked)
+        menuItem.show()
+
+        menuItem = Gtk.SeparatorMenuItem()
+        self.popupMenuFolder.append(menuItem)
+        menuItem.show()
+
         self.popupMenuFolder.mnuEdit = menuItem = Gtk.MenuItem(label=_("Edit"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_bntEdit_clicked)
@@ -5341,152 +5355,95 @@ class Wmain(GCMBase):
         return sw
 
     def on_mnu_import_libvirt_activate(self, widget):
-        """Ouvre le dialogue d'import de VMs depuis libvirt.
-
-        Args:
-            widget (Gtk.MenuItem): Element de menu declencheur.
-        """
+        """Ouvre le dialogue d'import de VMs depuis libvirt."""
         default_user = conf.__dict__.get("LIBVIRT_DEFAULT_USER", LIBVIRT_DEFAULT_USER)
 
         def on_done(host_dicts):
             if not host_dicts:
                 msgbox(_("No host imported."))
                 return
-            added_by_group = {}
-            for d in host_dicts:
-                gname = d["group"]
-                if gname not in groups:
-                    groups[gname] = []
-                group_iter = None
-                for i in range(self.treeModel.iter_n_children(None)):
-                    it = self.treeModel.iter_nth_child(None, i)
-                    if self.treeModel.get_value(it, 0) == gname:
-                        group_iter = it
-                        break
-                if group_iter is None:
-                    group_iter = self.treeModel.append(
-                        None, [gname, None, self.get_widget("imgDir"), "#fff"]
-                    )
-                if d["name"] in [h.name for h in groups[gname]]:
-                    continue
-                h = Host()
-                h.name = d["name"]
-                h.host = d["host"]
-                h.user = d["user"]
-                h.port = d["port"]
-                h.password = ""
-                h.description = d["description"]
-                h.log = False
-                h.tunnel = ""
-                h.options = ""
-                h.X11 = False
-                h.agent = True
-                h.compression = False
-                h.compressionLevel = 6
-                h.term = ""
-                h.keepAlive = 0
-                h.tabColor = ""
-                h.fontColor = ""
-                h.backColor = ""
-                h.font = ""
-                h.lineColor = ""
-                h.protocol = d.get("protocol", "ssh")
-                h.port = str(d.get("port", 22))
-                groups[gname].append(h)
-                proto = d.get("protocol", "ssh") or "ssh"
-                proto_icon = {
-                    "ssh": "utilities-terminal",
-                    "telnet": "utilities-terminal",
-                    "rdp": "computer",
-                    "vnc": "video-display",
-                    "spice": "video-display",
-                    "serial": "modem",
-                    "local": "user-home",
-                }.get(proto, "network-workstation")
-                self.treeModel.append(group_iter, [h.name, h, "gtk-network", "#fff", proto_icon])
-                added_by_group[gname] = added_by_group.get(gname, 0) + 1
-            self.writeConfig()
-            if added_by_group:
-                summary = ", ".join(f"{n} dans {g}" for g, n in sorted(added_by_group.items()))
-                msgbox(_(f"Import terminé : {summary}."))
+            n = self._import_done(host_dicts, default_group="LIBVIRT")
+            if n:
+                msgbox(_(f"{n} connection(s) imported from libvirt."))
             else:
-                msgbox(_("No new host (duplicates ignored)."))
+                msgbox(_("No new host (duplicates ignored."))
 
         LibvirtImportDialog(self.window, on_done, default_user)
 
     def on_mnu_import_proxmox_activate(self, widget):
-        """Ouvre le dialogue d'import de VMs depuis Proxmox.
-
-        Args:
-            widget (Gtk.MenuItem): Element de menu declencheur.
-        """
+        """Ouvre le dialogue d'import de VMs depuis Proxmox."""
         default_user = conf.__dict__.get("LIBVIRT_DEFAULT_USER", LIBVIRT_DEFAULT_USER)
 
         def on_done(host_dicts):
             if not host_dicts:
                 msgbox(_("No host imported."))
                 return
-            added_by_group = {}
-            for d in host_dicts:
-                gname = d["group"]
-                if gname not in groups:
-                    groups[gname] = []
-                group_iter = None
-                for i in range(self.treeModel.iter_n_children(None)):
-                    it = self.treeModel.iter_nth_child(None, i)
-                    if self.treeModel.get_value(it, 0) == gname:
-                        group_iter = it
-                        break
-                if group_iter is None:
-                    group_iter = self.treeModel.append(
-                        None, [gname, None, self.get_widget("imgDir"), "#fff"]
-                    )
-                if d["name"] in [h.name for h in groups[gname]]:
-                    continue
-                h = Host()
-                h.name = d["name"]
-                h.host = d["host"]
-                h.user = d["user"]
-                h.port = d["port"]
-                h.password = ""
-                h.description = d["description"]
-                h.log = False
-                h.tunnel = ""
-                h.options = ""
-                h.X11 = False
-                h.agent = True
-                h.compression = False
-                h.compressionLevel = 6
-                h.term = ""
-                h.keepAlive = 0
-                h.tabColor = ""
-                h.fontColor = ""
-                h.backColor = ""
-                h.font = ""
-                h.lineColor = ""
-                h.protocol = d.get("protocol", "ssh")
-                h.port = str(d.get("port", 22))
-                groups[gname].append(h)
-                proto = d.get("protocol", "ssh") or "ssh"
-                proto_icon = {
-                    "ssh": "utilities-terminal",
-                    "telnet": "utilities-terminal",
-                    "rdp": "computer",
-                    "vnc": "video-display",
-                    "spice": "video-display",
-                    "serial": "modem",
-                    "local": "user-home",
-                }.get(proto, "network-workstation")
-                self.treeModel.append(group_iter, [h.name, h, "gtk-network", "#fff", proto_icon])
-                added_by_group[gname] = added_by_group.get(gname, 0) + 1
-            self.writeConfig()
-            if added_by_group:
-                summary = ", ".join(f"{n} dans {g}" for g, n in sorted(added_by_group.items()))
-                msgbox(_(f"Import Proxmox terminé : {summary}."))
+            n = self._import_done(host_dicts, default_group="PROXMOX")
+            if n:
+                msgbox(_(f"{n} connection(s) imported from Proxmox."))
             else:
                 msgbox(_("No new host (duplicates ignored)."))
 
         ProxmoxImportDialog(self.window, on_done, default_user)
+
+    def _import_done(self, host_dicts, default_group="IMPORT"):
+        """Ajoute des hôtes importés dans le groupe fixe (pas de sous-groupe via nom VM).
+
+        Args:
+            host_dicts (list[dict]): Connexions importées.
+            default_group (str): Nom de groupe cible (LIBVIRT, PROXMOX…).
+
+        Returns:
+            int: Nombre d'hôtes ajoutés.
+        """
+        added = 0
+        _proto_icon = {
+            "ssh": "utilities-terminal", "telnet": "utilities-terminal",
+            "rdp": "computer", "vnc": "video-display", "spice": "video-display",
+            "serial": "modem", "local": "user-home",
+        }
+        for d in host_dicts:
+            # Ignorer la ventilation par nom — tout va dans default_group
+            gname = default_group
+            if gname not in groups:
+                groups[gname] = []
+            if d["name"] in [h.name for h in groups[gname]]:
+                continue
+            h = Host()
+            h.group = gname
+            h.name = d["name"]
+            h.host = d.get("host", "")
+            h.user = d.get("user", "root")
+            h.password = ""
+            h.private_key = ""
+            h.description = d.get("description", "")
+            h.log = False
+            h.tunnel = ""
+            h.type = d.get("type", d.get("protocol", "ssh"))
+            h.commands = ""
+            h.keep_alive = 0
+            h.font_color = ""
+            h.back_color = ""
+            h.x11 = False
+            h.agent = True
+            h.compression = False
+            h.compressionLevel = ""
+            h.extra_params = d.get("extra_params", "")
+            h.log = False
+            h.backspace_key = 0
+            h.delete_key = 0
+            h.term = ""
+            h.protocol = d.get("protocol", "ssh")
+            h.port = str(d.get("port", 22))
+            h.serial_databits = "8"
+            h.serial_parity = "n"
+            h.serial_stopbits = "1"
+            h.serial_flow = "n"
+            groups[gname].append(h)
+            added += 1
+        self.updateTree()
+        self.writeConfig()
+        return added
 
     # ── CSV / JSON import/export ──────────────────────────────────────────────
 
@@ -6603,7 +6560,50 @@ class Wmain(GCMBase):
             self.writeConfig()
             return
 
-        # ── Dossier / groupe → réordonnancement non supporté (complexe) ──────
+        # ── Dossier / groupe → autre dossier (devient enfant) ────────────────
+        if src_host is None:
+            src_full = _full_group(src_it)
+
+            # Cible : le dossier sur lequel on dépose
+            if dest_host is None:
+                dest_full = _full_group(dest_it)
+            else:
+                # Drop sur un hôte → prendre le parent du dossier dest
+                if dest_parent is not None:
+                    dest_full = _full_group(dest_parent)
+                else:
+                    Gdk.drag_status(context, 0, time)
+                    return
+
+            # Pas de déplacement sur soi-même ou sur un descendant
+            if dest_full == src_full or dest_full.startswith(src_full + "/"):
+                Gdk.drag_status(context, 0, time)
+                return
+
+            src_leaf = src_full.split("/")[-1]
+            new_full = f"{dest_full}/{src_leaf}"
+
+            # Collision de noms ?
+            if new_full in groups or any(k.startswith(new_full + "/") for k in groups):
+                msgbox(_(f"A group named '{src_leaf}' already exists in '{dest_full}'."))
+                Gdk.drag_status(context, 0, time)
+                return
+
+            # Renommer toutes les clés src_full et src_full/...
+            to_move = {k: v for k, v in list(groups.items())
+                       if k == src_full or k.startswith(src_full + "/")}
+            for old_key, hosts in to_move.items():
+                new_key = new_full + old_key[len(src_full):]
+                del groups[old_key]
+                groups[new_key] = hosts
+                for h in hosts:
+                    h.group = new_key
+
+            context.finish(True, True, time)
+            self.updateTree()
+            self.writeConfig()
+            return
+
         Gdk.drag_status(context, 0, time)
 
 
@@ -7552,6 +7552,95 @@ class Wmain(GCMBase):
 
     # -- Wmain.on_btnDel_clicked }
 
+    # ── Gestion des groupes ───────────────────────────────────────────────────
+
+    def _selected_folder_path(self):
+        """Retourne le chemin complet du dossier sélectionné (ou None si hôte/rien)."""
+        sel = self.treeServers.get_selection().get_selected()[1]
+        if sel is None:
+            return None
+        if not self.treeModel.iter_has_child(sel):
+            # hôte sélectionné → on prend son groupe parent
+            sel = self.treeModel.iter_parent(sel)
+            if sel is None:
+                return None
+        return self._iter_full_path(sel)
+
+    def _iter_full_path(self, it):
+        """Construit le chemin complet d'un iter (ex: LINUX/debian)."""
+        parts = []
+        cur = it
+        while cur:
+            parts.insert(0, self.treeModel.get_value(cur, 0))
+            cur = self.treeModel.iter_parent(cur)
+        return "/".join(parts)
+
+    def _on_new_group_clicked(self, widget, *args):
+        """Crée un nouveau groupe, enfant du groupe sélectionné si applicable."""
+        name = inputbox(_("New Group"), _("Group name:"))
+        if not name:
+            return
+        name = name.strip().strip("/")
+        if not name:
+            return
+
+        # Déterminer le parent
+        sel = self.treeServers.get_selection().get_selected()[1]
+        parent_path = None
+        if sel is not None:
+            if self.treeModel.iter_has_child(sel):
+                parent_path = self._iter_full_path(sel)
+            else:
+                parent_it = self.treeModel.iter_parent(sel)
+                if parent_it is not None:
+                    parent_path = self._iter_full_path(parent_it)
+
+        full_name = f"{parent_path}/{name}" if parent_path else name
+
+        if full_name in groups:
+            msgbox(_(f"Group '{full_name}' already exists."))
+            return
+
+        groups[full_name] = []
+        self.updateTree()
+        self.writeConfig()
+
+    def _on_rename_group_clicked(self, widget, *args):
+        """Renomme le groupe sélectionné (et tous ses sous-groupes et hôtes enfants)."""
+        sel = self.treeServers.get_selection().get_selected()[1]
+        if sel is None or not self.treeModel.iter_has_child(sel):
+            return
+
+        old_full = self._iter_full_path(sel)
+        # Juste le dernier composant comme valeur initiale
+        old_leaf = self.treeModel.get_value(sel, 0)
+        new_leaf = inputbox(_("Rename Group"), _("New name:"), old_leaf)
+        if not new_leaf or new_leaf.strip() == old_leaf:
+            return
+        new_leaf = new_leaf.strip().strip("/")
+
+        # Calculer le nouveau chemin complet
+        parent_it = self.treeModel.iter_parent(sel)
+        parent_path = self._iter_full_path(parent_it) if parent_it else None
+        new_full = f"{parent_path}/{new_leaf}" if parent_path else new_leaf
+
+        if new_full in groups and new_full != old_full:
+            msgbox(_(f"Group '{new_full}' already exists."))
+            return
+
+        # Renommer dans groups : clé principale + tous les sous-groupes
+        to_rename = {k: v for k, v in groups.items()
+                     if k == old_full or k.startswith(old_full + "/")}
+        for old_key, hosts in to_rename.items():
+            new_key = new_full + old_key[len(old_full):]
+            del groups[old_key]
+            groups[new_key] = hosts
+            for h in hosts:
+                h.group = new_key
+
+        self.updateTree()
+        self.writeConfig()
+
     # -- Wmain.on_btnHSplit_clicked {
     def on_btnHSplit_clicked(self, widget, *args):
         """Gestionnaire du bouton Division horizontale.
@@ -7774,23 +7863,31 @@ class Wmain(GCMBase):
             y = int(event.y)
             pthinfo = self.treeServers.get_path_at_pos(x, y)
             if pthinfo is None:
+                # Clic dans le vide — seules les actions globales restent
                 self.popupMenuFolder.mnuDel.hide()
                 self.popupMenuFolder.mnuEdit.hide()
                 self.popupMenuFolder.mnuCopyAddress.hide()
                 self.popupMenuFolder.mnuDup.hide()
+                self.popupMenuFolder.mnuRenameGroup.hide()
             else:
                 path, col, cellx, celly = pthinfo
-                if self.treeModel.iter_children(self.treeModel.get_iter(path)):
+                self.treeServers.grab_focus()
+                self.treeServers.set_cursor(path, col, 0)
+                it = self.treeModel.get_iter(path)
+                is_folder = self.treeModel.iter_has_child(it)
+                if is_folder:
+                    # Nœud dossier/groupe
                     self.popupMenuFolder.mnuEdit.hide()
                     self.popupMenuFolder.mnuCopyAddress.hide()
                     self.popupMenuFolder.mnuDup.hide()
+                    self.popupMenuFolder.mnuRenameGroup.show()
                 else:
+                    # Nœud hôte
                     self.popupMenuFolder.mnuEdit.show()
                     self.popupMenuFolder.mnuCopyAddress.show()
                     self.popupMenuFolder.mnuDup.show()
+                    self.popupMenuFolder.mnuRenameGroup.hide()
                 self.popupMenuFolder.mnuDel.show()
-                self.treeServers.grab_focus()
-                self.treeServers.set_cursor(path, col, 0)
             self.popupMenuFolder.popup(None, None, None, None, event.button, event.time)
             return True
         else:
@@ -8092,7 +8189,10 @@ class Whost(GCMBase):
         global groups
 
         self.cmbGroup = self.get_widget("cmbGroup")
-        # self.cmbGroup.set_model(Gtk.ListStore(str))
+        # Le groupe est géré via l'arborescence — lecture seule dans le dialogue
+        self.cmbGroup.set_sensitive(False)
+        if self.cmbGroup.get_has_entry() and self.cmbGroup.get_child():
+            self.cmbGroup.get_child().set_editable(False)
         self.txtName = self.get_widget("txtName")
         self.txtDescription = self.get_widget("txtDescription")
         self.txtHost = self.get_widget("txtHost")
