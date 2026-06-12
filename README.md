@@ -216,20 +216,65 @@ LANG=de_DE.UTF-8 ./gnome_connection_manager.py
 
 ---
 
-## Packaging (deb / rpm)
+## Packaging (deb / rpm / opensuse)
+
+### Prérequis
 
 ```bash
-# Installer fpm
-sudo apt install git ruby ruby-dev build-essential gettext
+# Debian/Ubuntu
+sudo apt install git ruby ruby-dev build-essential gettext python3-paramiko
 sudo gem install fpm
 
-# Packager
+# Fedora/RHEL
+sudo dnf install git ruby ruby-devel make gettext python3-paramiko
+sudo gem install fpm
+```
+
+### Cibles `make`
+
+| Commande | Description |
+|----------|-------------|
+| `make` | Génère `.deb` + `.rpm` Fedora |
+| `make deb` | `.deb` Debian / Ubuntu |
+| `make rpm` | `.rpm` Fedora / RHEL / CentOS |
+| `make opensuse` | `.rpm` **openSUSE / SLES** (dépendances zypper : `typelib-1_0-Vte-2.91`) |
+| `make translate` | Compile les 16 `.po` → `.mo` |
+| `make validate` | Valide `.po` (msgfmt) + `.glade` / `.xml` / `.json` |
+| `make test` | Lance la suite pytest (491 tests) |
+| `make lint` | ruff + flake8 |
+| `make check` | validate + lint + test + vérification git propre |
+| `make clean` | Supprime paquets et `__pycache__` |
+| `make help` | Affiche l'aide |
+
+```bash
 git clone https://github.com/MathildeDec/gnome-connection-manager
 cd gnome-connection-manager
-make        # deb + rpm
-make deb    # deb seulement
-make rpm    # rpm seulement
+make            # deb + rpm Fedora
+make deb        # deb seulement
+make opensuse   # rpm openSUSE
+make validate   # valider .po + .glade avant commit
 ```
+
+### Qualité du code
+
+```bash
+pip install ruff pre-commit
+pre-commit install          # installe les hooks git
+pre-commit run --all-files  # vérification manuelle
+```
+
+**Hooks pre-commit actifs** :
+
+| Hook | Fichiers ciblés | Action |
+|------|----------------|--------|
+| `trailing-whitespace` | tous | supprime espaces en fin de ligne |
+| `end-of-file-fixer` | tous | assure un `\n` final |
+| `check-yaml` / `check-toml` / `check-json` | `.yaml` / `.toml` / `.json` | syntaxe |
+| `ruff` | `.py` | lint + autofix |
+| `ruff-format` | `.py` | formatage |
+| `flake8` | `.py` | lint complémentaire |
+| `validate-po` | `.po` | `msgfmt --check` — bloque si traduction invalide |
+| `validate-xml-glade-json` | `.glade` / `.xml` / `.json` | parser XML/JSON Python — bloque si syntaxe cassée |
 
 ---
 
