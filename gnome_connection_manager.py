@@ -472,6 +472,7 @@ class conf:
     SHOW_TOOLBAR = True
     SHOW_PANEL = True
     DARK_MODE = False
+    THEME_MODE = "system"  # "system" | "light" | "dark"
     VERSION = 0
     UPDATE_TITLE = 0
     APP_TITLE = app_name
@@ -4472,8 +4473,14 @@ class Wmain(GCMBase):
         if conf.LEFT_PANEL_WIDTH != 0:
             self.set_panel_visible(conf.SHOW_PANEL)
         self.set_toolbar_visible(conf.SHOW_TOOLBAR)
-        # Dark mode — init depuis conf (persisté dans gcm.conf)
-        self._apply_dark_mode(conf.DARK_MODE)
+        # Thème GTK — init depuis conf (THEME_MODE = system/light/dark)
+        _tm = getattr(conf, "THEME_MODE", "system")
+        if _tm == "dark":
+            self._apply_dark_mode(True)
+        elif _tm == "light":
+            self._apply_dark_mode(False)
+        else:  # system
+            self._apply_dark_mode(conf.DARK_MODE)  # valeur auto-détectée au chargement
         mnu_dark = self.get_widget("mnu_dark_mode")
         if mnu_dark:
             mnu_dark.set_active(conf.DARK_MODE)
@@ -5646,6 +5653,7 @@ class Wmain(GCMBase):
         """Bascule le mode sombre GTK et persiste l'état."""
         enabled = widget.get_active()
         conf.DARK_MODE = enabled
+        conf.THEME_MODE = "dark" if enabled else "light"
         self._apply_dark_mode(enabled)
         self.writeConfig()
 
@@ -6254,7 +6262,6 @@ class Wmain(GCMBase):
         self.treeServers.set_model(self.treeModel)
 
         self.treeServers.set_level_indentation(5)
-        # self.treeServers.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
 
         column = Gtk.TreeViewColumn()
         column.set_title("Servers")
@@ -6277,6 +6284,20 @@ class Wmain(GCMBase):
         column.pack_start(renderer, expand=True)
         column.add_attribute(renderer, "text", 0)
         column.add_attribute(renderer, "cell-background", 3)
+
+        # ── Drag & drop ───────────────────────────────────────────────────────
+        _dnd_target = Gtk.TargetEntry.new("GCM_TREE_ROW", Gtk.TargetFlags.SAME_WIDGET, 0)
+        self.treeServers.enable_model_drag_source(
+            Gdk.ModifierType.BUTTON1_MASK,
+            [_dnd_target],
+            Gdk.DragAction.MOVE,
+        )
+        self.treeServers.enable_model_drag_dest(
+            [_dnd_target],
+            Gdk.DragAction.MOVE,
+        )
+        self.treeServers.connect("drag-data-get", self._on_tree_drag_data_get)
+        self.treeServers.connect("drag-data-received", self._on_tree_drag_data_received)
 
         self.treeServers.set_has_tooltip(True)
         self.treeServers.connect("query-tooltip", self.on_treeServers_tooltip)
@@ -6381,6 +6402,7 @@ class Wmain(GCMBase):
         conf.SHOW_PANEL = _gopt("window", "show-panel", conf.SHOW_PANEL, bool)
         conf.SHOW_TOOLBAR = _gopt("window", "show-toolbar", conf.SHOW_TOOLBAR, bool)
         conf.DARK_MODE = _gopt("window", "dark-mode", conf.DARK_MODE, bool)
+        conf.THEME_MODE = _gopt("window", "theme-mode", conf.THEME_MODE)
         conf.STARTUP_LOCAL = _gopt("options", "startup-local", conf.STARTUP_LOCAL, bool)
         conf.LOG_LOCAL = _gopt("options", "log-local", conf.LOG_LOCAL, bool)
         conf.CONFIRM_ON_CLOSE_TAB_MIDDLE = _gopt(
@@ -6480,6 +6502,111 @@ class Wmain(GCMBase):
         nodes = []
         self.treeModel.foreach(self.is_node_collapsed, nodes)
         return nodes
+
+    # ── Drag & drop ───────────────────────────────────────────────────────────
+
+    def _on_tree_drag_data_get(self, widget, context, selection, info, time):
+        """Fournit le chemin de la ligne source lors d'un drag."""
+        model, it = self.treeServers.get_selection().get_selected()
+        if it is None:
+            return
+        path = model.get_string_from_iter(it)
+        selection.set(selection.get_target(), 8, path.encode())
+
+    def _on_tree_drag_data_received(self, widget, context, x, y, selection, info, time):
+        """Reçoit les données drop et déplace l'hôte ou le groupe."""
+        src_path_str = selection.get_data().decode()
+        try:
+            src_it = self.treeModel.get_iter_from_string(src_path_str)
+        except (ValueError, RuntimeError):
+            Gdk.drag_status(context, 0, time)
+            return
+
+        src_host = self.treeModel.get_value(src_it, 1)          # None = dossier
+        src_name = self.treeModel.get_value(src_it, 0)
+        src_parent = self.treeModel.iter_parent(src_it)
+
+        # Groupe source
+        def _full_group(it):
+            """Construit le chemin complet group/subgroup depuis un iter."""
+            parts = []
+            cur = it
+            while cur:
+                parts.insert(0, self.treeModel.get_value(cur, 0))
+                cur = self.treeModel.iter_parent(cur)
+            return "/".join(parts)
+
+        drop_info = self.treeServers.get_dest_row_at_pos(x, y)
+        if drop_info is None:
+            Gdk.drag_status(context, 0, time)
+            return
+        dest_path_gtk, drop_pos = drop_info
+        try:
+            dest_it = self.treeModel.get_iter(dest_path_gtk)
+        except Exception:
+            Gdk.drag_status(context, 0, time)
+            return
+
+        dest_host = self.treeModel.get_value(dest_it, 1)
+        dest_parent = self.treeModel.iter_parent(dest_it)
+
+        # ── Hôte vers dossier ou hôte (même niveau ou changement de groupe) ──
+        if src_host is not None:
+            # Groupe source de l'hôte
+            src_grp = _full_group(src_parent) if src_parent else ""
+
+            # Groupe destination
+            if dest_host is None:
+                # Drop sur un dossier → déplace dans ce dossier
+                dest_grp = _full_group(dest_it)
+            elif dest_parent is not None:
+                dest_grp = _full_group(dest_parent)
+            else:
+                dest_grp = src_grp  # même niveau racine
+
+            if src_grp == dest_grp:
+                # Réordonnancement dans le même groupe
+                lst = groups.get(src_grp, [])
+                try:
+                    idx_src = next(i for i, h in enumerate(lst) if h is src_host)
+                except StopIteration:
+                    Gdk.drag_status(context, 0, time)
+                    return
+                lst.pop(idx_src)
+                if dest_host is not None:
+                    try:
+                        idx_dst = next(i for i, h in enumerate(lst) if h is dest_host)
+                    except StopIteration:
+                        idx_dst = len(lst)
+                    if drop_pos in (
+                        Gtk.TreeViewDropPosition.AFTER,
+                        Gtk.TreeViewDropPosition.INTO_OR_AFTER,
+                    ):
+                        idx_dst += 1
+                    lst.insert(idx_dst, src_host)
+                else:
+                    lst.append(src_host)
+                groups[src_grp] = lst
+            else:
+                # Changement de groupe
+                if src_grp in groups and src_host in groups[src_grp]:
+                    groups[src_grp].remove(src_host)
+                    if not groups[src_grp]:
+                        del groups[src_grp]
+                src_host.group = dest_grp
+                if dest_grp not in groups:
+                    groups[dest_grp] = []
+                groups[dest_grp].append(src_host)
+
+            context.finish(True, True, time)
+            self.updateTree()
+            self.writeConfig()
+            return
+
+        # ── Dossier / groupe → réordonnancement non supporté (complexe) ──────
+        Gdk.drag_status(context, 0, time)
+
+
 
     def set_collapsed_nodes(self):
         """Applique l'etat reduit/etendu aux noeuds de l'arbre."""
@@ -6697,6 +6824,7 @@ class Wmain(GCMBase):
         cp.set("window", "show-panel", conf.SHOW_PANEL)
         cp.set("window", "show-toolbar", conf.SHOW_TOOLBAR)
         cp.set("window", "dark-mode", conf.DARK_MODE)
+        cp.set("window", "theme-mode", conf.THEME_MODE)
 
         i = 1
         for grupo in groups:
@@ -8920,6 +9048,33 @@ class Wconfig(GCMBase):
         self.btnFColor.selected_color = fcolor
         self.btnBColor.selected_color = bcolor
 
+        # ── Thème GTK (Light / Dark / System) dans l'onglet Colors ────────────
+        _colors_tab = self.get_widget("table6")
+        if _colors_tab is not None:
+            _theme_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            _theme_lbl = Gtk.Label(label=_("GTK Theme:"))
+            _theme_lbl.set_xalign(0)
+            _theme_box.pack_start(_theme_lbl, False, False, 0)
+            self._cmb_theme = Gtk.ComboBoxText()
+            self._cmb_theme.append("system", _("System"))
+            self._cmb_theme.append("light", _("Light"))
+            self._cmb_theme.append("dark", _("Dark"))
+            # Sélectionner l'état actuel
+            _tm = getattr(conf, "THEME_MODE", "system")
+            if _tm not in ("system", "light", "dark"):
+                _tm = "dark" if conf.DARK_MODE else "light"
+            self._cmb_theme.set_active_id(_tm)
+            self._cmb_theme.connect("changed", self._on_theme_combo_changed)
+            _theme_box.pack_start(self._cmb_theme, False, False, 0)
+            _theme_box.show_all()
+            # Attacher sous le GtkTable Colors (dans le parent du table6)
+            _parent = _colors_tab.get_parent()
+            if _parent is not None:
+                _theme_box.set_margin_start(4)
+                _theme_box.set_margin_top(6)
+                _parent.pack_start(_theme_box, False, False, 0)
+                _parent.reorder_child(_theme_box, -1)
+
         # Fuente
         if len(conf.FONT) == 0 or conf.FONT == "monospace":
             conf.FONT = "monospace"
@@ -9109,6 +9264,37 @@ class Wconfig(GCMBase):
         )
 
     # -- Wconfig custom methods }
+
+    def _on_theme_combo_changed(self, combo):
+        """Bascule le thème GTK depuis le combo Light/Dark/System."""
+        theme_id = combo.get_active_id() or "system"
+        conf.THEME_MODE = theme_id
+        settings = Gtk.Settings.get_default()
+        if theme_id == "dark":
+            conf.DARK_MODE = True
+            settings.set_property("gtk-application-prefer-dark-theme", True)
+        elif theme_id == "light":
+            conf.DARK_MODE = False
+            settings.set_property("gtk-application-prefer-dark-theme", False)
+        else:
+            # System : détecter color-scheme du bureau
+            try:
+                import subprocess as _sp2
+                _dark = _sp2.run(
+                    ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                conf.DARK_MODE = _dark.returncode == 0 and "dark" in _dark.stdout.lower()
+            except Exception:
+                conf.DARK_MODE = False
+            settings.set_property("gtk-application-prefer-dark-theme", conf.DARK_MODE)
+        wMain.writeConfig()
+        # Synchronise le GtkCheckMenuItem du menu Vue
+        mnu_dark = wMain.get_widget("mnu_dark_mode")
+        if mnu_dark:
+            mnu_dark.handler_block_by_func(wMain.on_mnu_dark_mode_toggled)
+            mnu_dark.set_active(conf.DARK_MODE)
+            mnu_dark.handler_unblock_by_func(wMain.on_mnu_dark_mode_toggled)
 
     # -- Wconfig.on_cancelbutton1_clicked {
     def on_cancelbutton1_clicked(self, widget, *args):
