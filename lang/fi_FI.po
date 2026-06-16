@@ -12,7 +12,7 @@ msgstr ""
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: it_IT\n"
+"Language: fi_FI\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -22,29 +22,29 @@ msgstr ""
 #: gnome_connection_manager.py:6243 gnome_connection_manager.py:8726
 #: gnome-connection-manager.glade:424 gnome-connection-manager.glade:967
 msgid "Cancel"
-msgstr "Annulla"
+msgstr "Peruuta"
 
 #: gnome_connection_manager.py:581 gnome_connection_manager.py:6244
 msgid "Save"
-msgstr "Salva"
+msgstr "Tallenna"
 
 #: gnome_connection_manager.py:581 gnome_connection_manager.py:6372
 #: gnome_connection_manager.py:7862
 msgid "Open"
-msgstr "Apri"
+msgstr "Avaa"
 
 #: gnome_connection_manager.py:978 gnome_connection_manager.py:1181
 #: gnome_connection_manager.py:1501 gnome_connection_manager.py:1668
 #: gnome_connection_manager.py:3032
 msgid "Waiting…"
-msgstr "In attesa…"
+msgstr "Odotetaan…"
 
 #: gnome_connection_manager.py:982 gnome_connection_manager.py:1185
 #: gnome_connection_manager.py:1223 gnome_connection_manager.py:1505
 #: gnome_connection_manager.py:1672 gnome_connection_manager.py:1962
 #: gnome_connection_manager.py:4605 gnome-connection-manager.glade:2291
 msgid "Connect"
-msgstr "Connetti"
+msgstr "Yhdistä"
 
 #: gnome_connection_manager.py:986 gnome_connection_manager.py:1077
 #: gnome_connection_manager.py:1190 gnome_connection_manager.py:1323
@@ -53,90 +53,90 @@ msgstr "Connetti"
 #: gnome_connection_manager.py:1964 gnome_connection_manager.py:1990
 #: gnome_connection_manager.py:2156
 msgid "Disconnect"
-msgstr "Disconnetti"
+msgstr "Katkaise yhteys"
 
 #: gnome_connection_manager.py:993 gnome_connection_manager.py:1516
 #: gnome_connection_manager.py:1683 gnome_connection_manager.py:1949
 msgid "xfreerdp options:"
-msgstr "Opzioni xfreerdp:"
+msgstr "xfreerdp-asetukset:"
 
 #: gnome_connection_manager.py:1002
 msgid "xfreerdp log:"
-msgstr "Log xfreerdp:"
+msgstr "xfreerdp-loki:"
 
 #: gnome_connection_manager.py:1062 gnome_connection_manager.py:1296
 #: gnome_connection_manager.py:1587 gnome_connection_manager.py:1742
 msgid "xfreerdp not found"
-msgstr "xfreerdp non trovato"
+msgstr "xfreerdp-ohjelmaa ei löydy"
 
 #: gnome_connection_manager.py:1064 gnome_connection_manager.py:1298
 #: gnome_connection_manager.py:1589 gnome_connection_manager.py:1744
 #: gnome_connection_manager.py:2141
 msgid "Connecting…"
-msgstr "Connessione…"
+msgstr "Yhdistetään…"
 
 #: gnome_connection_manager.py:1090 gnome_connection_manager.py:1236
 #: gnome_connection_manager.py:1601 gnome_connection_manager.py:1756
 msgid "Session ended"
-msgstr "Sessione terminata"
+msgstr "Istunto päättyi"
 
 #: gnome_connection_manager.py:1092 gnome_connection_manager.py:1309
 #: gnome_connection_manager.py:1599 gnome_connection_manager.py:1754
 #, python-brace-format
 msgid "Ended (code {rc})"
-msgstr "Terminato (codice {rc})"
+msgstr "Päättyi (koodi {rc})"
 
 #: gnome_connection_manager.py:1838
 msgid "Serial port:"
-msgstr "Porta seriale:"
+msgstr "Sarjaportti:"
 
 #: gnome_connection_manager.py:1842
 msgid "Ex : /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
-msgstr "Es: /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
+msgstr "Esim: /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
 
 #: gnome_connection_manager.py:1846
 msgid "Baud rate:"
-msgstr "Velocità (baud):"
+msgstr "Siirtonopeus (baud):"
 
 #: gnome_connection_manager.py:1864
 msgid "Transmission speed in baud"
-msgstr "Velocità di trasmissione in baud"
+msgstr "Siirtonopeus baudeina"
 
 #: gnome_connection_manager.py:1869
 msgid "Template:"
-msgstr "Modello:"
+msgstr "Malli:"
 
 #: gnome_connection_manager.py:1875
 msgid "Load vendor-recommended serial settings"
-msgstr "Carica le impostazioni seriali consigliate dal produttore"
+msgstr "Lataa laitevalmistajan suosittelemat sarja-asetukset"
 
 #: gnome_connection_manager.py:1899
 msgid "Data bits:"
-msgstr "Bit di dati:"
+msgstr "Databitit:"
 
 #: gnome_connection_manager.py:1905
 msgid "Number of data bits per byte (8 = standard)"
-msgstr "Numero di bit di dati per byte (8 = standard)"
+msgstr "Databittien määrä per tavu (8 = vakio)"
 
 #: gnome_connection_manager.py:1910
 msgid "Parity:"
-msgstr "Parità:"
+msgstr "Pariteetti:"
 
 #: gnome_connection_manager.py:1916
 msgid "Parity bit: None (N) = standard, Even (E), Odd (O)"
-msgstr "Bit di parità: Nessuno (N) = standard, Pari (E), Dispari (O)"
+msgstr "Pariteettibitti: Ei mitään (N) = vakio, Parillinen (E), Pariton (O)"
 
 #: gnome_connection_manager.py:1921
 msgid "Stop bits:"
-msgstr "Bit di stop:"
+msgstr "Stop-bitit:"
 
 #: gnome_connection_manager.py:1927
 msgid "Stop bits: 1 = standard, 2 = RS-485 / legacy hardware"
-msgstr "Bit di stop: 1 = standard, 2 = RS-485 / hardware legacy"
+msgstr "Stop-bitit: 1 = vakio, 2 = RS-485 / vanha laitteisto"
 
 #: gnome_connection_manager.py:1932
 msgid "Flow control:"
-msgstr "Controllo di flusso:"
+msgstr "Vuonohjaus:"
 
 #: gnome_connection_manager.py:1939
 msgid ""
@@ -146,11 +146,11 @@ msgid ""
 "  RTS/CTS = hardware (full cable)\n"
 "  DSR/DTR = legacy hardware"
 msgstr ""
-"Controllo di flusso:\n"
-"  Nessuno = console standard\n"
-"  XON/XOFF = software (Ctrl-Q/Ctrl-S)\n"
-"  RTS/CTS = hardware (cavo completo)\n"
-"  DSR/DTR = hardware legacy"
+"Vuonohjaus:\n"
+"  Ei mitään = vakiokonsoli\n"
+"  XON/XOFF = ohjelmisto (Ctrl-Q/Ctrl-S)\n"
+"  RTS/CTS = laitteisto (täysi kaapeli)\n"
+"  DSR/DTR = vanha laitteisto"
 
 #: gnome_connection_manager.py:1955
 msgid ""
@@ -158,188 +158,188 @@ msgid ""
 "Ex: --logfile /tmp/serial.log  (picocom)\n"
 "     -o -x  (minicom)"
 msgstr ""
-"Opzioni aggiuntive passate al binario\n"
-"Es: --logfile /tmp/serial.log  (picocom)\n"
+"Lisäraakavalitsimet ohjelmalle\n"
+"Esim: --logfile /tmp/serial.log  (picocom)\n"
 "     -o -x  (minicom)"
 
 #: gnome_connection_manager.py:2923 gnome_connection_manager.py:2972
 #: gnome_connection_manager.py:3536 gnome-connection-manager.glade:2064
 msgid "Import from libvirt"
-msgstr "Importa da libvirt"
+msgstr "Tuo libvirtistä"
 
 #: gnome_connection_manager.py:2941
 msgid "Hypervisor SSH user:"
-msgstr "Utente SSH dell'hypervisor:"
+msgstr "Hypervisorin SSH-käyttäjä:"
 
 #: gnome_connection_manager.py:2949
 msgid "Hypervisors (virt-manager / dconf):"
-msgstr "Hypervisor (virt-manager / dconf):"
+msgstr "Hypervisorit (virt-manager / dconf):"
 
 #: gnome_connection_manager.py:2960
 msgid "Detected libvirt URI"
-msgstr "URI libvirt rilevato"
+msgstr "Havaittu libvirt-URI"
 
 #: gnome_connection_manager.py:2977
 msgid ""
 "Ex: 192.168.105.41 | root@192.168.105.41 | "
 "qemu+ssh://root@192.168.105.41/system"
 msgstr ""
-"Es: 192.168.105.41 | root@192.168.105.41 | "
+"Esim: 192.168.105.41 | root@192.168.105.41 | "
 "qemu+ssh://root@192.168.105.41/system"
 
 #: gnome_connection_manager.py:2981 gnome-connection-manager.glade:2307
 msgid "Add"
-msgstr "Aggiungi"
+msgstr "Lisää"
 
 #: gnome_connection_manager.py:2988
 msgid "<b>Connection types to import:</b>"
-msgstr "<b>Tipi di connessione da importare:</b>"
+msgstr "<b>Tuotavat yhteystyypit:</b>"
 
 #: gnome_connection_manager.py:2995
 msgid ""
 "SSH  (ProxyJump -J via hypervisor when VM IP is known, otherwise hypervisor "
 "shell + -t ssh user@vm)"
 msgstr ""
-"SSH  (ProxyJump -J tramite l'hypervisor se l'IP della VM è noto, altrimenti "
-"shell dell'hypervisor + -t ssh user@vm)"
+"SSH  (ProxyJump -J hypervisorin kautta, kun VM:n IP on tiedossa, muuten "
+"hypervisorin shell + -t ssh käyttäjä@vm)"
 
 #: gnome_connection_manager.py:3002
 msgid ""
 "SPICE  (virt-viewer --connect qemu+ssh://... vm - SSH tunnel handled "
 "automatically)"
 msgstr ""
-"SPICE  (virt-viewer --connect qemu+ssh://... vm - il tunnel SSH viene "
-"gestito automaticamente)"
+"SPICE  (virt-viewer --connect qemu+ssh://... vm - SSH-tunneli hoidetaan "
+"automaattisesti)"
 
 #: gnome_connection_manager.py:3008
 msgid ""
 "RDP  (probe port 3389 from hypervisor via nc/nmap - skipped if port is "
 "closed)"
 msgstr ""
-"RDP  (verifica la porta 3389 dall'hypervisor tramite nc/nmap - saltato se la"
-" porta è chiusa)"
+"RDP  (tarkista portti 3389 hypervisorista nc/nmap-työkalulla - ohitetaan, "
+"jos portti on kiinni)"
 
 #: gnome_connection_manager.py:3036
 msgid "🔍  Scan hypervisors"
-msgstr "🔍  Scansiona hypervisor"
+msgstr "🔍  Etsi hypervisorit"
 
 #: gnome_connection_manager.py:3060
 msgid "Overwrite existing connections with the same name and protocol"
-msgstr "Sovrascrivi le connessioni esistenti con lo stesso nome e protocollo"
+msgstr ""
+"Korvaa olemassa olevat samalla nimellä ja protokollalla olevat yhteydet"
 
 #: gnome_connection_manager.py:3067
 msgid "✓ Check all"
-msgstr "✓ Seleziona tutto"
+msgstr "✓ Valitse kaikki"
 
 #: gnome_connection_manager.py:3069
 msgid "✗ Uncheck all"
-msgstr "✗ Deseleziona tutto"
+msgstr "✗ Poista valinnat"
 
 #: gnome_connection_manager.py:3103
 msgid "Proto"
-msgstr "Proto"
+msgstr "Protokolla"
 
 #: gnome_connection_manager.py:3114
 msgid "VM name"
-msgstr "Nome VM"
+msgstr "VM:n nimi"
 
 #: gnome_connection_manager.py:3126 gnome-connection-manager.glade:1015
 msgid "Group"
-msgstr "Gruppo"
+msgstr "Ryhmä"
 
 #: gnome_connection_manager.py:3137
 msgid "IP / Host"
-msgstr "IP / Host"
+msgstr "IP / Isäntä"
 
 #: gnome_connection_manager.py:3148
 msgid "State"
-msgstr "Stato"
+msgstr "Tila"
 
 #: gnome_connection_manager.py:3159
 msgid "Imported"
-msgstr "Importato"
+msgstr "Tuotu"
 
 #: gnome_connection_manager.py:3177
 msgid "⬇  Import selected"
-msgstr "⬇  Importa selezionati"
+msgstr "⬇  Tuo valitut"
 
 #: gnome_connection_manager.py:3187
 msgid "✕  Close"
-msgstr "✕  Chiudi"
+msgstr "✕  Sulje"
 
 #: gnome_connection_manager.py:3211
 msgid ""
 "No URI found in dconf (virt-manager not configured?).\n"
 "Add your URIs manually below."
 msgstr ""
-"Nessuna URI trovata in dconf (virt-manager non configurato?).\n"
-"Aggiungi le tue URI manualmente di seguito."
+"dconf:stä ei löytynyt URI:a (virt-manageria ei ole määritetty?).\n"
+"Lisää URI:t käsin alle."
 
 #: gnome_connection_manager.py:3266
 msgid "Invalid libvirt target."
-msgstr "Destinazione libvirt non valida."
+msgstr "Virheellinen libvirt-kohde."
 
 #: gnome_connection_manager.py:3358
 msgid "No URI selected."
-msgstr "Nessuna URI selezionata."
+msgstr "URI:a ei valittu."
 
 #: gnome_connection_manager.py:3370 gnome_connection_manager.py:3665
 msgid "No connection type selected."
-msgstr "Nessun tipo di connessione selezionato."
+msgstr "Yhteystyyppiä ei valittu."
 
 #: gnome_connection_manager.py:3452
 msgid "🔄  Rescan"
-msgstr "🔄  Rianalizza"
+msgstr "🔄  Skannaa uudelleen"
 
 #: gnome_connection_manager.py:3512
 msgid "No connection to import (all already exist or none selected)."
 msgstr ""
-"Nessuna connessione da importare (tutte già esistenti o nessuna "
-"selezionata)."
+"Ei tuotavia yhteyksiä (kaikki ovat olemassa tai mitään ei ole valittu)."
 
 #: gnome_connection_manager.py:3518
 msgid "✓ Imported"
-msgstr "✓ Importato"
+msgstr "✓ Tuotu"
 
 #: gnome_connection_manager.py:3537
 msgid "🔍  Scan Proxmox hosts"
-msgstr "🔍  Scansiona host Proxmox"
+msgstr "🔍  Etsi Proxmox-isännät"
 
 #: gnome_connection_manager.py:3538
 msgid "Detected Proxmox targets (dconf):"
-msgstr "Destinazioni Proxmox rilevate (dconf):"
+msgstr "Havaitut Proxmox-kohteet (dconf):"
 
 #: gnome_connection_manager.py:3539
 msgid "Detected Proxmox target"
-msgstr "Destinazione Proxmox rilevata"
+msgstr "Havaittu Proxmox-kohde"
 
 #: gnome_connection_manager.py:3540
 msgid "Add a Proxmox target:"
-msgstr "Aggiungi una destinazione Proxmox:"
+msgstr "Lisää Proxmox-kohde:"
 
 #: gnome_connection_manager.py:3542
 msgid "Ex: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
-msgstr "Es: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
+msgstr "Esim: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
 
 #: gnome_connection_manager.py:3545
 msgid "SPICE  (not available here: Proxmox requires API ticket/proxy)"
-msgstr "SPICE  (non disponibile qui: Proxmox richiede ticket/proxy API)"
+msgstr "SPICE  (ei käytettävissä tässä: Proxmox vaatii API-tiketin/proxyn)"
 
 #: gnome_connection_manager.py:3571
 msgid ""
 "No SSH URI found in dconf.\n"
 "Enter an IP/host below and click Add."
 msgstr ""
-"Nessuna URI SSH trovata in dconf.\n"
-"Inserisci un IP/host di seguito e clicca su Aggiungi."
+"dconf:stä ei löytynyt SSH-URI:a.\n"
+"Syötä IP/isäntä alle ja napsauta Lisää."
 
 #: gnome_connection_manager.py:3623
 msgid "Invalid Proxmox target."
-msgstr "Destinazione Proxmox non valida."
+msgstr "Virheellinen Proxmox-kohde."
 
 #: gnome_connection_manager.py:3653
 msgid "No Proxmox target selected."
-msgstr "Nessuna destinazione Proxmox selezionata."
+msgstr "Proxmox-kohdetta ei valittu."
 
 #: gnome_connection_manager.py:3723
 msgid ""
@@ -347,29 +347,29 @@ msgid ""
 "File format: <tt>[serial_templates]</tt> in <tt>gcm.conf</tt>\n"
 "<tt>My device = 9600,n,n,8,1</tt>  (baud,flow,parity,bits,stop)</i>"
 msgstr ""
-"<i>Fai doppio clic su una cella per modificarla.\n"
-"Formato file: <tt>[serial_templates]</tt> in <tt>gcm.conf</tt>\n"
-"<tt>Mio dispositivo = 9600,n,n,8,1</tt>  (baud,flusso,parità,bit,stop)</i>"
+"<i>Kaksoisnapsauta solua muokataksesi sitä.\n"
+"Tiedostomuoto: <tt>[serial_templates]</tt> tiedostossa <tt>gcm.conf</tt>\n"
+"<tt>Oma laite = 9600,n,n,8,1</tt>  (baud,vuo,pariteetti,bitit,stop)</i>"
 
 #: gnome_connection_manager.py:3740
 msgid "Template name"
-msgstr "Nome modello"
+msgstr "Mallin nimi"
 
 #: gnome_connection_manager.py:3741
 msgid "Baud rate"
-msgstr "Velocità (baud)"
+msgstr "Siirtonopeus (baud)"
 
 #: gnome_connection_manager.py:3742
 msgid "Flow"
-msgstr "Flusso"
+msgstr "Vuo"
 
 #: gnome_connection_manager.py:3743
 msgid "Parity"
-msgstr "Parità"
+msgstr "Pariteetti"
 
 #: gnome_connection_manager.py:3744
 msgid "Data bits"
-msgstr "Bit di dati"
+msgstr "Databitit"
 
 #: gnome_connection_manager.py:3745
 msgid "Stop"
@@ -377,27 +377,27 @@ msgstr "Stop"
 
 #: gnome_connection_manager.py:3781
 msgid "+ Add"
-msgstr "+ Aggiungi"
+msgstr "+ Lisää"
 
 #: gnome_connection_manager.py:3783
 msgid "− Remove"
-msgstr "− Rimuovi"
+msgstr "− Poista"
 
 #: gnome_connection_manager.py:3785
 msgid "Restore defaults"
-msgstr "Ripristina impostazioni predefinite"
+msgstr "Palauta oletukset"
 
 #: gnome_connection_manager.py:3791
 msgid "Serial Templates"
-msgstr "Modelli seriali"
+msgstr "Sarjamallit"
 
 #: gnome_connection_manager.py:3805
 msgid "New template"
-msgstr "Nuovo modello"
+msgstr "Uusi malli"
 
 #: gnome_connection_manager.py:3858
 msgid "Default SSH user (VMs):"
-msgstr "Utente SSH predefinito (VM):"
+msgstr "Oletus-SSH-käyttäjä (VM:t):"
 
 #: gnome_connection_manager.py:3876
 msgid "Libvirt"
@@ -405,238 +405,238 @@ msgstr "Libvirt"
 
 #: gnome_connection_manager.py:3993 gnome_connection_manager.py:4313
 msgid "search..."
-msgstr "cerca..."
+msgstr "hae..."
 
 #: gnome_connection_manager.py:4428 gnome_connection_manager.py:4652
 msgid "Rename tab"
-msgstr "Rinomina scheda"
+msgstr "Nimeä välilehti uudelleen"
 
 #: gnome_connection_manager.py:4429
 msgid "Enter new name"
-msgstr "Inserisci nuovo nome"
+msgstr "Anna uusi nimi"
 
 #: gnome_connection_manager.py:4498
 msgid "Continuous log mode is active and cannot be disabled per tab."
 msgstr ""
-"La modalità di registrazione continua è attiva e non può essere disabilitata"
-" per singola scheda."
+"Jatkuva lokitustila on käytössä, eikä sitä voi poistaa käytöstä "
+"välilehtikohtaisesti."
 
 #: gnome_connection_manager.py:4520 gnome-connection-manager.glade:2109
 msgid "Copy"
-msgstr "Copia"
+msgstr "Kopioi"
 
 #: gnome_connection_manager.py:4525 gnome-connection-manager.glade:2118
 msgid "Paste"
-msgstr "Incolla"
+msgstr "Liitä"
 
 #: gnome_connection_manager.py:4530 gnome-connection-manager.glade:2127
 msgid "Copy and Paste"
-msgstr "Copia e incolla"
+msgstr "Kopioi ja liitä"
 
 #: gnome_connection_manager.py:4535 gnome-connection-manager.glade:178
 #: gnome-connection-manager.glade:2136
 msgid "Select all"
-msgstr "Seleziona tutto"
+msgstr "Valitse kaikki"
 
 #: gnome_connection_manager.py:4540 gnome-connection-manager.glade:2145
 msgid "Copy all"
-msgstr "Copia tutto"
+msgstr "Kopioi kaikki"
 
 #: gnome_connection_manager.py:4545
 msgid "Save buffer to file"
-msgstr "Salva il buffer su file"
+msgstr "Tallenna puskuri tiedostoon"
 
 #: gnome_connection_manager.py:4550 gnome_connection_manager.py:4684
 msgid "Split H"
-msgstr "Divisione O"
+msgstr "Jaa H"
 
 #: gnome_connection_manager.py:4555 gnome_connection_manager.py:4689
 msgid "Split V"
-msgstr "Divisione V"
+msgstr "Jaa V"
 
 #: gnome_connection_manager.py:4564 gnome_connection_manager.py:4657
 msgid "Reset console"
-msgstr "Reimposta console"
+msgstr "Nollaa konsoli"
 
 #: gnome_connection_manager.py:4569 gnome_connection_manager.py:4663
 msgid "Reset and Clear console"
-msgstr "Reimposta e pulisci console"
+msgstr "Nollaa ja tyhjennä konsoli"
 
 #: gnome_connection_manager.py:4574 gnome_connection_manager.py:4674
 msgid "Clone console"
-msgstr "Clona console"
+msgstr "Kloonaa konsoli"
 
 #: gnome_connection_manager.py:4579 gnome_connection_manager.py:4679
 msgid "Enable logging"
-msgstr "Attiva registrazione"
+msgstr "Ota lokitus käyttöön"
 
 #: gnome_connection_manager.py:4584 gnome_connection_manager.py:7975
 #: gnome_connection_manager.py:8598 gnome_connection_manager.py:8681
 msgid "Close console"
-msgstr "Chiudi console"
+msgstr "Sulje konsoli"
 
 #: gnome_connection_manager.py:4596 gnome-connection-manager.glade:2160
 msgid "Custom commands"
-msgstr "Comandi personalizzati"
+msgstr "Mukautetut komennot"
 
 #: gnome_connection_manager.py:4610
 msgid "Copy Address"
-msgstr "Copia indirizzo"
+msgstr "Kopioi osoite"
 
 #: gnome_connection_manager.py:4615
 msgid "Add Host"
-msgstr "Aggiungi host"
+msgstr "Lisää isäntä"
 
 #: gnome_connection_manager.py:4620 gnome-connection-manager.glade:2323
 msgid "Edit"
-msgstr "Modifica"
+msgstr "Muokkaa"
 
 #: gnome_connection_manager.py:4625 gnome-connection-manager.glade:2339
 msgid "Remove"
-msgstr "Rimuovi"
+msgstr "Poista"
 
 #: gnome_connection_manager.py:4630
 msgid "Duplicate Host"
-msgstr "Duplica host"
+msgstr "Monista isäntä"
 
 #: gnome_connection_manager.py:4639
 msgid "Expand all"
-msgstr "Espandi tutto"
+msgstr "Laajenna kaikki"
 
 #: gnome_connection_manager.py:4644
 msgid "Collapse all"
-msgstr "Comprimi tutto"
+msgstr "Tiivistä kaikki"
 
 #: gnome_connection_manager.py:4669
 msgid "Reconnect to host"
-msgstr "Riconnetti all'host"
+msgstr "Yhdistä isäntään uudelleen"
 
 #: gnome_connection_manager.py:4830 gnome_connection_manager.py:4894
 msgid "No host imported."
-msgstr "Nessun host importato."
+msgstr "Isäntää ei tuotu."
 
 #: gnome_connection_manager.py:4880 gnome_connection_manager.py:4944
 msgid "No new host (duplicates ignored)."
-msgstr "Nessun nuovo host (duplicati ignorati)."
+msgstr "Ei uusia isäntiä (kaksoiskappaleet ohitettu)."
 
 #: gnome_connection_manager.py:5283
 msgid "Can't open log file for writting"
-msgstr "Impossibile aprire il file di log in scrittura"
+msgstr "Lokitiedostoa ei voi avata kirjoitusta varten"
 
 #: gnome_connection_manager.py:5533
 msgid "Error connecting to server"
-msgstr "Errore di connessione al server"
+msgstr "Virhe yhdistettäessä palvelimeen"
 
 #: gnome_connection_manager.py:5745
 msgid "Invalid entry in configuration file"
-msgstr "Voce non valida nel file di configurazione"
+msgstr "Virheellinen merkintä asetustiedostossa"
 
 #: gnome_connection_manager.py:6239 gnome_connection_manager.py:6426
 msgid "Save as"
-msgstr "Salva come"
+msgstr "Tallenna nimellä"
 
 #: gnome_connection_manager.py:6271
 msgid "Can't open file for writting"
-msgstr "Impossibile aprire il file in scrittura"
+msgstr "Tiedostoa ei voi avata kirjoitusta varten"
 
 #: gnome_connection_manager.py:6338
 msgid "There are"
-msgstr "Ci sono"
+msgstr "On"
 
 #: gnome_connection_manager.py:6340
 msgid "open consoles, exit anyway?"
-msgstr "console aperte, uscire comunque?"
+msgstr "avointa konsolia, lopetetaanko silti?"
 
 #: gnome_connection_manager.py:6375
 msgid "Import Servers"
-msgstr "Importa server"
+msgstr "Tuo palvelimet"
 
 #: gnome_connection_manager.py:6375 gnome_connection_manager.py:6430
 msgid "Enter password"
-msgstr "Inserisci password"
+msgstr "Anna salasana"
 
 #: gnome_connection_manager.py:6387
 msgid "Invalid password"
-msgstr "Password non valida"
+msgstr "Virheellinen salasana"
 
 #: gnome_connection_manager.py:6391
 msgid "Server list will be overwritten, continue?"
-msgstr "L'elenco dei server verrà sovrascritto, continuare?"
+msgstr "Palvelinlista korvataan, jatketaanko?"
 
 #: gnome_connection_manager.py:6407 gnome_connection_manager.py:6452
 msgid "Invalid file"
-msgstr "File non valido"
+msgstr "Virheellinen tiedosto"
 
 #: gnome_connection_manager.py:6430
 msgid "Export Servers"
-msgstr "Esporta server"
+msgstr "Vie palvelimet"
 
 #: gnome_connection_manager.py:6661
 msgid "Do you really want to remove host"
-msgstr "Vuoi davvero rimuovere l'host"
+msgstr "Haluatko varmasti poistaa isännän"
 
 #: gnome_connection_manager.py:6680
 msgid "Do you really want to remove all hosts in group"
-msgstr "Vuoi davvero rimuovere tutti gli host nel gruppo"
+msgstr "Haluatko varmasti poistaa kaikki ryhmän isännät"
 
 #: gnome_connection_manager.py:6839
 msgid "No open consoles"
-msgstr "Nessuna console aperta"
+msgstr "Ei avoimia konsoleja"
 
 #: gnome_connection_manager.py:7221 gnome-connection-manager.glade:2275
 msgid "Local"
-msgstr "Locale"
+msgstr "Paikallinen"
 
 #: gnome_connection_manager.py:7223 gnome_connection_manager.py:8390
 #: gnome-connection-manager.glade:1051
 msgid "Host"
-msgstr "Host"
+msgstr "Isäntä"
 
 #: gnome_connection_manager.py:7225
 msgid "Remote"
-msgstr "Remoto"
+msgstr "Etä"
 
 #: gnome_connection_manager.py:7524
 msgid "Fields group, name and host are required"
-msgstr "I campi gruppo, nome e host sono obbligatori"
+msgstr "Kentät ryhmä, nimi ja isäntä ovat pakollisia"
 
 #: gnome_connection_manager.py:7528
 msgid "Invalid port"
-msgstr "Porta non valida"
+msgstr "Virheellinen portti"
 
 #: gnome_connection_manager.py:7594 gnome_connection_manager.py:7614
 #: gnome_connection_manager.py:7633
 msgid "Host name"
-msgstr "Nome host"
+msgstr "Isäntänimi"
 
 #: gnome_connection_manager.py:7596 gnome_connection_manager.py:7616
 #: gnome_connection_manager.py:7635
 msgid "already exists for group"
-msgstr "esiste già per il gruppo"
+msgstr "on jo olemassa ryhmässä"
 
 #: gnome_connection_manager.py:7652
 msgid "Error saving host. Description"
-msgstr "Errore nel salvataggio dell'host. Descrizione"
+msgstr "Virhe isännän tallennuksessa. Kuvaus"
 
 #: gnome_connection_manager.py:7784
 msgid "Enter remote host"
-msgstr "Inserisci host remoto"
+msgstr "Anna etäisäntä"
 
 #: gnome_connection_manager.py:7789
 msgid "Local port already assigned"
-msgstr "Porta locale già assegnata"
+msgstr "Paikallinen portti on jo varattu"
 
 #: gnome_connection_manager.py:7953
 msgid "Word separator"
-msgstr "Separatore di parole"
+msgstr "Sananerotin"
 
 #: gnome_connection_manager.py:7954
 msgid "Buffer size"
-msgstr "Dimensione buffer"
+msgstr "Puskurin koko"
 
 #: gnome_connection_manager.py:7955
 msgid "Transparency"
-msgstr "Trasparenza"
+msgstr "Läpinäkyvyys"
 
 #: gnome_connection_manager.py:7956 gnome-connection-manager.glade:1352
 msgid "TERM"
@@ -644,91 +644,91 @@ msgstr "TERM"
 
 #: gnome_connection_manager.py:7957
 msgid "Logs path"
-msgstr "Percorso log"
+msgstr "Lokien polku"
 
 #: gnome_connection_manager.py:7958
 msgid "Continuous VTE tab logging mode"
-msgstr "Modalità di registrazione continua delle schede VTE"
+msgstr "Jatkuva VTE-välilehden lokitustila"
 
 #: gnome_connection_manager.py:7959
 msgid "Open local console on startup"
-msgstr "Apri console locale all'avvio"
+msgstr "Avaa paikallinen konsoli käynnistyksessä"
 
 #: gnome_connection_manager.py:7960
 msgid "Log local console sessions"
-msgstr "Registra le sessioni della console locale"
+msgstr "Lokitoi paikalliset konsoli-istunnot"
 
 #: gnome_connection_manager.py:7961
 msgid "Paste on right click"
-msgstr "Incolla con il clic destro"
+msgstr "Liitä oikealla napsautuksella"
 
 #: gnome_connection_manager.py:7962
 msgid "Copy selection to clipboard"
-msgstr "Copia la selezione negli appunti"
+msgstr "Kopioi valinta leikepöydälle"
 
 #: gnome_connection_manager.py:7963
 msgid "Confirm on close console"
-msgstr "Conferma alla chiusura della console"
+msgstr "Vahvista konsolin sulkeminen"
 
 #: gnome_connection_manager.py:7965
 msgid "Confirm on close console with middle click"
-msgstr "Conferma alla chiusura della console con il clic centrale"
+msgstr "Vahvista konsolin sulkeminen keskinäppäimellä"
 
 #: gnome_connection_manager.py:7970
 msgid "Circle around tabs when going to the previous/next tab"
-msgstr "Ciclo tra le schede quando si passa alla scheda precedente/successiva"
+msgstr "Kierrä välilehtien yli siirryttäessä edelliseen/seuraavaan"
 
 #: gnome_connection_manager.py:7978
 msgid "Never"
-msgstr "Mai"
+msgstr "Ei koskaan"
 
 #: gnome_connection_manager.py:7978
 msgid "Always"
-msgstr "Sempre"
+msgstr "Aina"
 
 #: gnome_connection_manager.py:7978
 msgid "Only on clean exit"
-msgstr "Solo in caso di uscita normale"
+msgstr "Vain siistissä lopetuksessa"
 
 #: gnome_connection_manager.py:7980
 msgid "Confirm on exit"
-msgstr "Conferma all'uscita"
+msgstr "Vahvista lopetus"
 
 #: gnome_connection_manager.py:7981
 msgid "Check updates"
-msgstr "Controlla aggiornamenti"
+msgstr "Tarkista päivitykset"
 
 #: gnome_connection_manager.py:7983
 msgid "Disable alternating stripes in hosts window"
-msgstr "Disattiva le righe alternate nella finestra degli host"
+msgstr "Poista vuorottelevat raidat isäntäikkunasta"
 
 #: gnome_connection_manager.py:7987
 msgid "Dynamic title"
-msgstr "Titolo dinamico"
+msgstr "Dynaaminen otsikko"
 
 #: gnome_connection_manager.py:7988
 msgid "Title"
-msgstr "Titolo"
+msgstr "Otsikko"
 
 #: gnome_connection_manager.py:8021
 msgid "Action"
-msgstr "Azione"
+msgstr "Toiminto"
 
 #: gnome_connection_manager.py:8030 gnome_connection_manager.py:8048
 msgid "Shortcut"
-msgstr "Scorciatoia"
+msgstr "Pikanäppäin"
 
 #: gnome_connection_manager.py:8040
 msgid "Command"
-msgstr "Comando"
+msgstr "Komento"
 
 #: gnome_connection_manager.py:8324
 msgid "Select font"
-msgstr "Seleziona font"
+msgstr "Valitse fontti"
 
 #: gnome_connection_manager.py:8388
 msgid "Activate"
-msgstr "Attiva"
+msgstr "Aktivoi"
 
 #: gnome_connection_manager.py:8719 gnome-connection-manager.glade:438
 #: gnome-connection-manager.glade:981
@@ -740,141 +740,141 @@ msgid ""
 "A new version is available: https://github.com/MathildeDec/gnome-connection-"
 "manager/releases"
 msgstr ""
-"È disponibile una nuova versione: https://github.com/MathildeDec/gnome-"
-"connection-manager/releases"
+"Uusi versio on saatavilla: https://github.com/MathildeDec/gnome-connection-"
+"manager/releases"
 
 #: gnome-connection-manager.glade:10
 msgid ""
 "This is gnome-connection-manager, written and maintained by\n"
 "Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - Chile"
 msgstr ""
-"Questo è gnome-connection-manager, scritto e mantenuto da\n"
-"Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - Cile"
+"Tämä on gnome-connection-manager, kirjoittanut ja ylläpitää\n"
+"Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - Chile"
 
 #: gnome-connection-manager.glade:12
 msgid "A simple ssh connection manager for gnome"
-msgstr "Un semplice gestore di connessioni SSH per Gnome"
+msgstr "Yksinkertainen SSH-yhteyksien hallinta Gnomelle"
 
 #: gnome-connection-manager.glade:14
 msgid "Project's Homepage"
-msgstr "Homepage del progetto"
+msgstr "Projektin kotisivu"
 
 #: gnome-connection-manager.glade:47 gnome-connection-manager.glade:2501
 msgid "Cluster"
-msgstr "Cluster"
+msgstr "Klusteri"
 
 #: gnome-connection-manager.glade:68
 msgid "Close"
-msgstr "Chiudi"
+msgstr "Sulje"
 
 #: gnome-connection-manager.glade:99
 msgid "Select consoles to use:"
-msgstr "Seleziona le console da usare:"
+msgstr "Valitse käytettävät konsolit:"
 
 #: gnome-connection-manager.glade:238
 msgid "Clear selection"
-msgstr "Annulla selezione"
+msgstr "Tyhjennä valinta"
 
 #: gnome-connection-manager.glade:298
 msgid "Invert selection"
-msgstr "Inverti selezione"
+msgstr "Käännä valinta"
 
 #: gnome-connection-manager.glade:352
 msgid "Enter the text to send to consoles: "
-msgstr "Inserisci il testo da inviare alle console: "
+msgstr "Anna konsoleille lähetettävä teksti: "
 
 #: gnome-connection-manager.glade:387
 msgid "<span size=\"smaller\">CTRL+UP/CTRL+DOWN for history</span>"
-msgstr "<span size=\"smaller\">CTRL+SU/CTRL+GIÙ per la cronologia</span>"
+msgstr "<span size=\"smaller\">CTRL+YLÖS/CTRL+ALAS historiaa varten</span>"
 
 #: gnome-connection-manager.glade:410 gnome-connection-manager.glade:2180
 #: gnome-connection-manager.glade:2418
 msgid "Settings"
-msgstr "Impostazioni"
+msgstr "Asetukset"
 
 #: gnome-connection-manager.glade:642
 msgid "General"
-msgstr "Generale"
+msgstr "Yleiset"
 
 #: gnome-connection-manager.glade:667 gnome-connection-manager.glade:1816
 msgid "Background color:"
-msgstr "Colore di sfondo:"
+msgstr "Taustaväri:"
 
 #: gnome-connection-manager.glade:684 gnome-connection-manager.glade:1804
 msgid "Foreground color:"
-msgstr "Colore primo piano:"
+msgstr "Edustaväri:"
 
 #: gnome-connection-manager.glade:700 gnome-connection-manager.glade:1843
 msgid "Select background color"
-msgstr "Seleziona colore di sfondo"
+msgstr "Valitse taustaväri"
 
 #: gnome-connection-manager.glade:716 gnome-connection-manager.glade:1829
 msgid "Select foreground color"
-msgstr "Seleziona colore primo piano"
+msgstr "Valitse edustaväri"
 
 #: gnome-connection-manager.glade:729 gnome-connection-manager.glade:1780
 msgid "Default colors"
-msgstr "Colori predefiniti"
+msgstr "Oletusvärit"
 
 #: gnome-connection-manager.glade:745
 msgid "Use default fixed width font"
-msgstr "Usa il font a larghezza fissa predefinito"
+msgstr "Käytä oletusfonttina tasalevyistä fonttia"
 
 #: gnome-connection-manager.glade:768
 msgid "Font:"
-msgstr "Font:"
+msgstr "Fontti:"
 
 #: gnome-connection-manager.glade:822
 msgid "Colors"
-msgstr "Colori"
+msgstr "Värit"
 
 #: gnome-connection-manager.glade:850
 msgid "Standard Commands"
-msgstr "Comandi standard"
+msgstr "Vakiokomennot"
 
 #: gnome-connection-manager.glade:895
 msgid "Custom Commands"
-msgstr "Comandi personalizzati"
+msgstr "Mukautetut komennot"
 
 #: gnome-connection-manager.glade:934
 msgid "Shortcuts"
-msgstr "Scorciatoie"
+msgstr "Pikanäppäimet"
 
 #: gnome-connection-manager.glade:953
 msgid "Edit Host"
-msgstr "Modifica host"
+msgstr "Muokkaa isäntää"
 
 #: gnome-connection-manager.glade:1027
 msgid "Name"
-msgstr "Nome"
+msgstr "Nimi"
 
 #: gnome-connection-manager.glade:1039
 msgid "Description"
-msgstr "Descrizione"
+msgstr "Kuvaus"
 
 #: gnome-connection-manager.glade:1063
 msgid "Type"
-msgstr "Tipo"
+msgstr "Tyyppi"
 
 #: gnome-connection-manager.glade:1075
 msgid "Port"
-msgstr "Porta"
+msgstr "Portti"
 
 #: gnome-connection-manager.glade:1087
 msgid "User"
-msgstr "Utente"
+msgstr "Käyttäjä"
 
 #: gnome-connection-manager.glade:1099
 msgid "Password"
-msgstr "Password"
+msgstr "Salasana"
 
 #: gnome-connection-manager.glade:1111
 msgid "Private key"
-msgstr "Chiave privata"
+msgstr "Yksityinen avain"
 
 #: gnome-connection-manager.glade:1122
 msgid "To create subgroups use format group1/group2/group3"
-msgstr "Per creare sottogruppi usa il formato gruppo1/gruppo2/gruppo3"
+msgstr "Käytä muotoa ryhmä1/ryhmä2/ryhmä3 alaryhmien luomiseen"
 
 #: gnome-connection-manager.glade:1176
 msgid "ssh"
@@ -898,16 +898,15 @@ msgstr "spice"
 
 #: gnome-connection-manager.glade:1181
 msgid "serial"
-msgstr "seriale"
+msgstr "sarja"
 
 #: gnome-connection-manager.glade:1182
 msgid "local"
-msgstr "locale"
+msgstr "paikallinen"
 
 #: gnome-connection-manager.glade:1217
 msgid "Leave blank for passwordless/public key authentication"
-msgstr ""
-"Lascia vuoto per l'autenticazione senza password / con chiave pubblica"
+msgstr "Jätä tyhjäksi salasanattomalle/julkisen avaimen todennukselle"
 
 #: gnome-connection-manager.glade:1271
 msgid "Keep-Alive"
@@ -915,27 +914,27 @@ msgstr "Keep-Alive"
 
 #: gnome-connection-manager.glade:1289
 msgid "X11 Forwarding"
-msgstr "Forwarding X11"
+msgstr "X11-välitys"
 
 #: gnome-connection-manager.glade:1301
 msgid "Agent Forwarding"
-msgstr "Forwarding agente"
+msgstr "Agentin välitys"
 
 #: gnome-connection-manager.glade:1310
 msgid "Compression"
-msgstr "Compressione"
+msgstr "Pakkaus"
 
 #: gnome-connection-manager.glade:1328
 msgid "Extra arguments"
-msgstr "Argomenti aggiuntivi"
+msgstr "Lisäargumentit"
 
 #: gnome-connection-manager.glade:1340
 msgid "Enable Logging"
-msgstr "Attiva registrazione"
+msgstr "Ota lokitus käyttöön"
 
 #: gnome-connection-manager.glade:1363
 msgid "Seconds between keep-alive packets"
-msgstr "Secondi tra i pacchetti keep-alive"
+msgstr "Sekuntien väli keep-alive-paketeissa"
 
 #: gnome-connection-manager.glade:1403
 msgid ""
@@ -944,38 +943,38 @@ msgid ""
 "1: min\n"
 "9: max"
 msgstr ""
-"Livello di compressione:\n"
-"vuoto: compressione predefinita\n"
-"1: minimo\n"
-"9: massimo"
+"Pakkaustaso: \n"
+"tyhjä: oletuspakkaus\n"
+"1: min\n"
+"9: maks"
 
 #: gnome-connection-manager.glade:1418
 msgid "Extra arguments to pass to command line"
-msgstr "Argomenti aggiuntivi da passare alla riga di comando"
+msgstr "Komentoriville välitettävät lisäargumentit"
 
 #: gnome-connection-manager.glade:1457
 msgid "Properties"
-msgstr "Proprietà"
+msgstr "Ominaisuudet"
 
 #: gnome-connection-manager.glade:1480
 msgid "Dynamic"
-msgstr "Dinamico"
+msgstr "Dynaaminen"
 
 #: gnome-connection-manager.glade:1484
 msgid "Create dynamic port forwarding"
-msgstr "Crea forwarding di porta dinamico"
+msgstr "Luo dynaaminen portinvälitys"
 
 #: gnome-connection-manager.glade:1498
 msgid "Local Port"
-msgstr "Porta locale"
+msgstr "Paikallinen portti"
 
 #: gnome-connection-manager.glade:1510
 msgid "Remote Host"
-msgstr "Host remoto"
+msgstr "Etäisäntä"
 
 #: gnome-connection-manager.glade:1522
 msgid "Remote Port"
-msgstr "Porta remota"
+msgstr "Etäportti"
 
 #: gnome-connection-manager.glade:1545
 msgid "localhost"
@@ -983,59 +982,59 @@ msgstr "localhost"
 
 #: gnome-connection-manager.glade:1693
 msgid "Port forwarding"
-msgstr "Forwarding di porta"
+msgstr "Portinvälitys"
 
 #: gnome-connection-manager.glade:1707
 msgid "Send commands after login"
-msgstr "Invia comandi dopo l'accesso"
+msgstr "Lähetä komennot kirjautumisen jälkeen"
 
 #: gnome-connection-manager.glade:1724
 msgid ""
 "<span size='smaller'>Use ##D=milliseconds to add a delay.\n"
 "Ex: ##D=1000</span>"
 msgstr ""
-"<span size='smaller'>Usa ##D=millisecondi per aggiungere un ritardo.\n"
-"Es: ##D=1000</span>"
+"<span size='smaller'>Käytä ##D=millisekuntia viiveen lisäämiseksi.\n"
+"Esim: ##D=1000</span>"
 
 #: gnome-connection-manager.glade:1761
 msgid "Commands"
-msgstr "Comandi"
+msgstr "Komennot"
 
 #: gnome-connection-manager.glade:1888
 msgid "Key sequences"
-msgstr "Sequenze di tasti"
+msgstr "Näppäinsekvenssit"
 
 #: gnome-connection-manager.glade:1906
 msgid "Backspace:"
-msgstr "Backspace:"
+msgstr "Askelpalautin:"
 
 #: gnome-connection-manager.glade:1918
 msgid "Delete:"
-msgstr "Canc:"
+msgstr "Delete:"
 
 #: gnome-connection-manager.glade:1952
 msgid "Automatic"
-msgstr "Automatico"
+msgstr "Automaattinen"
 
 #: gnome-connection-manager.glade:1953
 msgid "ASCII Backspace \t[Ctrl+H 0x08]"
-msgstr "Backspace ASCII \t[Ctrl+H 0x08]"
+msgstr "ASCII-askelpalautin \t[Ctrl+H 0x08]"
 
 #: gnome-connection-manager.glade:1954
 msgid "ASCII Delete    \t[Ctrl+? 0x7F]"
-msgstr "Canc ASCII      \t[Ctrl+? 0x7F]"
+msgstr "ASCII Delete    \t[Ctrl+? 0x7F]"
 
 #: gnome-connection-manager.glade:1955
 msgid "Delete Sequence \t[@7]"
-msgstr "Sequenza Canc \t[@7]"
+msgstr "Delete-sekvenssi \t[@7]"
 
 #: gnome-connection-manager.glade:1956
 msgid "TTY Erase"
-msgstr "Cancellazione TTY"
+msgstr "TTY-pyyhintä"
 
 #: gnome-connection-manager.glade:1987
 msgid "Colors and Keys"
-msgstr "Colori e tasti"
+msgstr "Värit ja näppäimet"
 
 #: gnome-connection-manager.glade:2006
 msgid "Gnome Connection Manager"
@@ -1043,92 +1042,91 @@ msgstr "Gnome Connection Manager"
 
 #: gnome-connection-manager.glade:2024
 msgid "_File"
-msgstr "_File"
+msgstr "_Tiedosto"
 
 #: gnome-connection-manager.glade:2034
 msgid "Save active console buffer to file"
-msgstr "Salva il buffer della console attiva su file"
+msgstr "Tallenna aktiivisen konsolin puskuri tiedostoon"
 
 #: gnome-connection-manager.glade:2035
 msgid "Save buffer as"
-msgstr "Salva buffer come"
+msgstr "Tallenna puskuri nimellä"
 
 #: gnome-connection-manager.glade:2044
 msgid "Import server list from file"
-msgstr "Importa elenco server da file"
+msgstr "Tuo palvelinlista tiedostosta"
 
 #: gnome-connection-manager.glade:2045
 msgid "_Import servers"
-msgstr "_Importa server"
+msgstr "_Tuo palvelimet"
 
 #: gnome-connection-manager.glade:2054
 msgid "Export server list to file"
-msgstr "Esporta elenco server su file"
+msgstr "Vie palvelinlista tiedostoon"
 
 #: gnome-connection-manager.glade:2055
 msgid "_Export servers"
-msgstr "_Esporta server"
+msgstr "_Vie palvelimet"
 
 #: gnome-connection-manager.glade:2072
 msgid "Import from Proxmox"
-msgstr "Importa da Proxmox"
+msgstr "Tuo Proxmoxista"
 
 #: gnome-connection-manager.glade:2086
 msgid "_Quit"
-msgstr "_Esci"
+msgstr "_Lopeta"
 
 #: gnome-connection-manager.glade:2099
 msgid "_Edit"
-msgstr "_Modifica"
+msgstr "_Muokkaa"
 
 #: gnome-connection-manager.glade:2193
 msgid "_View"
-msgstr "_Visualizza"
+msgstr "_Näytä"
 
 #: gnome-connection-manager.glade:2203
 msgid "Show Toolbar"
-msgstr "Mostra barra degli strumenti"
+msgstr "Näytä työkalupalkki"
 
 #: gnome-connection-manager.glade:2212
 msgid "Show Panel"
-msgstr "Mostra pannello"
+msgstr "Näytä paneeli"
 
 #: gnome-connection-manager.glade:2225
 msgid "_Servers"
-msgstr "_Server"
+msgstr "_Palvelimet"
 
 #: gnome-connection-manager.glade:2239
 msgid "_Help"
-msgstr "_Aiuto"
+msgstr "_Ohje"
 
 #: gnome-connection-manager.glade:2249
 msgid "_About"
-msgstr "I_nformazioni"
+msgstr "_Tietoja"
 
 #: gnome-connection-manager.glade:2273
 msgid "Open local console"
-msgstr "Apri console locale"
+msgstr "Avaa paikallinen konsoli"
 
 #: gnome-connection-manager.glade:2289
 msgid "Connect to selected host or all hosts in selected group"
-msgstr ""
-"Connetti all'host selezionato o a tutti gli host nel gruppo selezionato"
+msgstr "Yhdistä valittuun isäntään tai valitun ryhmän kaikkiin isäntiin"
 
 #: gnome-connection-manager.glade:2305
 msgid "Add new host"
-msgstr "Aggiungi nuovo host"
+msgstr "Lisää uusi isäntä"
 
 #: gnome-connection-manager.glade:2321
 msgid "Edit hosts properties"
-msgstr "Modifica proprietà degli host"
+msgstr "Muokkaa isäntien ominaisuuksia"
 
 #: gnome-connection-manager.glade:2337
 msgid "Remove selected host"
-msgstr "Rimuovi host selezionato"
+msgstr "Poista valittu isäntä"
 
 #: gnome-connection-manager.glade:2363
 msgid "Split console horizontally"
-msgstr "Divide la console orizzontalmente"
+msgstr "Jaa konsoli vaakasuunnassa"
 
 #: gnome-connection-manager.glade:2364
 msgid "__glade_unnamed_28"
@@ -1136,7 +1134,7 @@ msgstr "__glade_unnamed_28"
 
 #: gnome-connection-manager.glade:2378
 msgid "Split console vertically"
-msgstr "Divide la console verticalmente"
+msgstr "Jaa konsoli pystysuunnassa"
 
 #: gnome-connection-manager.glade:2379
 msgid "__glade_unnamed_29"
@@ -1144,7 +1142,7 @@ msgstr "__glade_unnamed_29"
 
 #: gnome-connection-manager.glade:2393
 msgid "Unsplit all consoles"
-msgstr "Annulla la divisione di tutte le console"
+msgstr "Poista kaikkien konsolien jako"
 
 #: gnome-connection-manager.glade:2394
 msgid "__glade_unnamed_30"
@@ -1164,16 +1162,16 @@ msgstr "__glade_unnamed_37"
 
 #: gnome-connection-manager.glade:2499
 msgid "Send commands to several hosts at the same time"
-msgstr "Invia comandi a più host contemporaneamente"
+msgstr "Lähetä komennot useille isännille samanaikaisesti"
 
 #: gnome-connection-manager.glade:2567
 msgid "label"
-msgstr "etichetta"
+msgstr "nimike"
 
 #: gnome-connection-manager.glade:2574
 msgid "page 1"
-msgstr "pagina 1"
+msgstr "sivu 1"
 
 #: gnome-connection-manager.glade:2593
 msgid "page 2"
-msgstr "pagina 2"
+msgstr "sivu 2"
