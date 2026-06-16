@@ -1,15 +1,17 @@
-# Czech translation for gnome-connection-manager
-# Copyright (C) 2026
-# This file is distributed under the same license as the gnome-connection-manager package.
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: gnome-connection-manager\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-06-11 22:14+0200\n"
-"PO-Revision-Date: 2026-06-11 22:14+0200\n"
-"Last-Translator: \n"
-"Language-Team: Czech\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
 "Language: cs_CZ\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -56,7 +58,7 @@ msgstr "Odpojit"
 #: gnome_connection_manager.py:993 gnome_connection_manager.py:1516
 #: gnome_connection_manager.py:1683 gnome_connection_manager.py:1949
 msgid "xfreerdp options:"
-msgstr "Možnosti xfreerdp:"
+msgstr "Volby xfreerdp:"
 
 #: gnome_connection_manager.py:1002
 msgid "xfreerdp log:"
@@ -65,7 +67,7 @@ msgstr "Protokol xfreerdp:"
 #: gnome_connection_manager.py:1062 gnome_connection_manager.py:1296
 #: gnome_connection_manager.py:1587 gnome_connection_manager.py:1742
 msgid "xfreerdp not found"
-msgstr "xfreerdp nenalezeno"
+msgstr "xfreerdp nebyl nalezen"
 
 #: gnome_connection_manager.py:1064 gnome_connection_manager.py:1298
 #: gnome_connection_manager.py:1589 gnome_connection_manager.py:1744
@@ -76,13 +78,13 @@ msgstr "Připojování…"
 #: gnome_connection_manager.py:1090 gnome_connection_manager.py:1236
 #: gnome_connection_manager.py:1601 gnome_connection_manager.py:1756
 msgid "Session ended"
-msgstr "Relace ukončena"
+msgstr "Relace skončila"
 
 #: gnome_connection_manager.py:1092 gnome_connection_manager.py:1309
 #: gnome_connection_manager.py:1599 gnome_connection_manager.py:1754
 #, python-brace-format
 msgid "Ended (code {rc})"
-msgstr "Ukončeno (kód {rc})"
+msgstr "Skončeno (kód {rc})"
 
 #: gnome_connection_manager.py:1838
 msgid "Serial port:"
@@ -90,11 +92,11 @@ msgstr "Sériový port:"
 
 #: gnome_connection_manager.py:1842
 msgid "Ex : /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
-msgstr "Příklad: /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
+msgstr "Např.: /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
 
 #: gnome_connection_manager.py:1846
 msgid "Baud rate:"
-msgstr "Přenosová rychlost:"
+msgstr "Rychlost (baud):"
 
 #: gnome_connection_manager.py:1864
 msgid "Transmission speed in baud"
@@ -114,7 +116,7 @@ msgstr "Datové bity:"
 
 #: gnome_connection_manager.py:1905
 msgid "Number of data bits per byte (8 = standard)"
-msgstr "Počet datových bitů na bajt (8 = standard)"
+msgstr "Počet datových bitů na byte (8 = standard)"
 
 #: gnome_connection_manager.py:1910
 msgid "Parity:"
@@ -122,7 +124,7 @@ msgstr "Parita:"
 
 #: gnome_connection_manager.py:1916
 msgid "Parity bit: None (N) = standard, Even (E), Odd (O)"
-msgstr "Paritní bit: Žádný (N) = standard, Sudý (E), Lichý (O)"
+msgstr "Bit parity: Žádná (N) = standard, Sudá (E), Lichá (O)"
 
 #: gnome_connection_manager.py:1921
 msgid "Stop bits:"
@@ -145,9 +147,9 @@ msgid ""
 "  DSR/DTR = legacy hardware"
 msgstr ""
 "Řízení toku:\n"
-"  Žádné = standardní konzola\n"
-"  XON/XOFF = softwarové (Ctrl-Q/Ctrl-S)\n"
-"  RTS/CTS = hardwarové (plný kabel)\n"
+"  Žádné = standardní konzole\n"
+"  XON/XOFF = software (Ctrl-Q/Ctrl-S)\n"
+"  RTS/CTS = hardware (plný kabel)\n"
 "  DSR/DTR = starší hardware"
 
 #: gnome_connection_manager.py:1955
@@ -156,9 +158,9 @@ msgid ""
 "Ex: --logfile /tmp/serial.log  (picocom)\n"
 "     -o -x  (minicom)"
 msgstr ""
-"Další parametry předané přímo binárnímu souboru\n"
-"Příklad: --logfile /tmp/serial.log  (picocom)\n"
-"          -o -x  (minicom)"
+"Další volby předané přímo programu\n"
+"Např.: --logfile /tmp/serial.log  (picocom)\n"
+"     -o -x  (minicom)"
 
 #: gnome_connection_manager.py:2923 gnome_connection_manager.py:2972
 #: gnome_connection_manager.py:3536 gnome-connection-manager.glade:2064
@@ -167,7 +169,7 @@ msgstr "Importovat z libvirt"
 
 #: gnome_connection_manager.py:2941
 msgid "Hypervisor SSH user:"
-msgstr "Uživatel SSH hypervizoru:"
+msgstr "SSH uživatel hypervizoru:"
 
 #: gnome_connection_manager.py:2949
 msgid "Hypervisors (virt-manager / dconf):"
@@ -175,15 +177,15 @@ msgstr "Hypervizory (virt-manager / dconf):"
 
 #: gnome_connection_manager.py:2960
 msgid "Detected libvirt URI"
-msgstr "Zjištěné URI libvirt"
+msgstr "Detekováno URI libvirt"
 
 #: gnome_connection_manager.py:2977
 msgid ""
-"Ex: 192.168.105.41 | root@192.168.105.41 | qemu+ssh://root@192.168.105.41/"
-"system"
+"Ex: 192.168.105.41 | root@192.168.105.41 | "
+"qemu+ssh://root@192.168.105.41/system"
 msgstr ""
-"Příklad: 192.168.105.41 | root@192.168.105.41 | qemu+ssh://root@192.168.105.41/"
-"system"
+"Např.: 192.168.105.41 | root@192.168.105.41 | "
+"qemu+ssh://root@192.168.105.41/system"
 
 #: gnome_connection_manager.py:2981 gnome-connection-manager.glade:2307
 msgid "Add"
@@ -198,7 +200,7 @@ msgid ""
 "SSH  (ProxyJump -J via hypervisor when VM IP is known, otherwise hypervisor "
 "shell + -t ssh user@vm)"
 msgstr ""
-"SSH  (ProxyJump -J přes hypervizor, je-li IP virtuálního stroje známa, jinak shell "
+"SSH  (ProxyJump -J přes hypervizor, pokud je známa IP VM, jinak shell "
 "hypervizoru + -t ssh uživatel@vm)"
 
 #: gnome_connection_manager.py:3002
@@ -206,7 +208,7 @@ msgid ""
 "SPICE  (virt-viewer --connect qemu+ssh://... vm - SSH tunnel handled "
 "automatically)"
 msgstr ""
-"SPICE  (virt-viewer --connect qemu+ssh://... vm - SSH tunel je zpracován "
+"SPICE  (virt-viewer --connect qemu+ssh://... vm - tunel SSH je zpracován "
 "automaticky)"
 
 #: gnome_connection_manager.py:3008
@@ -214,12 +216,12 @@ msgid ""
 "RDP  (probe port 3389 from hypervisor via nc/nmap - skipped if port is "
 "closed)"
 msgstr ""
-"RDP  (sondování portu 3389 z hypervizoru přes nc/nmap - přeskočeno, pokud je "
-"port uzavřen)"
+"RDP  (kontrola portu 3389 z hypervizoru pomocí nc/nmap - vynecháno, pokud je"
+" port uzavřen)"
 
 #: gnome_connection_manager.py:3036
 msgid "🔍  Scan hypervisors"
-msgstr "🔍  Prohledat hypervizory"
+msgstr "🔍  Skenovat hypervizory"
 
 #: gnome_connection_manager.py:3060
 msgid "Overwrite existing connections with the same name and protocol"
@@ -227,11 +229,11 @@ msgstr "Přepsat existující připojení se stejným názvem a protokolem"
 
 #: gnome_connection_manager.py:3067
 msgid "✓ Check all"
-msgstr "✓ Zaškrtnout vše"
+msgstr "✓ Vybrat vše"
 
 #: gnome_connection_manager.py:3069
 msgid "✗ Uncheck all"
-msgstr "✗ Odškrtnout vše"
+msgstr "✗ Zrušit výběr"
 
 #: gnome_connection_manager.py:3103
 msgid "Proto"
@@ -270,8 +272,8 @@ msgid ""
 "No URI found in dconf (virt-manager not configured?).\n"
 "Add your URIs manually below."
 msgstr ""
-"Nenalezeno žádné URI v dconf (není virt-manager nakonfigurován?).\n"
-"Přidejte svá URI ručně níže."
+"V dconf nebylo nalezeno žádné URI (virt-manager není nakonfigurován?).\n"
+"Přidejte své URI ručně níže."
 
 #: gnome_connection_manager.py:3266
 msgid "Invalid libvirt target."
@@ -279,7 +281,7 @@ msgstr "Neplatný cíl libvirt."
 
 #: gnome_connection_manager.py:3358
 msgid "No URI selected."
-msgstr "Žádné URI není vybráno."
+msgstr "Není vybráno žádné URI."
 
 #: gnome_connection_manager.py:3370 gnome_connection_manager.py:3665
 msgid "No connection type selected."
@@ -287,7 +289,7 @@ msgstr "Není vybrán žádný typ připojení."
 
 #: gnome_connection_manager.py:3452
 msgid "🔄  Rescan"
-msgstr "🔄  Znovu prohledat"
+msgstr "🔄  Znovu skenovat"
 
 #: gnome_connection_manager.py:3512
 msgid "No connection to import (all already exist or none selected)."
@@ -299,15 +301,15 @@ msgstr "✓ Importováno"
 
 #: gnome_connection_manager.py:3537
 msgid "🔍  Scan Proxmox hosts"
-msgstr "🔍  Prohledat hostitele Proxmox"
+msgstr "🔍  Skenovat hostitele Proxmox"
 
 #: gnome_connection_manager.py:3538
 msgid "Detected Proxmox targets (dconf):"
-msgstr "Zjištěné cíle Proxmox (dconf):"
+msgstr "Detekované cíle Proxmox (dconf):"
 
 #: gnome_connection_manager.py:3539
 msgid "Detected Proxmox target"
-msgstr "Zjištěný cíl Proxmox"
+msgstr "Detekovaný cíl Proxmox"
 
 #: gnome_connection_manager.py:3540
 msgid "Add a Proxmox target:"
@@ -315,7 +317,7 @@ msgstr "Přidat cíl Proxmox:"
 
 #: gnome_connection_manager.py:3542
 msgid "Ex: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
-msgstr "Příklad: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
+msgstr "Např.: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
 
 #: gnome_connection_manager.py:3545
 msgid "SPICE  (not available here: Proxmox requires API ticket/proxy)"
@@ -326,8 +328,8 @@ msgid ""
 "No SSH URI found in dconf.\n"
 "Enter an IP/host below and click Add."
 msgstr ""
-"Nenalezeno žádné SSH URI v dconf.\n"
-"Zadejte IP/hostitele níže a klikněte na Přidat."
+"V dconf nebylo nalezeno žádné SSH URI.\n"
+"Zadejte níže IP/hostitele a klikněte na Přidat."
 
 #: gnome_connection_manager.py:3623
 msgid "Invalid Proxmox target."
@@ -335,7 +337,7 @@ msgstr "Neplatný cíl Proxmox."
 
 #: gnome_connection_manager.py:3653
 msgid "No Proxmox target selected."
-msgstr "Žádný cíl Proxmox není vybrán."
+msgstr "Není vybrán žádný cíl Proxmox."
 
 #: gnome_connection_manager.py:3723
 msgid ""
@@ -343,9 +345,9 @@ msgid ""
 "File format: <tt>[serial_templates]</tt> in <tt>gcm.conf</tt>\n"
 "<tt>My device = 9600,n,n,8,1</tt>  (baud,flow,parity,bits,stop)</i>"
 msgstr ""
-"<i>Dvakrát klikněte na buňku pro úpravu.\n"
+"<i>Dvojitým kliknutím na buňku ji upravíte.\n"
 "Formát souboru: <tt>[serial_templates]</tt> v <tt>gcm.conf</tt>\n"
-"<tt>Moje zařízení = 9600,n,n,8,1</tt>  (baud,tok,parita,bity,stop)</i>"
+"<tt>Moje zařízení = 9600,n,n,8,1</tt>  (rychlost,řízení toku,parita,bity,stop)</i>"
 
 #: gnome_connection_manager.py:3740
 msgid "Template name"
@@ -353,7 +355,7 @@ msgstr "Název šablony"
 
 #: gnome_connection_manager.py:3741
 msgid "Baud rate"
-msgstr "Přenosová rychlost"
+msgstr "Rychlost (baud)"
 
 #: gnome_connection_manager.py:3742
 msgid "Flow"
@@ -393,7 +395,7 @@ msgstr "Nová šablona"
 
 #: gnome_connection_manager.py:3858
 msgid "Default SSH user (VMs):"
-msgstr "Výchozí uživatel SSH (VM):"
+msgstr "Výchozí SSH uživatel (VM):"
 
 #: gnome_connection_manager.py:3876
 msgid "Libvirt"
@@ -413,7 +415,9 @@ msgstr "Zadejte nový název"
 
 #: gnome_connection_manager.py:4498
 msgid "Continuous log mode is active and cannot be disabled per tab."
-msgstr "Režim průběžného protokolování je aktivní a nelze jej zakázat pro jednotlivé záložky."
+msgstr ""
+"Režim nepřetržitého protokolování je aktivní a nelze jej vypnout pro "
+"jednotlivé záložky."
 
 #: gnome_connection_manager.py:4520 gnome-connection-manager.glade:2109
 msgid "Copy"
@@ -438,27 +442,27 @@ msgstr "Kopírovat vše"
 
 #: gnome_connection_manager.py:4545
 msgid "Save buffer to file"
-msgstr "Uložit vyrovnávací paměť do souboru"
+msgstr "Uložit buffer do souboru"
 
 #: gnome_connection_manager.py:4550 gnome_connection_manager.py:4684
 msgid "Split H"
-msgstr "Rozdělit vodorovně"
+msgstr "Rozdělit H"
 
 #: gnome_connection_manager.py:4555 gnome_connection_manager.py:4689
 msgid "Split V"
-msgstr "Rozdělit svisle"
+msgstr "Rozdělit V"
 
 #: gnome_connection_manager.py:4564 gnome_connection_manager.py:4657
 msgid "Reset console"
-msgstr "Resetovat konzolu"
+msgstr "Resetovat konzoli"
 
 #: gnome_connection_manager.py:4569 gnome_connection_manager.py:4663
 msgid "Reset and Clear console"
-msgstr "Resetovat a vymazat konzolu"
+msgstr "Resetovat a vymazat konzoli"
 
-#: gnome_connection_manager.py:4574 gnome_connection_manager.py:4679
+#: gnome_connection_manager.py:4574 gnome_connection_manager.py:4674
 msgid "Clone console"
-msgstr "Klonovat konzolu"
+msgstr "Klonovat konzoli"
 
 #: gnome_connection_manager.py:4579 gnome_connection_manager.py:4679
 msgid "Enable logging"
@@ -467,7 +471,7 @@ msgstr "Povolit protokolování"
 #: gnome_connection_manager.py:4584 gnome_connection_manager.py:7975
 #: gnome_connection_manager.py:8598 gnome_connection_manager.py:8681
 msgid "Close console"
-msgstr "Zavřít konzolu"
+msgstr "Zavřít konzoli"
 
 #: gnome_connection_manager.py:4596 gnome-connection-manager.glade:2160
 msgid "Custom commands"
@@ -511,7 +515,7 @@ msgstr "Žádný hostitel nebyl importován."
 
 #: gnome_connection_manager.py:4880 gnome_connection_manager.py:4944
 msgid "No new host (duplicates ignored)."
-msgstr "Žádný nový hostitel (duplikáty ignorovány)."
+msgstr "Žádný nový hostitel (duplicity ignorovány)."
 
 #: gnome_connection_manager.py:5283
 msgid "Can't open log file for writting"
@@ -535,11 +539,11 @@ msgstr "Nelze otevřít soubor pro zápis"
 
 #: gnome_connection_manager.py:6338
 msgid "There are"
-msgstr "Existuje"
+msgstr "Je otevřeno"
 
 #: gnome_connection_manager.py:6340
 msgid "open consoles, exit anyway?"
-msgstr "otevřených konzol, přesto ukončit?"
+msgstr "otevřených konzolí, přesto ukončit?"
 
 #: gnome_connection_manager.py:6375
 msgid "Import Servers"
@@ -575,11 +579,11 @@ msgstr "Opravdu chcete odebrat všechny hostitele ve skupině"
 
 #: gnome_connection_manager.py:6839
 msgid "No open consoles"
-msgstr "Žádné otevřené konzoly"
+msgstr "Žádné otevřené konzole"
 
 #: gnome_connection_manager.py:7221 gnome-connection-manager.glade:2275
 msgid "Local"
-msgstr "Lokální"
+msgstr "Místní"
 
 #: gnome_connection_manager.py:7223 gnome_connection_manager.py:8390
 #: gnome-connection-manager.glade:1051
@@ -618,7 +622,7 @@ msgstr "Zadejte vzdáleného hostitele"
 
 #: gnome_connection_manager.py:7789
 msgid "Local port already assigned"
-msgstr "Lokální port je již přiřazen"
+msgstr "Místní port je již přiřazen"
 
 #: gnome_connection_manager.py:7953
 msgid "Word separator"
@@ -626,7 +630,7 @@ msgstr "Oddělovač slov"
 
 #: gnome_connection_manager.py:7954
 msgid "Buffer size"
-msgstr "Velikost vyrovnávací paměti"
+msgstr "Velikost bufferu"
 
 #: gnome_connection_manager.py:7955
 msgid "Transparency"
@@ -642,15 +646,15 @@ msgstr "Cesta k protokolům"
 
 #: gnome_connection_manager.py:7958
 msgid "Continuous VTE tab logging mode"
-msgstr "Průběžný režim protokolování záložek VTE"
+msgstr "Režim nepřetržitého protokolování záložek VTE"
 
 #: gnome_connection_manager.py:7959
 msgid "Open local console on startup"
-msgstr "Otevřít lokální konzolu při spuštění"
+msgstr "Otevřít místní konzoli při spuštění"
 
 #: gnome_connection_manager.py:7960
 msgid "Log local console sessions"
-msgstr "Protokolovat relace lokální konzoly"
+msgstr "Protokolovat relace místní konzole"
 
 #: gnome_connection_manager.py:7961
 msgid "Paste on right click"
@@ -662,15 +666,15 @@ msgstr "Kopírovat výběr do schránky"
 
 #: gnome_connection_manager.py:7963
 msgid "Confirm on close console"
-msgstr "Potvrdit při zavření konzoly"
+msgstr "Potvrdit při zavření konzole"
 
 #: gnome_connection_manager.py:7965
 msgid "Confirm on close console with middle click"
-msgstr "Potvrdit při zavření konzoly středním tlačítkem"
+msgstr "Potvrdit při zavření konzole prostředním kliknutím"
 
 #: gnome_connection_manager.py:7970
 msgid "Circle around tabs when going to the previous/next tab"
-msgstr "Procházet záložky v cyklu při přechodu na předchozí/další záložku"
+msgstr "Cyklovat mezi záložkami při přechodu na předchozí/další záložku"
 
 #: gnome_connection_manager.py:7978
 msgid "Never"
@@ -690,19 +694,19 @@ msgstr "Potvrdit při ukončení"
 
 #: gnome_connection_manager.py:7981
 msgid "Check updates"
-msgstr "Kontrolovat aktualizace"
+msgstr "Zkontrolovat aktualizace"
 
 #: gnome_connection_manager.py:7983
 msgid "Disable alternating stripes in hosts window"
-msgstr "Zakázat střídavé pruhy v okně hostitelů"
+msgstr "Zakázat střídající se pruhy v okně hostitelů"
 
 #: gnome_connection_manager.py:7987
 msgid "Dynamic title"
-msgstr "Dynamický název"
+msgstr "Dynamický titulek"
 
 #: gnome_connection_manager.py:7988
 msgid "Title"
-msgstr "Název"
+msgstr "Titulek"
 
 #: gnome_connection_manager.py:8021
 msgid "Action"
@@ -710,7 +714,7 @@ msgstr "Akce"
 
 #: gnome_connection_manager.py:8030 gnome_connection_manager.py:8048
 msgid "Shortcut"
-msgstr "Zkratka"
+msgstr "Klávesová zkratka"
 
 #: gnome_connection_manager.py:8040
 msgid "Command"
@@ -734,7 +738,7 @@ msgid ""
 "A new version is available: https://github.com/MathildeDec/gnome-connection-"
 "manager/releases"
 msgstr ""
-"K dispozici je nová verze: https://github.com/MathildeDec/gnome-connection-"
+"Je k dispozici nová verze: https://github.com/MathildeDec/gnome-connection-"
 "manager/releases"
 
 #: gnome-connection-manager.glade:10
@@ -742,12 +746,12 @@ msgid ""
 "This is gnome-connection-manager, written and maintained by\n"
 "Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - Chile"
 msgstr ""
-"Toto je gnome-connection-manager, napsán a udržován\n"
+"Toto je gnome-connection-manager, napsaný a udržovaný\n"
 "Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - Chile"
 
 #: gnome-connection-manager.glade:12
 msgid "A simple ssh connection manager for gnome"
-msgstr "Jednoduchý správce SSH připojení pro GNOME"
+msgstr "Jednoduchý správce SSH připojení pro Gnome"
 
 #: gnome-connection-manager.glade:14
 msgid "Project's Homepage"
@@ -755,7 +759,7 @@ msgstr "Domovská stránka projektu"
 
 #: gnome-connection-manager.glade:47 gnome-connection-manager.glade:2501
 msgid "Cluster"
-msgstr "Cluster"
+msgstr "Klastr"
 
 #: gnome-connection-manager.glade:68
 msgid "Close"
@@ -763,11 +767,11 @@ msgstr "Zavřít"
 
 #: gnome-connection-manager.glade:99
 msgid "Select consoles to use:"
-msgstr "Vyberte konzoly k použití:"
+msgstr "Vyberte konzole k použití:"
 
 #: gnome-connection-manager.glade:238
 msgid "Clear selection"
-msgstr "Zrušit výběr"
+msgstr "Vymazat výběr"
 
 #: gnome-connection-manager.glade:298
 msgid "Invert selection"
@@ -775,7 +779,7 @@ msgstr "Invertovat výběr"
 
 #: gnome-connection-manager.glade:352
 msgid "Enter the text to send to consoles: "
-msgstr "Zadejte text k odeslání do konzol: "
+msgstr "Zadejte text k odeslání do konzolí: "
 
 #: gnome-connection-manager.glade:387
 msgid "<span size=\"smaller\">CTRL+UP/CTRL+DOWN for history</span>"
@@ -812,7 +816,7 @@ msgstr "Výchozí barvy"
 
 #: gnome-connection-manager.glade:745
 msgid "Use default fixed width font"
-msgstr "Použít výchozí neproporcionální písmo"
+msgstr "Použít výchozí písmo s pevnou šířkou"
 
 #: gnome-connection-manager.glade:768
 msgid "Font:"
@@ -868,7 +872,7 @@ msgstr "Soukromý klíč"
 
 #: gnome-connection-manager.glade:1122
 msgid "To create subgroups use format group1/group2/group3"
-msgstr "Pro vytváření podskupin použijte formát skupina1/skupina2/skupina3"
+msgstr "K vytvoření podskupin použijte formát skupina1/skupina2/skupina3"
 
 #: gnome-connection-manager.glade:1176
 msgid "ssh"
@@ -896,11 +900,11 @@ msgstr "sériový"
 
 #: gnome-connection-manager.glade:1182
 msgid "local"
-msgstr "lokální"
+msgstr "místní"
 
 #: gnome-connection-manager.glade:1217
 msgid "Leave blank for passwordless/public key authentication"
-msgstr "Ponechte prázdné pro autentizaci bez hesla / veřejným klíčem"
+msgstr "Nechte prázdné pro autentizaci bez hesla / s veřejným klíčem"
 
 #: gnome-connection-manager.glade:1271
 msgid "Keep-Alive"
@@ -908,11 +912,11 @@ msgstr "Keep-Alive"
 
 #: gnome-connection-manager.glade:1289
 msgid "X11 Forwarding"
-msgstr "Přesměrování X11"
+msgstr "Předávání X11"
 
 #: gnome-connection-manager.glade:1301
 msgid "Agent Forwarding"
-msgstr "Přesměrování agenta"
+msgstr "Předávání agenta"
 
 #: gnome-connection-manager.glade:1310
 msgid "Compression"
@@ -928,7 +932,7 @@ msgstr "Povolit protokolování"
 
 #: gnome-connection-manager.glade:1363
 msgid "Seconds between keep-alive packets"
-msgstr "Sekundy mezi keep-alive pakety"
+msgstr "Sekundy mezi pakety keep-alive"
 
 #: gnome-connection-manager.glade:1403
 msgid ""
@@ -937,14 +941,14 @@ msgid ""
 "1: min\n"
 "9: max"
 msgstr ""
-"Úroveň komprese: \n"
+"Úroveň komprese:\n"
 "prázdné: výchozí komprese\n"
 "1: min\n"
 "9: max"
 
 #: gnome-connection-manager.glade:1418
 msgid "Extra arguments to pass to command line"
-msgstr "Další argumenty předané příkazovému řádku"
+msgstr "Další argumenty pro příkazový řádek"
 
 #: gnome-connection-manager.glade:1457
 msgid "Properties"
@@ -952,15 +956,15 @@ msgstr "Vlastnosti"
 
 #: gnome-connection-manager.glade:1480
 msgid "Dynamic"
-msgstr "Dynamické"
+msgstr "Dynamický"
 
 #: gnome-connection-manager.glade:1484
 msgid "Create dynamic port forwarding"
-msgstr "Vytvořit dynamické přesměrování portů"
+msgstr "Vytvořit dynamické předávání portů"
 
 #: gnome-connection-manager.glade:1498
 msgid "Local Port"
-msgstr "Lokální port"
+msgstr "Místní port"
 
 #: gnome-connection-manager.glade:1510
 msgid "Remote Host"
@@ -976,7 +980,7 @@ msgstr "localhost"
 
 #: gnome-connection-manager.glade:1693
 msgid "Port forwarding"
-msgstr "Přesměrování portů"
+msgstr "Předávání portů"
 
 #: gnome-connection-manager.glade:1707
 msgid "Send commands after login"
@@ -987,8 +991,8 @@ msgid ""
 "<span size='smaller'>Use ##D=milliseconds to add a delay.\n"
 "Ex: ##D=1000</span>"
 msgstr ""
-"<span size='smaller'>Použijte ##D=milisekundy pro přidání zpoždění.\n"
-"Příklad: ##D=1000</span>"
+"<span size='smaller'>Použijte ##D=milisekundy k přidání zpoždění.\n"
+"Např.: ##D=1000</span>"
 
 #: gnome-connection-manager.glade:1761
 msgid "Commands"
@@ -1024,7 +1028,7 @@ msgstr "Sekvence Delete \t[@7]"
 
 #: gnome-connection-manager.glade:1956
 msgid "TTY Erase"
-msgstr "TTY Erase"
+msgstr "Vymazání TTY"
 
 #: gnome-connection-manager.glade:1987
 msgid "Colors and Keys"
@@ -1032,7 +1036,7 @@ msgstr "Barvy a klávesy"
 
 #: gnome-connection-manager.glade:2006
 msgid "Gnome Connection Manager"
-msgstr "Správce připojení GNOME"
+msgstr "Gnome Connection Manager"
 
 #: gnome-connection-manager.glade:2024
 msgid "_File"
@@ -1040,11 +1044,11 @@ msgstr "_Soubor"
 
 #: gnome-connection-manager.glade:2034
 msgid "Save active console buffer to file"
-msgstr "Uložit aktivní vyrovnávací paměť konzoly do souboru"
+msgstr "Uložit buffer aktivní konzole do souboru"
 
 #: gnome-connection-manager.glade:2035
 msgid "Save buffer as"
-msgstr "Uložit vyrovnávací paměť jako"
+msgstr "Uložit buffer jako"
 
 #: gnome-connection-manager.glade:2044
 msgid "Import server list from file"
@@ -1068,7 +1072,7 @@ msgstr "Importovat z Proxmox"
 
 #: gnome-connection-manager.glade:2086
 msgid "_Quit"
-msgstr "_Ukončit"
+msgstr "_Konec"
 
 #: gnome-connection-manager.glade:2099
 msgid "_Edit"
@@ -1080,7 +1084,7 @@ msgstr "_Zobrazit"
 
 #: gnome-connection-manager.glade:2203
 msgid "Show Toolbar"
-msgstr "Zobrazit panel nástrojů"
+msgstr "Zobrazit nástrojovou lištu"
 
 #: gnome-connection-manager.glade:2212
 msgid "Show Panel"
@@ -1096,15 +1100,16 @@ msgstr "_Nápověda"
 
 #: gnome-connection-manager.glade:2249
 msgid "_About"
-msgstr "_O aplikaci"
+msgstr "O _aplikaci"
 
 #: gnome-connection-manager.glade:2273
 msgid "Open local console"
-msgstr "Otevřít lokální konzolu"
+msgstr "Otevřít místní konzoli"
 
 #: gnome-connection-manager.glade:2289
 msgid "Connect to selected host or all hosts in selected group"
-msgstr "Připojit k vybranému hostiteli nebo všem hostitelům ve vybrané skupině"
+msgstr ""
+"Připojit k vybranému hostiteli nebo všem hostitelům ve vybrané skupině"
 
 #: gnome-connection-manager.glade:2305
 msgid "Add new host"
@@ -1120,7 +1125,7 @@ msgstr "Odebrat vybraného hostitele"
 
 #: gnome-connection-manager.glade:2363
 msgid "Split console horizontally"
-msgstr "Rozdělit konzolu vodorovně"
+msgstr "Rozdělit konzoli horizontálně"
 
 #: gnome-connection-manager.glade:2364
 msgid "__glade_unnamed_28"
@@ -1128,7 +1133,7 @@ msgstr "__glade_unnamed_28"
 
 #: gnome-connection-manager.glade:2378
 msgid "Split console vertically"
-msgstr "Rozdělit konzolu svisle"
+msgstr "Rozdělit konzoli vertikálně"
 
 #: gnome-connection-manager.glade:2379
 msgid "__glade_unnamed_29"
@@ -1136,7 +1141,7 @@ msgstr "__glade_unnamed_29"
 
 #: gnome-connection-manager.glade:2393
 msgid "Unsplit all consoles"
-msgstr "Zrušit rozdělení všech konzol"
+msgstr "Zrušit rozdělení všech konzolí"
 
 #: gnome-connection-manager.glade:2394
 msgid "__glade_unnamed_30"
@@ -1156,7 +1161,7 @@ msgstr "__glade_unnamed_37"
 
 #: gnome-connection-manager.glade:2499
 msgid "Send commands to several hosts at the same time"
-msgstr "Odeslat příkazy na více hostitelů současně"
+msgstr "Odeslat příkazy více hostitelům najednou"
 
 #: gnome-connection-manager.glade:2567
 msgid "label"
@@ -1164,8 +1169,8 @@ msgstr "popisek"
 
 #: gnome-connection-manager.glade:2574
 msgid "page 1"
-msgstr "strana 1"
+msgstr "stránka 1"
 
 #: gnome-connection-manager.glade:2593
 msgid "page 2"
-msgstr "strana 2"
+msgstr "stránka 2"

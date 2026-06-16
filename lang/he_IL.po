@@ -12,7 +12,7 @@ msgstr ""
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: it_IT\n"
+"Language: he_IL\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -22,29 +22,29 @@ msgstr ""
 #: gnome_connection_manager.py:6243 gnome_connection_manager.py:8726
 #: gnome-connection-manager.glade:424 gnome-connection-manager.glade:967
 msgid "Cancel"
-msgstr "Annulla"
+msgstr "ביטול"
 
 #: gnome_connection_manager.py:581 gnome_connection_manager.py:6244
 msgid "Save"
-msgstr "Salva"
+msgstr "שמור"
 
 #: gnome_connection_manager.py:581 gnome_connection_manager.py:6372
 #: gnome_connection_manager.py:7862
 msgid "Open"
-msgstr "Apri"
+msgstr "פתח"
 
 #: gnome_connection_manager.py:978 gnome_connection_manager.py:1181
 #: gnome_connection_manager.py:1501 gnome_connection_manager.py:1668
 #: gnome_connection_manager.py:3032
 msgid "Waiting…"
-msgstr "In attesa…"
+msgstr "מתבצע…"
 
 #: gnome_connection_manager.py:982 gnome_connection_manager.py:1185
 #: gnome_connection_manager.py:1223 gnome_connection_manager.py:1505
 #: gnome_connection_manager.py:1672 gnome_connection_manager.py:1962
 #: gnome_connection_manager.py:4605 gnome-connection-manager.glade:2291
 msgid "Connect"
-msgstr "Connetti"
+msgstr "התחבר"
 
 #: gnome_connection_manager.py:986 gnome_connection_manager.py:1077
 #: gnome_connection_manager.py:1190 gnome_connection_manager.py:1323
@@ -53,90 +53,90 @@ msgstr "Connetti"
 #: gnome_connection_manager.py:1964 gnome_connection_manager.py:1990
 #: gnome_connection_manager.py:2156
 msgid "Disconnect"
-msgstr "Disconnetti"
+msgstr "התנתק"
 
 #: gnome_connection_manager.py:993 gnome_connection_manager.py:1516
 #: gnome_connection_manager.py:1683 gnome_connection_manager.py:1949
 msgid "xfreerdp options:"
-msgstr "Opzioni xfreerdp:"
+msgstr "אפשרויות xfreerdp:"
 
 #: gnome_connection_manager.py:1002
 msgid "xfreerdp log:"
-msgstr "Log xfreerdp:"
+msgstr "יומן xfreerdp:"
 
 #: gnome_connection_manager.py:1062 gnome_connection_manager.py:1296
 #: gnome_connection_manager.py:1587 gnome_connection_manager.py:1742
 msgid "xfreerdp not found"
-msgstr "xfreerdp non trovato"
+msgstr "xfreerdp לא נמצא"
 
 #: gnome_connection_manager.py:1064 gnome_connection_manager.py:1298
 #: gnome_connection_manager.py:1589 gnome_connection_manager.py:1744
 #: gnome_connection_manager.py:2141
 msgid "Connecting…"
-msgstr "Connessione…"
+msgstr "מתחבר…"
 
 #: gnome_connection_manager.py:1090 gnome_connection_manager.py:1236
 #: gnome_connection_manager.py:1601 gnome_connection_manager.py:1756
 msgid "Session ended"
-msgstr "Sessione terminata"
+msgstr "הסשן הסתיים"
 
 #: gnome_connection_manager.py:1092 gnome_connection_manager.py:1309
 #: gnome_connection_manager.py:1599 gnome_connection_manager.py:1754
 #, python-brace-format
 msgid "Ended (code {rc})"
-msgstr "Terminato (codice {rc})"
+msgstr "הסתיים (קוד {rc})"
 
 #: gnome_connection_manager.py:1838
 msgid "Serial port:"
-msgstr "Porta seriale:"
+msgstr "פורט סיריאלי:"
 
 #: gnome_connection_manager.py:1842
 msgid "Ex : /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
-msgstr "Es: /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
+msgstr "לדוגמה: /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"
 
 #: gnome_connection_manager.py:1846
 msgid "Baud rate:"
-msgstr "Velocità (baud):"
+msgstr "קצב באוד:"
 
 #: gnome_connection_manager.py:1864
 msgid "Transmission speed in baud"
-msgstr "Velocità di trasmissione in baud"
+msgstr "מהירות שידור בבאוד"
 
 #: gnome_connection_manager.py:1869
 msgid "Template:"
-msgstr "Modello:"
+msgstr "תבנית:"
 
 #: gnome_connection_manager.py:1875
 msgid "Load vendor-recommended serial settings"
-msgstr "Carica le impostazioni seriali consigliate dal produttore"
+msgstr "טען הגדרות סיריאליות מומלצות על ידי היצרן"
 
 #: gnome_connection_manager.py:1899
 msgid "Data bits:"
-msgstr "Bit di dati:"
+msgstr "סיביות מידע:"
 
 #: gnome_connection_manager.py:1905
 msgid "Number of data bits per byte (8 = standard)"
-msgstr "Numero di bit di dati per byte (8 = standard)"
+msgstr "מספר סיביות מידע לבית (8 = סטנדרטי)"
 
 #: gnome_connection_manager.py:1910
 msgid "Parity:"
-msgstr "Parità:"
+msgstr "זוגיות:"
 
 #: gnome_connection_manager.py:1916
 msgid "Parity bit: None (N) = standard, Even (E), Odd (O)"
-msgstr "Bit di parità: Nessuno (N) = standard, Pari (E), Dispari (O)"
+msgstr "סיבית זוגיות: ללא (N) = סטנדרטי, זוגי (E), אי-זוגי (O)"
 
 #: gnome_connection_manager.py:1921
 msgid "Stop bits:"
-msgstr "Bit di stop:"
+msgstr "סיביות עצירה:"
 
 #: gnome_connection_manager.py:1927
 msgid "Stop bits: 1 = standard, 2 = RS-485 / legacy hardware"
-msgstr "Bit di stop: 1 = standard, 2 = RS-485 / hardware legacy"
+msgstr "סיביות עצירה: 1 = סטנדרטי, 2 = RS-485 / חומרה ישנה"
 
 #: gnome_connection_manager.py:1932
 msgid "Flow control:"
-msgstr "Controllo di flusso:"
+msgstr "בקרת זרימה:"
 
 #: gnome_connection_manager.py:1939
 msgid ""
@@ -146,11 +146,11 @@ msgid ""
 "  RTS/CTS = hardware (full cable)\n"
 "  DSR/DTR = legacy hardware"
 msgstr ""
-"Controllo di flusso:\n"
-"  Nessuno = console standard\n"
-"  XON/XOFF = software (Ctrl-Q/Ctrl-S)\n"
-"  RTS/CTS = hardware (cavo completo)\n"
-"  DSR/DTR = hardware legacy"
+"בקרת זרימה:\n"
+"  ללא = מסוף סטנדרטי\n"
+"  XON/XOFF = תוכנה (Ctrl-Q/Ctrl-S)\n"
+"  RTS/CTS = חומרה (כבל מלא)\n"
+"  DSR/DTR = חומרה ישנה"
 
 #: gnome_connection_manager.py:1955
 msgid ""
@@ -158,188 +158,184 @@ msgid ""
 "Ex: --logfile /tmp/serial.log  (picocom)\n"
 "     -o -x  (minicom)"
 msgstr ""
-"Opzioni aggiuntive passate al binario\n"
-"Es: --logfile /tmp/serial.log  (picocom)\n"
+"אפשרויות גולמיות נוספות המועברות לתוכנה\n"
+"לדוגמה: --logfile /tmp/serial.log  (picocom)\n"
 "     -o -x  (minicom)"
 
 #: gnome_connection_manager.py:2923 gnome_connection_manager.py:2972
 #: gnome_connection_manager.py:3536 gnome-connection-manager.glade:2064
 msgid "Import from libvirt"
-msgstr "Importa da libvirt"
+msgstr "ייבא מ-libvirt"
 
 #: gnome_connection_manager.py:2941
 msgid "Hypervisor SSH user:"
-msgstr "Utente SSH dell'hypervisor:"
+msgstr "משתמש SSH של ההיפרוויזר:"
 
 #: gnome_connection_manager.py:2949
 msgid "Hypervisors (virt-manager / dconf):"
-msgstr "Hypervisor (virt-manager / dconf):"
+msgstr "היפרוויזורים (virt-manager / dconf):"
 
 #: gnome_connection_manager.py:2960
 msgid "Detected libvirt URI"
-msgstr "URI libvirt rilevato"
+msgstr "זוהה URI של libvirt"
 
 #: gnome_connection_manager.py:2977
 msgid ""
 "Ex: 192.168.105.41 | root@192.168.105.41 | "
 "qemu+ssh://root@192.168.105.41/system"
 msgstr ""
-"Es: 192.168.105.41 | root@192.168.105.41 | "
+"לדוגמה: 192.168.105.41 | root@192.168.105.41 | "
 "qemu+ssh://root@192.168.105.41/system"
 
 #: gnome_connection_manager.py:2981 gnome-connection-manager.glade:2307
 msgid "Add"
-msgstr "Aggiungi"
+msgstr "הוסף"
 
 #: gnome_connection_manager.py:2988
 msgid "<b>Connection types to import:</b>"
-msgstr "<b>Tipi di connessione da importare:</b>"
+msgstr "<b>סוגי חיבורים לייבוא:</b>"
 
 #: gnome_connection_manager.py:2995
 msgid ""
 "SSH  (ProxyJump -J via hypervisor when VM IP is known, otherwise hypervisor "
 "shell + -t ssh user@vm)"
 msgstr ""
-"SSH  (ProxyJump -J tramite l'hypervisor se l'IP della VM è noto, altrimenti "
-"shell dell'hypervisor + -t ssh user@vm)"
+"SSH  (ProxyJump -J דרך ההיפרוויזר כאשר כתובת ה-IP של ה-VM ידועה, אחרת מעטפת "
+"היפרוויזר + -t ssh user@vm)"
 
 #: gnome_connection_manager.py:3002
 msgid ""
 "SPICE  (virt-viewer --connect qemu+ssh://... vm - SSH tunnel handled "
 "automatically)"
 msgstr ""
-"SPICE  (virt-viewer --connect qemu+ssh://... vm - il tunnel SSH viene "
-"gestito automaticamente)"
+"SPICE  (virt-viewer --connect qemu+ssh://... vm - מנהרת SSH מנוהלת אוטומטית)"
 
 #: gnome_connection_manager.py:3008
 msgid ""
 "RDP  (probe port 3389 from hypervisor via nc/nmap - skipped if port is "
 "closed)"
 msgstr ""
-"RDP  (verifica la porta 3389 dall'hypervisor tramite nc/nmap - saltato se la"
-" porta è chiusa)"
+"RDP  (בדיקת פורט 3389 מההיפרוויזר באמצעות nc/nmap - מדולג אם הפורט סגור)"
 
 #: gnome_connection_manager.py:3036
 msgid "🔍  Scan hypervisors"
-msgstr "🔍  Scansiona hypervisor"
+msgstr "🔍  סרוק היפרוויזורים"
 
 #: gnome_connection_manager.py:3060
 msgid "Overwrite existing connections with the same name and protocol"
-msgstr "Sovrascrivi le connessioni esistenti con lo stesso nome e protocollo"
+msgstr "שכתב חיבורים קיימים בעלי שם ופרוטוקול זהים"
 
 #: gnome_connection_manager.py:3067
 msgid "✓ Check all"
-msgstr "✓ Seleziona tutto"
+msgstr "✓ סמן הכל"
 
 #: gnome_connection_manager.py:3069
 msgid "✗ Uncheck all"
-msgstr "✗ Deseleziona tutto"
+msgstr "✗ הסר סימון מהכל"
 
 #: gnome_connection_manager.py:3103
 msgid "Proto"
-msgstr "Proto"
+msgstr "פרוטוקול"
 
 #: gnome_connection_manager.py:3114
 msgid "VM name"
-msgstr "Nome VM"
+msgstr "שם VM"
 
 #: gnome_connection_manager.py:3126 gnome-connection-manager.glade:1015
 msgid "Group"
-msgstr "Gruppo"
+msgstr "קבוצה"
 
 #: gnome_connection_manager.py:3137
 msgid "IP / Host"
-msgstr "IP / Host"
+msgstr "IP / מארח"
 
 #: gnome_connection_manager.py:3148
 msgid "State"
-msgstr "Stato"
+msgstr "מצב"
 
 #: gnome_connection_manager.py:3159
 msgid "Imported"
-msgstr "Importato"
+msgstr "יובא"
 
 #: gnome_connection_manager.py:3177
 msgid "⬇  Import selected"
-msgstr "⬇  Importa selezionati"
+msgstr "⬇  ייבא נבחרים"
 
 #: gnome_connection_manager.py:3187
 msgid "✕  Close"
-msgstr "✕  Chiudi"
+msgstr "✕  סגור"
 
 #: gnome_connection_manager.py:3211
 msgid ""
 "No URI found in dconf (virt-manager not configured?).\n"
 "Add your URIs manually below."
 msgstr ""
-"Nessuna URI trovata in dconf (virt-manager non configurato?).\n"
-"Aggiungi le tue URI manualmente di seguito."
+"לא נמצא URI ב-dconf (אולי virt-manager לא הוגדר?).\n"
+"הוסף את ה-URI שלך באופן ידני למטה."
 
 #: gnome_connection_manager.py:3266
 msgid "Invalid libvirt target."
-msgstr "Destinazione libvirt non valida."
+msgstr "מטרת libvirt לא חוקית."
 
 #: gnome_connection_manager.py:3358
 msgid "No URI selected."
-msgstr "Nessuna URI selezionata."
+msgstr "לא נבחר URI."
 
 #: gnome_connection_manager.py:3370 gnome_connection_manager.py:3665
 msgid "No connection type selected."
-msgstr "Nessun tipo di connessione selezionato."
+msgstr "לא נבחר סוג חיבור."
 
 #: gnome_connection_manager.py:3452
 msgid "🔄  Rescan"
-msgstr "🔄  Rianalizza"
+msgstr "🔄  סרוק מחדש"
 
 #: gnome_connection_manager.py:3512
 msgid "No connection to import (all already exist or none selected)."
-msgstr ""
-"Nessuna connessione da importare (tutte già esistenti o nessuna "
-"selezionata)."
+msgstr "אין חיבור לייבוא (הכל קיים כבר או שלא נבחר כלום)."
 
 #: gnome_connection_manager.py:3518
 msgid "✓ Imported"
-msgstr "✓ Importato"
+msgstr "✓ יובא"
 
 #: gnome_connection_manager.py:3537
 msgid "🔍  Scan Proxmox hosts"
-msgstr "🔍  Scansiona host Proxmox"
+msgstr "🔍  סרוק מארחי Proxmox"
 
 #: gnome_connection_manager.py:3538
 msgid "Detected Proxmox targets (dconf):"
-msgstr "Destinazioni Proxmox rilevate (dconf):"
+msgstr "מטרות Proxmox שזוהו (dconf):"
 
 #: gnome_connection_manager.py:3539
 msgid "Detected Proxmox target"
-msgstr "Destinazione Proxmox rilevata"
+msgstr "מטרת Proxmox שזוהתה"
 
 #: gnome_connection_manager.py:3540
 msgid "Add a Proxmox target:"
-msgstr "Aggiungi una destinazione Proxmox:"
+msgstr "הוסף מטרת Proxmox:"
 
 #: gnome_connection_manager.py:3542
 msgid "Ex: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
-msgstr "Es: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
+msgstr "לדוגמה: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22"
 
 #: gnome_connection_manager.py:3545
 msgid "SPICE  (not available here: Proxmox requires API ticket/proxy)"
-msgstr "SPICE  (non disponibile qui: Proxmox richiede ticket/proxy API)"
+msgstr "SPICE  (לא זמין כאן: Proxmox דורש כרטיס API/פרוקסי)"
 
 #: gnome_connection_manager.py:3571
 msgid ""
 "No SSH URI found in dconf.\n"
 "Enter an IP/host below and click Add."
 msgstr ""
-"Nessuna URI SSH trovata in dconf.\n"
-"Inserisci un IP/host di seguito e clicca su Aggiungi."
+"לא נמצא URI של SSH ב-dconf.\n"
+"הזן IP/מארח למטה ולחץ על הוסף."
 
 #: gnome_connection_manager.py:3623
 msgid "Invalid Proxmox target."
-msgstr "Destinazione Proxmox non valida."
+msgstr "מטרת Proxmox לא חוקית."
 
 #: gnome_connection_manager.py:3653
 msgid "No Proxmox target selected."
-msgstr "Nessuna destinazione Proxmox selezionata."
+msgstr "לא נבחרה מטרת Proxmox."
 
 #: gnome_connection_manager.py:3723
 msgid ""
@@ -347,57 +343,57 @@ msgid ""
 "File format: <tt>[serial_templates]</tt> in <tt>gcm.conf</tt>\n"
 "<tt>My device = 9600,n,n,8,1</tt>  (baud,flow,parity,bits,stop)</i>"
 msgstr ""
-"<i>Fai doppio clic su una cella per modificarla.\n"
-"Formato file: <tt>[serial_templates]</tt> in <tt>gcm.conf</tt>\n"
-"<tt>Mio dispositivo = 9600,n,n,8,1</tt>  (baud,flusso,parità,bit,stop)</i>"
+"<i>לחץ פעמיים על תא לעריכה.\n"
+"פורמט קובץ: <tt>[serial_templates]</tt> ב-<tt>gcm.conf</tt>\n"
+"<tt>המכשיר שלי = 9600,n,n,8,1</tt>  (באוד,זרימה,זוגיות,סיביות,עצירה)</i>"
 
 #: gnome_connection_manager.py:3740
 msgid "Template name"
-msgstr "Nome modello"
+msgstr "שם תבנית"
 
 #: gnome_connection_manager.py:3741
 msgid "Baud rate"
-msgstr "Velocità (baud)"
+msgstr "קצב באוד"
 
 #: gnome_connection_manager.py:3742
 msgid "Flow"
-msgstr "Flusso"
+msgstr "זרימה"
 
 #: gnome_connection_manager.py:3743
 msgid "Parity"
-msgstr "Parità"
+msgstr "זוגיות"
 
 #: gnome_connection_manager.py:3744
 msgid "Data bits"
-msgstr "Bit di dati"
+msgstr "סיביות מידע"
 
 #: gnome_connection_manager.py:3745
 msgid "Stop"
-msgstr "Stop"
+msgstr "עצירה"
 
 #: gnome_connection_manager.py:3781
 msgid "+ Add"
-msgstr "+ Aggiungi"
+msgstr "+ הוסף"
 
 #: gnome_connection_manager.py:3783
 msgid "− Remove"
-msgstr "− Rimuovi"
+msgstr "− הסר"
 
 #: gnome_connection_manager.py:3785
 msgid "Restore defaults"
-msgstr "Ripristina impostazioni predefinite"
+msgstr "שחזר ברירות מחדל"
 
 #: gnome_connection_manager.py:3791
 msgid "Serial Templates"
-msgstr "Modelli seriali"
+msgstr "תבניות סיריאליות"
 
 #: gnome_connection_manager.py:3805
 msgid "New template"
-msgstr "Nuovo modello"
+msgstr "תבנית חדשה"
 
 #: gnome_connection_manager.py:3858
 msgid "Default SSH user (VMs):"
-msgstr "Utente SSH predefinito (VM):"
+msgstr "משתמש SSH כברירת מחדל (VM):"
 
 #: gnome_connection_manager.py:3876
 msgid "Libvirt"
@@ -405,238 +401,236 @@ msgstr "Libvirt"
 
 #: gnome_connection_manager.py:3993 gnome_connection_manager.py:4313
 msgid "search..."
-msgstr "cerca..."
+msgstr "חיפוש..."
 
 #: gnome_connection_manager.py:4428 gnome_connection_manager.py:4652
 msgid "Rename tab"
-msgstr "Rinomina scheda"
+msgstr "שנה שם לשונית"
 
 #: gnome_connection_manager.py:4429
 msgid "Enter new name"
-msgstr "Inserisci nuovo nome"
+msgstr "הזן שם חדש"
 
 #: gnome_connection_manager.py:4498
 msgid "Continuous log mode is active and cannot be disabled per tab."
-msgstr ""
-"La modalità di registrazione continua è attiva e non può essere disabilitata"
-" per singola scheda."
+msgstr "מצב יומן רציף פעיל ואינו ניתן להשבתה עבור לשונית בודדת."
 
 #: gnome_connection_manager.py:4520 gnome-connection-manager.glade:2109
 msgid "Copy"
-msgstr "Copia"
+msgstr "העתק"
 
 #: gnome_connection_manager.py:4525 gnome-connection-manager.glade:2118
 msgid "Paste"
-msgstr "Incolla"
+msgstr "הדבק"
 
 #: gnome_connection_manager.py:4530 gnome-connection-manager.glade:2127
 msgid "Copy and Paste"
-msgstr "Copia e incolla"
+msgstr "העתק והדבק"
 
 #: gnome_connection_manager.py:4535 gnome-connection-manager.glade:178
 #: gnome-connection-manager.glade:2136
 msgid "Select all"
-msgstr "Seleziona tutto"
+msgstr "בחר הכל"
 
 #: gnome_connection_manager.py:4540 gnome-connection-manager.glade:2145
 msgid "Copy all"
-msgstr "Copia tutto"
+msgstr "העתק הכל"
 
 #: gnome_connection_manager.py:4545
 msgid "Save buffer to file"
-msgstr "Salva il buffer su file"
+msgstr "שמור מאגר לקובץ"
 
 #: gnome_connection_manager.py:4550 gnome_connection_manager.py:4684
 msgid "Split H"
-msgstr "Divisione O"
+msgstr "פצל אופקית"
 
 #: gnome_connection_manager.py:4555 gnome_connection_manager.py:4689
 msgid "Split V"
-msgstr "Divisione V"
+msgstr "פצל אנכית"
 
 #: gnome_connection_manager.py:4564 gnome_connection_manager.py:4657
 msgid "Reset console"
-msgstr "Reimposta console"
+msgstr "אפס מסוף"
 
 #: gnome_connection_manager.py:4569 gnome_connection_manager.py:4663
 msgid "Reset and Clear console"
-msgstr "Reimposta e pulisci console"
+msgstr "אפס ונקה מסוף"
 
 #: gnome_connection_manager.py:4574 gnome_connection_manager.py:4674
 msgid "Clone console"
-msgstr "Clona console"
+msgstr "שכפל מסוף"
 
 #: gnome_connection_manager.py:4579 gnome_connection_manager.py:4679
 msgid "Enable logging"
-msgstr "Attiva registrazione"
+msgstr "אפשר רישום יומן"
 
 #: gnome_connection_manager.py:4584 gnome_connection_manager.py:7975
 #: gnome_connection_manager.py:8598 gnome_connection_manager.py:8681
 msgid "Close console"
-msgstr "Chiudi console"
+msgstr "סגור מסוף"
 
 #: gnome_connection_manager.py:4596 gnome-connection-manager.glade:2160
 msgid "Custom commands"
-msgstr "Comandi personalizzati"
+msgstr "פקודות מותאמות אישית"
 
 #: gnome_connection_manager.py:4610
 msgid "Copy Address"
-msgstr "Copia indirizzo"
+msgstr "העתק כתובת"
 
 #: gnome_connection_manager.py:4615
 msgid "Add Host"
-msgstr "Aggiungi host"
+msgstr "הוסף מארח"
 
 #: gnome_connection_manager.py:4620 gnome-connection-manager.glade:2323
 msgid "Edit"
-msgstr "Modifica"
+msgstr "ערוך"
 
 #: gnome_connection_manager.py:4625 gnome-connection-manager.glade:2339
 msgid "Remove"
-msgstr "Rimuovi"
+msgstr "הסר"
 
 #: gnome_connection_manager.py:4630
 msgid "Duplicate Host"
-msgstr "Duplica host"
+msgstr "שכפל מארח"
 
 #: gnome_connection_manager.py:4639
 msgid "Expand all"
-msgstr "Espandi tutto"
+msgstr "הרחב הכל"
 
 #: gnome_connection_manager.py:4644
 msgid "Collapse all"
-msgstr "Comprimi tutto"
+msgstr "כווץ הכל"
 
 #: gnome_connection_manager.py:4669
 msgid "Reconnect to host"
-msgstr "Riconnetti all'host"
+msgstr "התחבר מחדש למארח"
 
 #: gnome_connection_manager.py:4830 gnome_connection_manager.py:4894
 msgid "No host imported."
-msgstr "Nessun host importato."
+msgstr "לא יובא מארח."
 
 #: gnome_connection_manager.py:4880 gnome_connection_manager.py:4944
 msgid "No new host (duplicates ignored)."
-msgstr "Nessun nuovo host (duplicati ignorati)."
+msgstr "אין מארח חדש (כפילויות הוסרו)."
 
 #: gnome_connection_manager.py:5283
 msgid "Can't open log file for writting"
-msgstr "Impossibile aprire il file di log in scrittura"
+msgstr "לא ניתן לפתוח קובץ יומן לכתיבה"
 
 #: gnome_connection_manager.py:5533
 msgid "Error connecting to server"
-msgstr "Errore di connessione al server"
+msgstr "שגיאה בהתחברות לשרת"
 
 #: gnome_connection_manager.py:5745
 msgid "Invalid entry in configuration file"
-msgstr "Voce non valida nel file di configurazione"
+msgstr "ערך לא חוקי בקובץ ההגדרות"
 
 #: gnome_connection_manager.py:6239 gnome_connection_manager.py:6426
 msgid "Save as"
-msgstr "Salva come"
+msgstr "שמור בשם"
 
 #: gnome_connection_manager.py:6271
 msgid "Can't open file for writting"
-msgstr "Impossibile aprire il file in scrittura"
+msgstr "לא ניתן לפתוח קובץ לכתיבה"
 
 #: gnome_connection_manager.py:6338
 msgid "There are"
-msgstr "Ci sono"
+msgstr "יש"
 
 #: gnome_connection_manager.py:6340
 msgid "open consoles, exit anyway?"
-msgstr "console aperte, uscire comunque?"
+msgstr "מסופים פתוחים, לצאת בכל זאת?"
 
 #: gnome_connection_manager.py:6375
 msgid "Import Servers"
-msgstr "Importa server"
+msgstr "ייבא שרתים"
 
 #: gnome_connection_manager.py:6375 gnome_connection_manager.py:6430
 msgid "Enter password"
-msgstr "Inserisci password"
+msgstr "הזן סיסמה"
 
 #: gnome_connection_manager.py:6387
 msgid "Invalid password"
-msgstr "Password non valida"
+msgstr "סיסמה לא חוקית"
 
 #: gnome_connection_manager.py:6391
 msgid "Server list will be overwritten, continue?"
-msgstr "L'elenco dei server verrà sovrascritto, continuare?"
+msgstr "רשימת השרתים תישכתב, להמשיך?"
 
 #: gnome_connection_manager.py:6407 gnome_connection_manager.py:6452
 msgid "Invalid file"
-msgstr "File non valido"
+msgstr "קובץ לא חוקי"
 
 #: gnome_connection_manager.py:6430
 msgid "Export Servers"
-msgstr "Esporta server"
+msgstr "ייצא שרתים"
 
 #: gnome_connection_manager.py:6661
 msgid "Do you really want to remove host"
-msgstr "Vuoi davvero rimuovere l'host"
+msgstr "האם אתה בטוח שברצונך להסיר את המארח"
 
 #: gnome_connection_manager.py:6680
 msgid "Do you really want to remove all hosts in group"
-msgstr "Vuoi davvero rimuovere tutti gli host nel gruppo"
+msgstr "האם אתה בטוח שברצונך להסיר את כל המארחים בקבוצה"
 
 #: gnome_connection_manager.py:6839
 msgid "No open consoles"
-msgstr "Nessuna console aperta"
+msgstr "אין מסופים פתוחים"
 
 #: gnome_connection_manager.py:7221 gnome-connection-manager.glade:2275
 msgid "Local"
-msgstr "Locale"
+msgstr "מקומי"
 
 #: gnome_connection_manager.py:7223 gnome_connection_manager.py:8390
 #: gnome-connection-manager.glade:1051
 msgid "Host"
-msgstr "Host"
+msgstr "מארח"
 
 #: gnome_connection_manager.py:7225
 msgid "Remote"
-msgstr "Remoto"
+msgstr "מרוחק"
 
 #: gnome_connection_manager.py:7524
 msgid "Fields group, name and host are required"
-msgstr "I campi gruppo, nome e host sono obbligatori"
+msgstr "השדות קבוצה, שם ומארח הם שדות חובה"
 
 #: gnome_connection_manager.py:7528
 msgid "Invalid port"
-msgstr "Porta non valida"
+msgstr "פורט לא חוקי"
 
 #: gnome_connection_manager.py:7594 gnome_connection_manager.py:7614
 #: gnome_connection_manager.py:7633
 msgid "Host name"
-msgstr "Nome host"
+msgstr "שם מארח"
 
 #: gnome_connection_manager.py:7596 gnome_connection_manager.py:7616
 #: gnome_connection_manager.py:7635
 msgid "already exists for group"
-msgstr "esiste già per il gruppo"
+msgstr "קיים כבר עבור הקבוצה"
 
 #: gnome_connection_manager.py:7652
 msgid "Error saving host. Description"
-msgstr "Errore nel salvataggio dell'host. Descrizione"
+msgstr "שגיאה בשמירת המארח. תיאור"
 
 #: gnome_connection_manager.py:7784
 msgid "Enter remote host"
-msgstr "Inserisci host remoto"
+msgstr "הזן מארח מרוחק"
 
 #: gnome_connection_manager.py:7789
 msgid "Local port already assigned"
-msgstr "Porta locale già assegnata"
+msgstr "הפורט המקומי כבר הוקצה"
 
 #: gnome_connection_manager.py:7953
 msgid "Word separator"
-msgstr "Separatore di parole"
+msgstr "מפריד מילים"
 
 #: gnome_connection_manager.py:7954
 msgid "Buffer size"
-msgstr "Dimensione buffer"
+msgstr "גודל מאגר"
 
 #: gnome_connection_manager.py:7955
 msgid "Transparency"
-msgstr "Trasparenza"
+msgstr "שקיפות"
 
 #: gnome_connection_manager.py:7956 gnome-connection-manager.glade:1352
 msgid "TERM"
@@ -644,237 +638,237 @@ msgstr "TERM"
 
 #: gnome_connection_manager.py:7957
 msgid "Logs path"
-msgstr "Percorso log"
+msgstr "נתיב יומנים"
 
 #: gnome_connection_manager.py:7958
 msgid "Continuous VTE tab logging mode"
-msgstr "Modalità di registrazione continua delle schede VTE"
+msgstr "מצב רישום רציף של לשונית VTE"
 
 #: gnome_connection_manager.py:7959
 msgid "Open local console on startup"
-msgstr "Apri console locale all'avvio"
+msgstr "פתח מסוף מקומי בעת ההפעלה"
 
 #: gnome_connection_manager.py:7960
 msgid "Log local console sessions"
-msgstr "Registra le sessioni della console locale"
+msgstr "רשום ביומן את הפעלות המסוף המקומי"
 
 #: gnome_connection_manager.py:7961
 msgid "Paste on right click"
-msgstr "Incolla con il clic destro"
+msgstr "הדבק בלחיצה ימנית"
 
 #: gnome_connection_manager.py:7962
 msgid "Copy selection to clipboard"
-msgstr "Copia la selezione negli appunti"
+msgstr "העתק בחירה ללוח"
 
 #: gnome_connection_manager.py:7963
 msgid "Confirm on close console"
-msgstr "Conferma alla chiusura della console"
+msgstr "אשר בעת סגירת מסוף"
 
 #: gnome_connection_manager.py:7965
 msgid "Confirm on close console with middle click"
-msgstr "Conferma alla chiusura della console con il clic centrale"
+msgstr "אשר בעת סגירת מסוף בלחיצה אמצעית"
 
 #: gnome_connection_manager.py:7970
 msgid "Circle around tabs when going to the previous/next tab"
-msgstr "Ciclo tra le schede quando si passa alla scheda precedente/successiva"
+msgstr "עבור במעגל בין לשוניות כשעוברים ללשונית הקודמת/הבאה"
 
 #: gnome_connection_manager.py:7978
 msgid "Never"
-msgstr "Mai"
+msgstr "לעולם לא"
 
 #: gnome_connection_manager.py:7978
 msgid "Always"
-msgstr "Sempre"
+msgstr "תמיד"
 
 #: gnome_connection_manager.py:7978
 msgid "Only on clean exit"
-msgstr "Solo in caso di uscita normale"
+msgstr "רק ביציאה תקינה"
 
 #: gnome_connection_manager.py:7980
 msgid "Confirm on exit"
-msgstr "Conferma all'uscita"
+msgstr "אשר ביציאה"
 
 #: gnome_connection_manager.py:7981
 msgid "Check updates"
-msgstr "Controlla aggiornamenti"
+msgstr "בדוק עדכונים"
 
 #: gnome_connection_manager.py:7983
 msgid "Disable alternating stripes in hosts window"
-msgstr "Disattiva le righe alternate nella finestra degli host"
+msgstr "השבת פסים מתחלפים בחלון המארחים"
 
 #: gnome_connection_manager.py:7987
 msgid "Dynamic title"
-msgstr "Titolo dinamico"
+msgstr "כותרת דינמית"
 
 #: gnome_connection_manager.py:7988
 msgid "Title"
-msgstr "Titolo"
+msgstr "כותרת"
 
 #: gnome_connection_manager.py:8021
 msgid "Action"
-msgstr "Azione"
+msgstr "פעולה"
 
 #: gnome_connection_manager.py:8030 gnome_connection_manager.py:8048
 msgid "Shortcut"
-msgstr "Scorciatoia"
+msgstr "קיצור דרך"
 
 #: gnome_connection_manager.py:8040
 msgid "Command"
-msgstr "Comando"
+msgstr "פקודה"
 
 #: gnome_connection_manager.py:8324
 msgid "Select font"
-msgstr "Seleziona font"
+msgstr "בחר גופן"
 
 #: gnome_connection_manager.py:8388
 msgid "Activate"
-msgstr "Attiva"
+msgstr "הפעל"
 
 #: gnome_connection_manager.py:8719 gnome-connection-manager.glade:438
 #: gnome-connection-manager.glade:981
 msgid "OK"
-msgstr "OK"
+msgstr "אישור"
 
 #: gnome_connection_manager.py:8944
 msgid ""
 "A new version is available: https://github.com/MathildeDec/gnome-connection-"
 "manager/releases"
 msgstr ""
-"È disponibile una nuova versione: https://github.com/MathildeDec/gnome-"
-"connection-manager/releases"
+"גרסה חדשה זמינה: https://github.com/MathildeDec/gnome-connection-"
+"manager/releases"
 
 #: gnome-connection-manager.glade:10
 msgid ""
 "This is gnome-connection-manager, written and maintained by\n"
 "Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - Chile"
 msgstr ""
-"Questo è gnome-connection-manager, scritto e mantenuto da\n"
-"Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - Cile"
+"זהו gnome-connection-manager, נכתב ומתוחזק על ידי\n"
+"Copyright © 2012 Renzo Bertuzzi L. <kuthulu@gmail.com> - צ'ילה"
 
 #: gnome-connection-manager.glade:12
 msgid "A simple ssh connection manager for gnome"
-msgstr "Un semplice gestore di connessioni SSH per Gnome"
+msgstr "מנהל חיבורי ssh פשוט עבור Gnome"
 
 #: gnome-connection-manager.glade:14
 msgid "Project's Homepage"
-msgstr "Homepage del progetto"
+msgstr "דף הבית של הפרויקט"
 
 #: gnome-connection-manager.glade:47 gnome-connection-manager.glade:2501
 msgid "Cluster"
-msgstr "Cluster"
+msgstr "אשכול"
 
 #: gnome-connection-manager.glade:68
 msgid "Close"
-msgstr "Chiudi"
+msgstr "סגור"
 
 #: gnome-connection-manager.glade:99
 msgid "Select consoles to use:"
-msgstr "Seleziona le console da usare:"
+msgstr "בחר מסופים לשימוש:"
 
 #: gnome-connection-manager.glade:238
 msgid "Clear selection"
-msgstr "Annulla selezione"
+msgstr "נקה בחירה"
 
 #: gnome-connection-manager.glade:298
 msgid "Invert selection"
-msgstr "Inverti selezione"
+msgstr "הפוך בחירה"
 
 #: gnome-connection-manager.glade:352
 msgid "Enter the text to send to consoles: "
-msgstr "Inserisci il testo da inviare alle console: "
+msgstr "הזן את הטקסט לשליחה למסופים: "
 
 #: gnome-connection-manager.glade:387
 msgid "<span size=\"smaller\">CTRL+UP/CTRL+DOWN for history</span>"
-msgstr "<span size=\"smaller\">CTRL+SU/CTRL+GIÙ per la cronologia</span>"
+msgstr "<span size=\"smaller\">CTRL+מעלה/CTRL+מטה להיסטוריה</span>"
 
 #: gnome-connection-manager.glade:410 gnome-connection-manager.glade:2180
 #: gnome-connection-manager.glade:2418
 msgid "Settings"
-msgstr "Impostazioni"
+msgstr "הגדרות"
 
 #: gnome-connection-manager.glade:642
 msgid "General"
-msgstr "Generale"
+msgstr "כללי"
 
 #: gnome-connection-manager.glade:667 gnome-connection-manager.glade:1816
 msgid "Background color:"
-msgstr "Colore di sfondo:"
+msgstr "צבע רקע:"
 
 #: gnome-connection-manager.glade:684 gnome-connection-manager.glade:1804
 msgid "Foreground color:"
-msgstr "Colore primo piano:"
+msgstr "צבע חזית:"
 
 #: gnome-connection-manager.glade:700 gnome-connection-manager.glade:1843
 msgid "Select background color"
-msgstr "Seleziona colore di sfondo"
+msgstr "בחר צבע רקע"
 
 #: gnome-connection-manager.glade:716 gnome-connection-manager.glade:1829
 msgid "Select foreground color"
-msgstr "Seleziona colore primo piano"
+msgstr "בחר צבע חזית"
 
 #: gnome-connection-manager.glade:729 gnome-connection-manager.glade:1780
 msgid "Default colors"
-msgstr "Colori predefiniti"
+msgstr "צבעי ברירת מחדל"
 
 #: gnome-connection-manager.glade:745
 msgid "Use default fixed width font"
-msgstr "Usa il font a larghezza fissa predefinito"
+msgstr "השתמש בגופן ברירת מחדל ברוחב קבוע"
 
 #: gnome-connection-manager.glade:768
 msgid "Font:"
-msgstr "Font:"
+msgstr "גופן:"
 
 #: gnome-connection-manager.glade:822
 msgid "Colors"
-msgstr "Colori"
+msgstr "צבעים"
 
 #: gnome-connection-manager.glade:850
 msgid "Standard Commands"
-msgstr "Comandi standard"
+msgstr "פקודות סטנדרטיות"
 
 #: gnome-connection-manager.glade:895
 msgid "Custom Commands"
-msgstr "Comandi personalizzati"
+msgstr "פקודות מותאמות אישית"
 
 #: gnome-connection-manager.glade:934
 msgid "Shortcuts"
-msgstr "Scorciatoie"
+msgstr "קיצורי דרך"
 
 #: gnome-connection-manager.glade:953
 msgid "Edit Host"
-msgstr "Modifica host"
+msgstr "ערוך מארח"
 
 #: gnome-connection-manager.glade:1027
 msgid "Name"
-msgstr "Nome"
+msgstr "שם"
 
 #: gnome-connection-manager.glade:1039
 msgid "Description"
-msgstr "Descrizione"
+msgstr "תיאור"
 
 #: gnome-connection-manager.glade:1063
 msgid "Type"
-msgstr "Tipo"
+msgstr "סוג"
 
 #: gnome-connection-manager.glade:1075
 msgid "Port"
-msgstr "Porta"
+msgstr "פורט"
 
 #: gnome-connection-manager.glade:1087
 msgid "User"
-msgstr "Utente"
+msgstr "משתמש"
 
 #: gnome-connection-manager.glade:1099
 msgid "Password"
-msgstr "Password"
+msgstr "סיסמה"
 
 #: gnome-connection-manager.glade:1111
 msgid "Private key"
-msgstr "Chiave privata"
+msgstr "מפתח פרטי"
 
 #: gnome-connection-manager.glade:1122
 msgid "To create subgroups use format group1/group2/group3"
-msgstr "Per creare sottogruppi usa il formato gruppo1/gruppo2/gruppo3"
+msgstr "ליצירת תת-קבוצות השתמש בפורמט group1/group2/group3"
 
 #: gnome-connection-manager.glade:1176
 msgid "ssh"
@@ -898,16 +892,15 @@ msgstr "spice"
 
 #: gnome-connection-manager.glade:1181
 msgid "serial"
-msgstr "seriale"
+msgstr "סיריאלי"
 
 #: gnome-connection-manager.glade:1182
 msgid "local"
-msgstr "locale"
+msgstr "מקומי"
 
 #: gnome-connection-manager.glade:1217
 msgid "Leave blank for passwordless/public key authentication"
-msgstr ""
-"Lascia vuoto per l'autenticazione senza password / con chiave pubblica"
+msgstr "השאר ריק לאימות ללא סיסמה / עם מפתח ציבורי"
 
 #: gnome-connection-manager.glade:1271
 msgid "Keep-Alive"
@@ -915,27 +908,27 @@ msgstr "Keep-Alive"
 
 #: gnome-connection-manager.glade:1289
 msgid "X11 Forwarding"
-msgstr "Forwarding X11"
+msgstr "העברת X11"
 
 #: gnome-connection-manager.glade:1301
 msgid "Agent Forwarding"
-msgstr "Forwarding agente"
+msgstr "העברת סוכן"
 
 #: gnome-connection-manager.glade:1310
 msgid "Compression"
-msgstr "Compressione"
+msgstr "דחיסה"
 
 #: gnome-connection-manager.glade:1328
 msgid "Extra arguments"
-msgstr "Argomenti aggiuntivi"
+msgstr "ארגומנטים נוספים"
 
 #: gnome-connection-manager.glade:1340
 msgid "Enable Logging"
-msgstr "Attiva registrazione"
+msgstr "אפשר רישום יומן"
 
 #: gnome-connection-manager.glade:1363
 msgid "Seconds between keep-alive packets"
-msgstr "Secondi tra i pacchetti keep-alive"
+msgstr "שניות בין מנות keep-alive"
 
 #: gnome-connection-manager.glade:1403
 msgid ""
@@ -944,38 +937,38 @@ msgid ""
 "1: min\n"
 "9: max"
 msgstr ""
-"Livello di compressione:\n"
-"vuoto: compressione predefinita\n"
-"1: minimo\n"
-"9: massimo"
+"רמת דחיסה: \n"
+"ריק: דחיסת ברירת מחדל\n"
+"1: מינימום\n"
+"9: מקסימום"
 
 #: gnome-connection-manager.glade:1418
 msgid "Extra arguments to pass to command line"
-msgstr "Argomenti aggiuntivi da passare alla riga di comando"
+msgstr "ארגומנטים נוספים להעברה לשורת הפקודה"
 
 #: gnome-connection-manager.glade:1457
 msgid "Properties"
-msgstr "Proprietà"
+msgstr "מאפיינים"
 
 #: gnome-connection-manager.glade:1480
 msgid "Dynamic"
-msgstr "Dinamico"
+msgstr "דינמי"
 
 #: gnome-connection-manager.glade:1484
 msgid "Create dynamic port forwarding"
-msgstr "Crea forwarding di porta dinamico"
+msgstr "צור העברת פורט דינמית"
 
 #: gnome-connection-manager.glade:1498
 msgid "Local Port"
-msgstr "Porta locale"
+msgstr "פורט מקומי"
 
 #: gnome-connection-manager.glade:1510
 msgid "Remote Host"
-msgstr "Host remoto"
+msgstr "מארח מרוחק"
 
 #: gnome-connection-manager.glade:1522
 msgid "Remote Port"
-msgstr "Porta remota"
+msgstr "פורט מרוחק"
 
 #: gnome-connection-manager.glade:1545
 msgid "localhost"
@@ -983,27 +976,27 @@ msgstr "localhost"
 
 #: gnome-connection-manager.glade:1693
 msgid "Port forwarding"
-msgstr "Forwarding di porta"
+msgstr "העברת פורט"
 
 #: gnome-connection-manager.glade:1707
 msgid "Send commands after login"
-msgstr "Invia comandi dopo l'accesso"
+msgstr "שלח פקודות אחרי התחברות"
 
 #: gnome-connection-manager.glade:1724
 msgid ""
 "<span size='smaller'>Use ##D=milliseconds to add a delay.\n"
 "Ex: ##D=1000</span>"
 msgstr ""
-"<span size='smaller'>Usa ##D=millisecondi per aggiungere un ritardo.\n"
-"Es: ##D=1000</span>"
+"<span size='smaller'>השתמש ב-##D=מילישניות כדי להוסיף השהיה.\n"
+"לדוגמה: ##D=1000</span>"
 
 #: gnome-connection-manager.glade:1761
 msgid "Commands"
-msgstr "Comandi"
+msgstr "פקודות"
 
 #: gnome-connection-manager.glade:1888
 msgid "Key sequences"
-msgstr "Sequenze di tasti"
+msgstr "רצפי מקשים"
 
 #: gnome-connection-manager.glade:1906
 msgid "Backspace:"
@@ -1011,31 +1004,31 @@ msgstr "Backspace:"
 
 #: gnome-connection-manager.glade:1918
 msgid "Delete:"
-msgstr "Canc:"
+msgstr "Delete:"
 
 #: gnome-connection-manager.glade:1952
 msgid "Automatic"
-msgstr "Automatico"
+msgstr "אוטומטי"
 
 #: gnome-connection-manager.glade:1953
 msgid "ASCII Backspace \t[Ctrl+H 0x08]"
-msgstr "Backspace ASCII \t[Ctrl+H 0x08]"
+msgstr "ASCII Backspace \t[Ctrl+H 0x08]"
 
 #: gnome-connection-manager.glade:1954
 msgid "ASCII Delete    \t[Ctrl+? 0x7F]"
-msgstr "Canc ASCII      \t[Ctrl+? 0x7F]"
+msgstr "ASCII Delete    \t[Ctrl+? 0x7F]"
 
 #: gnome-connection-manager.glade:1955
 msgid "Delete Sequence \t[@7]"
-msgstr "Sequenza Canc \t[@7]"
+msgstr "רצף Delete \t[@7]"
 
 #: gnome-connection-manager.glade:1956
 msgid "TTY Erase"
-msgstr "Cancellazione TTY"
+msgstr "מחיקת TTY"
 
 #: gnome-connection-manager.glade:1987
 msgid "Colors and Keys"
-msgstr "Colori e tasti"
+msgstr "צבעים ומקשים"
 
 #: gnome-connection-manager.glade:2006
 msgid "Gnome Connection Manager"
@@ -1043,92 +1036,91 @@ msgstr "Gnome Connection Manager"
 
 #: gnome-connection-manager.glade:2024
 msgid "_File"
-msgstr "_File"
+msgstr "_קובץ"
 
 #: gnome-connection-manager.glade:2034
 msgid "Save active console buffer to file"
-msgstr "Salva il buffer della console attiva su file"
+msgstr "שמור מאגר של מסוף פעיל לקובץ"
 
 #: gnome-connection-manager.glade:2035
 msgid "Save buffer as"
-msgstr "Salva buffer come"
+msgstr "שמור מאגר בשם"
 
 #: gnome-connection-manager.glade:2044
 msgid "Import server list from file"
-msgstr "Importa elenco server da file"
+msgstr "ייבא רשימת שרתים מקובץ"
 
 #: gnome-connection-manager.glade:2045
 msgid "_Import servers"
-msgstr "_Importa server"
+msgstr "_ייבא שרתים"
 
 #: gnome-connection-manager.glade:2054
 msgid "Export server list to file"
-msgstr "Esporta elenco server su file"
+msgstr "ייצא רשימת שרתים לקובץ"
 
 #: gnome-connection-manager.glade:2055
 msgid "_Export servers"
-msgstr "_Esporta server"
+msgstr "_ייצא שרתים"
 
 #: gnome-connection-manager.glade:2072
 msgid "Import from Proxmox"
-msgstr "Importa da Proxmox"
+msgstr "ייבא מ-Proxmox"
 
 #: gnome-connection-manager.glade:2086
 msgid "_Quit"
-msgstr "_Esci"
+msgstr "_צא"
 
 #: gnome-connection-manager.glade:2099
 msgid "_Edit"
-msgstr "_Modifica"
+msgstr "_ערוך"
 
 #: gnome-connection-manager.glade:2193
 msgid "_View"
-msgstr "_Visualizza"
+msgstr "_תצוגה"
 
 #: gnome-connection-manager.glade:2203
 msgid "Show Toolbar"
-msgstr "Mostra barra degli strumenti"
+msgstr "הצג סרגל כלים"
 
 #: gnome-connection-manager.glade:2212
 msgid "Show Panel"
-msgstr "Mostra pannello"
+msgstr "הצג פאנל"
 
 #: gnome-connection-manager.glade:2225
 msgid "_Servers"
-msgstr "_Server"
+msgstr "_שרתים"
 
 #: gnome-connection-manager.glade:2239
 msgid "_Help"
-msgstr "_Aiuto"
+msgstr "_עזרה"
 
 #: gnome-connection-manager.glade:2249
 msgid "_About"
-msgstr "I_nformazioni"
+msgstr "_על"
 
 #: gnome-connection-manager.glade:2273
 msgid "Open local console"
-msgstr "Apri console locale"
+msgstr "פתח מסוף מקומי"
 
 #: gnome-connection-manager.glade:2289
 msgid "Connect to selected host or all hosts in selected group"
-msgstr ""
-"Connetti all'host selezionato o a tutti gli host nel gruppo selezionato"
+msgstr "התחבר למארח הנבחר או לכל המארחים בקבוצה הנבחרת"
 
 #: gnome-connection-manager.glade:2305
 msgid "Add new host"
-msgstr "Aggiungi nuovo host"
+msgstr "הוסף מארח חדש"
 
 #: gnome-connection-manager.glade:2321
 msgid "Edit hosts properties"
-msgstr "Modifica proprietà degli host"
+msgstr "ערוך מאפייני מארחים"
 
 #: gnome-connection-manager.glade:2337
 msgid "Remove selected host"
-msgstr "Rimuovi host selezionato"
+msgstr "הסר מארח נבחר"
 
 #: gnome-connection-manager.glade:2363
 msgid "Split console horizontally"
-msgstr "Divide la console orizzontalmente"
+msgstr "פצל מסוף אופקית"
 
 #: gnome-connection-manager.glade:2364
 msgid "__glade_unnamed_28"
@@ -1136,7 +1128,7 @@ msgstr "__glade_unnamed_28"
 
 #: gnome-connection-manager.glade:2378
 msgid "Split console vertically"
-msgstr "Divide la console verticalmente"
+msgstr "פצל מסוף אנכית"
 
 #: gnome-connection-manager.glade:2379
 msgid "__glade_unnamed_29"
@@ -1144,7 +1136,7 @@ msgstr "__glade_unnamed_29"
 
 #: gnome-connection-manager.glade:2393
 msgid "Unsplit all consoles"
-msgstr "Annulla la divisione di tutte le console"
+msgstr "בטל פיצול כל המסופים"
 
 #: gnome-connection-manager.glade:2394
 msgid "__glade_unnamed_30"
@@ -1164,16 +1156,16 @@ msgstr "__glade_unnamed_37"
 
 #: gnome-connection-manager.glade:2499
 msgid "Send commands to several hosts at the same time"
-msgstr "Invia comandi a più host contemporaneamente"
+msgstr "שלח פקודות למספר מארחים בו-זמנית"
 
 #: gnome-connection-manager.glade:2567
 msgid "label"
-msgstr "etichetta"
+msgstr "תווית"
 
 #: gnome-connection-manager.glade:2574
 msgid "page 1"
-msgstr "pagina 1"
+msgstr "עמוד 1"
 
 #: gnome-connection-manager.glade:2593
 msgid "page 2"
-msgstr "pagina 2"
+msgstr "עמוד 2"

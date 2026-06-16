@@ -119,6 +119,9 @@
 
 | Priorité | Feature | Détails |
 |---|---|---|
+| ⭐⭐⭐ | Import CSV / PuTTY | Parser `~/.putty/sessions/` + CSV export/import |
+| ⭐⭐⭐ | https://github.com/BuddySirJava/SSH-Studio/tree/master | Étudier le code source de SSH-Studio pour inspiration ; notamment la gestion des onglets et des sessions , la persistance des connexions, et l'interface utilisateur. , segmentation du code en modules réutilisables: gui, src, plugins,
+synchronisation .ssh/config : .ssh/config permet de gérer les configurations SSH de manière centralisée, ce qui pourrait être utile pour GCM/VSCode | garder un fichier de configuration centralisé pour les connexions SSH, et permettre aux utilisateurs de modifier facilement leurs paramètres de connexion. .ssh/config sait contenir des informations sur les hôtes, les ports, les utilisateurs, les clés privées, etc. , les connexions complexes : SSH-Studio gère les connexions complexes avec des tunnels, des proxys et des redirections de ports. GCM pourrait s'inspirer de cette approche pour offrir une meilleure gestion des connexions avancées. / j'imagine fusionner les fonctionnalités de GCM et SSH-Studio pour créer une application plus complète et plus puissante pour la gestion des connexions SSH. . les connexions multiples : SSH-Studio permet de gérer plusieurs connexions simultanément, ce qui pourrait être utile pour les utilisateurs qui ont besoin de se connecter à plusieurs serveurs en même temps. , l'interface utilisateur : SSH-Studio a une interface utilisateur moderne et conviviale, avec des onglets pour chaque connexion et des options de personnalisation. GCM pourrait s'inspirer de cette interface pour améliorer l'expérience utilisateur. les
 | ⭐⭐ | Zoom terminal Ctrl++/- (#79) | `terminal.set_font()` ajusté |
 | ⭐⭐ | Fermeture auto onglet (#77) | Option par host ou globale |
 | ⭐⭐ | Config CLI `--config` (#80) | `argparse` |

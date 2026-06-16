@@ -471,6 +471,8 @@ class conf:
     CONTINUOUS_LOG_PATH = CONFIG_DIR + "/log"
     SHOW_TOOLBAR = True
     SHOW_PANEL = True
+    DARK_MODE = False
+    THEME_MODE = "system"  # "system" | "light" | "dark"
     VERSION = 0
     UPDATE_TITLE = 0
     APP_TITLE = app_name
@@ -3201,7 +3203,7 @@ class LibvirtImportDialog:
         self._scan_box.pack_start(self._progress, False, False, 0)
 
         # Bouton Scanner (aligné à droite)
-        self._btn_scan = Gtk.Button(label=_("🔍  Scan hypervisors"))
+        self._btn_scan = Gtk.Button(label=_("🔍  Scan Libvirt hypervisors"))
         self._btn_scan.get_style_context().add_class("suggested-action")
         self._btn_scan.connect("clicked", self._on_scan_clicked)
         scan_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -3696,48 +3698,254 @@ class LibvirtImportDialog:
         self._lbl_summary.set_markup(f"<b>{n}</b> connexion(s) importée(s) avec succès.")
 
 
-class ProxmoxImportDialog(LibvirtImportDialog):
-    """Dialogue GTK3 d'import de VMs depuis Proxmox (scan natif `qm`)."""
+class ProxmoxImportDialog:
+    """Dialogue GTK3 d'import de VMs depuis Proxmox (scan natif `qm`).
+
+    Classe indépendante — aucun lien avec LibvirtImportDialog.
+    Même structure UI en deux phases (scan → prévisualisation) mais :
+    - Inventaire via `qm list` / `qm config` (Proxmox natif)
+    - SPICE via ticket pvesh (vga:qxl requis)
+    - Résolution IP : QGA → ipconfig0 → ARP/MAC → nmap
+    """
+
+    # Colonnes du ListStore de prévisualisation (identiques à libvirt)
+    _COL_SEL = 0
+    _COL_PROTO = 1
+    _COL_NAME = 2
+    _COL_GROUP = 3
+    _COL_HOST = 4
+    _COL_STATE = 5
+    _COL_EXISTS = 6
+    _COL_EXIST_LBL = 7
+    _COL_FG = 8
+    _COL_IDX = 9
+
+    def __init__(self, parent_window, on_done_callback, default_user="root"):
+        self.parent = parent_window
+        self.on_done = on_done_callback
+        self.default_user = default_user
+        self._discovered = []
+        self._build_ui()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Construction de l'UI
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        """Construit l'UI Proxmox à partir de la base libvirt.
+        dlg = Gtk.Dialog(
+            title=_("Import from Proxmox"),
+            transient_for=self.parent,
+            modal=True,
+        )
+        dlg.set_default_size(820, 720)
+        self._dlg = dlg
+        box = dlg.get_content_area()
+        box.set_spacing(8)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
 
-        Surcharge le titre/labels et ajoute la saisie manuelle de cible
-        Proxmox (IP, user@hôte, user@hôte:port).
+        # ── Phase 1 : Paramètres de scan ─────────────────────────────────────
+        self._scan_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
-        Returns:
-            None: Construit et enrichit l'interface de dialogue.
-        """
-        super()._build_ui()
-        self._dlg.set_title(_("Import from libvirt"))
-        self._btn_scan.set_label(_("🔍  Scan Proxmox hosts"))
-        self._lbl_uri.set_text(_("Detected Proxmox targets (dconf):"))
-        self._col_uri_txt.set_title(_("Detected Proxmox target"))
-        self._lbl_manual_uri.set_text(_("Add a Proxmox target:"))
+        # User SSH hyperviseur
+        hb_user = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb_user.pack_start(Gtk.Label(label=_("Hypervisor SSH user:")), False, False, 0)
+        self._entry_user = Gtk.Entry()
+        self._entry_user.set_text(self.default_user)
+        self._entry_user.set_width_chars(12)
+        hb_user.pack_start(self._entry_user, False, False, 0)
+        self._scan_box.pack_start(hb_user, False, False, 0)
+
+        # Liste des cibles Proxmox
+        lbl_uri = Gtk.Label(label=_("Proxmox targets:"))
+        lbl_uri.set_xalign(0)
+        self._scan_box.pack_start(lbl_uri, False, False, 2)
+
+        self._uri_store = Gtk.ListStore(bool, str)
+        tv_uri = Gtk.TreeView(model=self._uri_store)
+        tv_uri.set_headers_visible(True)
+        cr_toggle = Gtk.CellRendererToggle()
+        cr_toggle.connect("toggled", self._on_uri_toggled)
+        tv_uri.append_column(Gtk.TreeViewColumn("", cr_toggle, active=0))
+        col_uri_txt = Gtk.TreeViewColumn(
+            _("Proxmox target (qemu+ssh://user@host/system)"),
+            Gtk.CellRendererText(),
+            text=1,
+        )
+        col_uri_txt.set_expand(True)
+        tv_uri.append_column(col_uri_txt)
+        sw_uri = Gtk.ScrolledWindow()
+        sw_uri.set_min_content_height(120)
+        sw_uri.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw_uri.add(tv_uri)
+        self._scan_box.pack_start(sw_uri, False, False, 0)
+
+        # Saisie manuelle d'une cible Proxmox
+        hb_manual = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hb_manual.pack_start(Gtk.Label(label=_("Add a Proxmox target:")), False, False, 0)
+        self._entry_manual_uri = Gtk.Entry()
         self._entry_manual_uri.set_placeholder_text(
             _("Ex: 192.168.105.41 | root@192.168.105.41 | root@192.168.105.41:22")
         )
-        self._chk_spice.set_label(
-            _("SPICE  (vga:qxl required — ticket généré à la connexion via pvesh)")
+        self._entry_manual_uri.connect("activate", self._on_add_manual_uri)
+        hb_manual.pack_start(self._entry_manual_uri, True, True, 0)
+        btn_add_uri = Gtk.Button(label=_("Add"))
+        btn_add_uri.connect("clicked", self._on_add_manual_uri)
+        hb_manual.pack_start(btn_add_uri, False, False, 0)
+        self._scan_box.pack_start(hb_manual, False, False, 0)
+
+        # Protocoles
+        lbl_proto = Gtk.Label()
+        lbl_proto.set_markup(_("<b>Connection types to import:</b>"))
+        lbl_proto.set_xalign(0)
+        self._scan_box.pack_start(lbl_proto, False, False, 4)
+
+        proto_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._chk_ssh = Gtk.CheckButton(
+            label=_(
+                "SSH  (ProxyJump -J via hypervisor when VM IP is known, "
+                "otherwise hypervisor shell + -t ssh user@vm)"
+            )
         )
+        self._chk_ssh.set_active(True)
+        self._chk_spice = Gtk.CheckButton(
+            label=_("SPICE  (vga:qxl required — ticket generated at connection time via pvesh)")
+        )
+        self._chk_spice.set_active(True)
+        self._chk_rdp = Gtk.CheckButton(
+            label=_(
+                "RDP  (probe port 3389 from hypervisor via nc/nmap - skipped if port is closed)"
+            )
+        )
+        self._chk_rdp.set_active(True)
+        self._chk_vnc = Gtk.CheckButton(
+            label=_(
+                "VNC  (probe port 5900 from hypervisor via nc/nmap - skipped if port is closed)"
+            )
+        )
+        self._chk_vnc.set_active(False)
+        for chk in (self._chk_ssh, self._chk_spice, self._chk_rdp, self._chk_vnc):
+            proto_box.pack_start(chk, False, False, 0)
+        self._scan_box.pack_start(proto_box, False, False, 0)
 
-    def _on_add_manual_uri(self, widget):
-        """Alias Proxmox de l'ajout manuel de cible.
+        # Zone de log
+        self._log_buf = Gtk.TextBuffer()
+        lv = Gtk.TextView(buffer=self._log_buf)
+        lv.set_editable(False)
+        lv.set_monospace(True)
+        lv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        sw_log = Gtk.ScrolledWindow()
+        sw_log.set_min_content_height(100)
+        sw_log.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sw_log.add(lv)
+        self._scan_box.pack_start(sw_log, False, False, 0)
+        self._log_view = lv
 
-        Args:
-            widget (Gtk.Widget): Widget déclencheur.
+        # Barre de progression
+        self._progress = Gtk.ProgressBar()
+        self._progress.set_show_text(True)
+        self._progress.set_text(_("Waiting…"))
+        self._scan_box.pack_start(self._progress, False, False, 0)
 
-        Returns:
-            None: Délègue à l'ajout manuel Proxmox.
-        """
-        self._on_add_manual_target(widget)
+        # Bouton Scanner
+        self._btn_scan = Gtk.Button(label=_("🔍  Scan Proxmox hosts"))
+        self._btn_scan.get_style_context().add_class("suggested-action")
+        self._btn_scan.connect("clicked", self._on_scan_clicked)
+        scan_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        scan_btn_box.pack_end(self._btn_scan, False, False, 0)
+        self._scan_box.pack_start(scan_btn_box, False, False, 0)
+
+        sw_scan = Gtk.ScrolledWindow()
+        sw_scan.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sw_scan.set_min_content_height(300)
+        sw_scan.set_max_content_height(500)
+        sw_scan.add(self._scan_box)
+        box.pack_start(sw_scan, False, False, 0)
+
+        # ── Phase 2 : Tableau de prévisualisation (caché au départ) ──────────
+        self._preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self._preview_box.set_no_show_all(True)
+        box.pack_start(self._preview_box, True, True, 0)
+        box.pack_start(Gtk.Separator(), False, False, 4)
+
+        self._lbl_summary = Gtk.Label(label="")
+        self._lbl_summary.set_xalign(0)
+        self._preview_box.pack_start(self._lbl_summary, False, False, 0)
+
+        self._chk_overwrite = Gtk.CheckButton(
+            label=_("Overwrite existing connections with the same name and protocol")
+        )
+        self._chk_overwrite.set_active(False)
+        self._preview_box.pack_start(self._chk_overwrite, False, False, 0)
+
+        ctrl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_all = Gtk.Button(label=_("✓ Check all"))
+        btn_all.connect("clicked", lambda w: self._select_all(True))
+        btn_none = Gtk.Button(label=_("✗ Uncheck all"))
+        btn_none.connect("clicked", lambda w: self._select_all(False))
+        ctrl_box.pack_start(btn_all, False, False, 0)
+        ctrl_box.pack_start(btn_none, False, False, 0)
+        self._preview_box.pack_start(ctrl_box, False, False, 0)
+
+        self._preview_store = Gtk.ListStore(
+            bool, str, str, str, str, str, bool, str, str, int
+        )
+        tv_prev = Gtk.TreeView(model=self._preview_store)
+        tv_prev.set_enable_search(True)
+        tv_prev.set_search_column(self._COL_NAME)
+        self._tv_preview = tv_prev
+
+        cr_sel = Gtk.CellRendererToggle()
+        cr_sel.connect("toggled", self._on_preview_toggled)
+        col_sel = Gtk.TreeViewColumn("", cr_sel, active=self._COL_SEL)
+        col_sel.set_min_width(28)
+        tv_prev.append_column(col_sel)
+
+        for title, col_idx, min_w, expand in (
+            (_("Proto"),     self._COL_PROTO,     55,  False),
+            (_("VM name"),   self._COL_NAME,      170, True),
+            (_("Group"),     self._COL_GROUP,     90,  False),
+            (_("IP / Host"), self._COL_HOST,      120, False),
+            (_("State"),     self._COL_STATE,     75,  False),
+            (_("Imported"),  self._COL_EXIST_LBL, 70,  False),
+        ):
+            cr = Gtk.CellRendererText()
+            col = Gtk.TreeViewColumn(title, cr, text=col_idx, foreground=self._COL_FG)
+            col.set_min_width(min_w)
+            col.set_expand(expand)
+            tv_prev.append_column(col)
+
+        sw_prev = Gtk.ScrolledWindow()
+        sw_prev.set_min_content_height(500)
+        sw_prev.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.ALWAYS)
+        sw_prev.add(tv_prev)
+        sw_prev.set_vexpand(True)
+        self._preview_box.pack_start(sw_prev, True, True, 0)
+
+        import_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self._btn_import = Gtk.Button(label=_("⬇  Import selected"))
+        self._btn_import.get_style_context().add_class("suggested-action")
+        self._btn_import.connect("clicked", self._on_import_clicked)
+        btn_cancel2 = Gtk.Button(label=_("Cancel"))
+        btn_cancel2.connect("clicked", lambda w: self._dlg.destroy())
+        import_btn_box.pack_end(self._btn_import, False, False, 0)
+        import_btn_box.pack_end(btn_cancel2, False, False, 6)
+        self._preview_box.pack_start(import_btn_box, False, False, 0)
+
+        dlg.add_button(_("✕  Close"), Gtk.ResponseType.CANCEL)
+        dlg.connect("response", lambda d, r: d.destroy())
+
+        dlg.show_all()
+        self._preview_box.hide()
+        self._populate_uris()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Peuplement des cibles Proxmox
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _populate_uris(self):
-        """Pré-remplit les cibles Proxmox depuis les URI dconf compatibles.
-
-        Returns:
-            None: Alimente `self._uri_store` avec les cibles détectées.
-        """
         uris = [u for u in _libvirt_get_uris_from_dconf() if "+ssh://" in u and "/system" in u]
         if not uris:
             self._log(_("No SSH URI found in dconf.\nEnter an IP/host below and click Add."))
@@ -3745,49 +3953,31 @@ class ProxmoxImportDialog(LibvirtImportDialog):
         for uri in uris:
             self._uri_store.append([True, uri])
 
-    def _normalize_manual_target(self, raw_target):
-        """Convertit une saisie libre en URI qemu+ssh://.../system.
-
-        Args:
-            raw_target (str): Cible saisie (IP, user@host, URI complète, etc.).
-
-        Returns:
-            str: URI normalisée, ou chaîne vide si entrée invalide.
-        """
+    def _normalize_manual_uri(self, raw_target):
+        """Convertit une saisie libre en URI qemu+ssh://.../system."""
         raw = (raw_target or "").strip()
         if not raw:
             return ""
         if "://" in raw:
             return raw
-
         if "@" in raw:
             user, hostport = raw.split("@", 1)
             user = user or "root"
         else:
             user, hostport = "root", raw
-
         host = hostport
         port = 22
         if ":" in hostport:
             h, p = hostport.rsplit(":", 1)
             if p.isdigit():
                 host, port = h, int(p)
-
         host = host.strip()
         if not host:
             return ""
         return f"qemu+ssh://{user}@{host}:{port}/system"
 
-    def _on_add_manual_target(self, widget):
-        """Ajoute une cible Proxmox saisie manuellement à la liste.
-
-        Args:
-            widget (Gtk.Widget): Widget déclencheur.
-
-        Returns:
-            None: Met à jour la liste des cibles et le log UI.
-        """
-        uri = self._normalize_manual_target(self._entry_manual_uri.get_text())
+    def _on_add_manual_uri(self, widget):
+        uri = self._normalize_manual_uri(self._entry_manual_uri.get_text())
         if not uri:
             self._log(_("Invalid Proxmox target."))
             return
@@ -3800,17 +3990,41 @@ class ProxmoxImportDialog(LibvirtImportDialog):
         self._log(_(f"Cible ajoutée : {uri}"))
         self._entry_manual_uri.set_text("")
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Helpers log / progress
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _log(self, msg):
+        def _do():
+            buf = self._log_buf
+            buf.insert(buf.get_end_iter(), msg + "\n")
+            self._log_view.scroll_mark_onscreen(buf.get_insert())
+            return False
+
+        GLib.idle_add(_do)
+
+    def _set_progress(self, frac, text):
+        def _do():
+            self._progress.set_fraction(frac)
+            self._progress.set_text(text)
+            return False
+
+        GLib.idle_add(_do)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # URI toggle
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_uri_toggled(self, renderer, path):
+        self._uri_store[path][0] = not self._uri_store[path][0]
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 1 → Scan Proxmox
+    # ──────────────────────────────────────────────────────────────────────────
+
     def _on_scan_clicked(self, widget):
-        """Lance le scan Proxmox natif sur les cibles sélectionnées.
-
-        Args:
-            widget (Gtk.Widget): Bouton scanner.
-
-        Returns:
-            None: Démarre un thread de scan et met à jour l'UI.
-        """
         self._btn_scan.set_sensitive(False)
-        pending_uri = self._normalize_manual_target(self._entry_manual_uri.get_text())
+        pending_uri = self._normalize_manual_uri(self._entry_manual_uri.get_text())
         if pending_uri:
             existing = [row[1] for row in self._uri_store]
             if pending_uri not in existing:
@@ -3830,7 +4044,7 @@ class ProxmoxImportDialog(LibvirtImportDialog):
             proto_filter.add("spice")
         if self._chk_rdp.get_active():
             proto_filter.add("rdp")
-        if hasattr(self, "_chk_vnc") and self._chk_vnc.get_active():
+        if self._chk_vnc.get_active():
             proto_filter.add("vnc")
         if not proto_filter:
             self._log(_("No connection type selected."))
@@ -3838,10 +4052,93 @@ class ProxmoxImportDialog(LibvirtImportDialog):
             return
 
         def worker():
-            results = _proxmox_fetch_hosts(uris, user, self._log, self._set_progress, proto_filter)
+            results = _proxmox_fetch_hosts(
+                uris, user, self._log, self._set_progress, proto_filter
+            )
             GLib.idle_add(self._show_preview, results)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Phase 2 → Tableau de prévisualisation
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _host_exists(self, name, grp):
+        if grp in groups:
+            return any(h.name == name for h in groups[grp])
+        return False
+
+    def _show_preview(self, host_dicts):
+        self._discovered = host_dicts
+        self._preview_store.clear()
+        n_new = 0
+        n_exists = 0
+        for idx, hd in enumerate(host_dicts):
+            name = hd.get("name", "")
+            grp = hd.get("group", "PROXMOX")
+            proto = hd.get("protocol", "ssh").upper()
+            host = hd.get("host", "")
+            desc = hd.get("description", "")
+            m = re.search(r"\[([^\]]+)\]", desc)
+            state_str = m.group(1) if m else ""
+            exists = self._host_exists(name, grp)
+            exist_lbl = "✓ existe" if exists else ""
+            fg = "#888888" if exists else "black"
+            selected = not exists
+            if exists:
+                n_exists += 1
+            else:
+                n_new += 1
+            self._preview_store.append(
+                [selected, proto, name, grp, host, state_str, exists, exist_lbl, fg, idx]
+            )
+        total = len(host_dicts)
+        self._lbl_summary.set_markup(
+            f"<b>{total}</b> connexion(s) trouvée(s) — "
+            f"<span foreground='#007700'>{n_new} nouvelle(s)</span>, "
+            f"<span foreground='#888888'>{n_exists} déjà importée(s)</span>"
+        )
+        self._set_progress(1.0, f"{total} connexion(s) découverte(s)")
+        self._log(
+            f"\nScan Proxmox terminé — {total} connexion(s) : "
+            f"{n_new} nouvelle(s), {n_exists} déjà présente(s)."
+        )
+        self._preview_box.set_no_show_all(False)
+        self._preview_box.show_all()
+        self._btn_scan.set_label(_("🔄  Rescan"))
+        self._btn_scan.set_sensitive(True)
+        self._dlg.resize(820, 900)
+
+    def _on_preview_toggled(self, renderer, path):
+        self._preview_store[path][self._COL_SEL] = not self._preview_store[path][self._COL_SEL]
+
+    def _select_all(self, value):
+        for row in self._preview_store:
+            row[self._COL_SEL] = value
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Import final
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _on_import_clicked(self, widget):
+        self._btn_import.set_sensitive(False)
+        overwrite = self._chk_overwrite.get_active()
+        to_import = []
+        for row in self._preview_store:
+            if not row[self._COL_SEL]:
+                continue
+            if row[self._COL_EXISTS] and not overwrite:
+                continue
+            to_import.append(self._discovered[row[self._COL_IDX]])
+        if not to_import:
+            self._log(_("No connection to import (all already exist or none selected)."))
+            self._btn_import.set_sensitive(True)
+            return
+        self.on_done(to_import)
+        self._btn_import.set_label(_("✓ Imported"))
+        self._lbl_summary.set_markup(
+            f"<b>{len(to_import)}</b> connexion(s) importée(s) avec succès."
+        )
 
 
 class SerialTemplatesTab:
@@ -4176,6 +4473,17 @@ class Wmain(GCMBase):
         if conf.LEFT_PANEL_WIDTH != 0:
             self.set_panel_visible(conf.SHOW_PANEL)
         self.set_toolbar_visible(conf.SHOW_TOOLBAR)
+        # Thème GTK — init depuis conf (THEME_MODE = system/light/dark)
+        _tm = getattr(conf, "THEME_MODE", "system")
+        if _tm == "dark":
+            self._apply_dark_mode(True)
+        elif _tm == "light":
+            self._apply_dark_mode(False)
+        else:  # system
+            self._apply_dark_mode(conf.DARK_MODE)  # valeur auto-détectée au chargement
+        mnu_dark = self.get_widget("mnu_dark_mode")
+        if mnu_dark:
+            mnu_dark.set_active(conf.DARK_MODE)
 
         # a veces no se posiciona correctamente con 400 ms, asi que se repite el llamado
         GLib.timeout_add(400, lambda: self.hpMain.set_position(conf.LEFT_PANEL_WIDTH))
@@ -4834,6 +5142,20 @@ class Wmain(GCMBase):
         menuItem.connect("activate", self.on_btnAdd_clicked)
         menuItem.show()
 
+        self.popupMenuFolder.mnuNewGroup = menuItem = Gtk.MenuItem(label=_("New Group…"))
+        self.popupMenuFolder.append(menuItem)
+        menuItem.connect("activate", self._on_new_group_clicked)
+        menuItem.show()
+
+        self.popupMenuFolder.mnuRenameGroup = menuItem = Gtk.MenuItem(label=_("Rename Group…"))
+        self.popupMenuFolder.append(menuItem)
+        menuItem.connect("activate", self._on_rename_group_clicked)
+        menuItem.show()
+
+        menuItem = Gtk.SeparatorMenuItem()
+        self.popupMenuFolder.append(menuItem)
+        menuItem.show()
+
         self.popupMenuFolder.mnuEdit = menuItem = Gtk.MenuItem(label=_("Edit"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_bntEdit_clicked)
@@ -5033,152 +5355,264 @@ class Wmain(GCMBase):
         return sw
 
     def on_mnu_import_libvirt_activate(self, widget):
-        """Ouvre le dialogue d'import de VMs depuis libvirt.
-
-        Args:
-            widget (Gtk.MenuItem): Element de menu declencheur.
-        """
+        """Ouvre le dialogue d'import de VMs depuis libvirt."""
         default_user = conf.__dict__.get("LIBVIRT_DEFAULT_USER", LIBVIRT_DEFAULT_USER)
 
         def on_done(host_dicts):
             if not host_dicts:
                 msgbox(_("No host imported."))
                 return
-            added_by_group = {}
-            for d in host_dicts:
-                gname = d["group"]
-                if gname not in groups:
-                    groups[gname] = []
-                group_iter = None
-                for i in range(self.treeModel.iter_n_children(None)):
-                    it = self.treeModel.iter_nth_child(None, i)
-                    if self.treeModel.get_value(it, 0) == gname:
-                        group_iter = it
-                        break
-                if group_iter is None:
-                    group_iter = self.treeModel.append(
-                        None, [gname, None, self.get_widget("imgDir"), "#fff"]
-                    )
-                if d["name"] in [h.name for h in groups[gname]]:
-                    continue
-                h = Host()
-                h.name = d["name"]
-                h.host = d["host"]
-                h.user = d["user"]
-                h.port = d["port"]
-                h.password = ""
-                h.description = d["description"]
-                h.log = False
-                h.tunnel = ""
-                h.options = ""
-                h.X11 = False
-                h.agent = True
-                h.compression = False
-                h.compressionLevel = 6
-                h.term = ""
-                h.keepAlive = 0
-                h.tabColor = ""
-                h.fontColor = ""
-                h.backColor = ""
-                h.font = ""
-                h.lineColor = ""
-                h.protocol = d.get("protocol", "ssh")
-                h.port = str(d.get("port", 22))
-                groups[gname].append(h)
-                proto = d.get("protocol", "ssh") or "ssh"
-                proto_icon = {
-                    "ssh": "utilities-terminal",
-                    "telnet": "utilities-terminal",
-                    "rdp": "computer",
-                    "vnc": "video-display",
-                    "spice": "video-display",
-                    "serial": "modem",
-                    "local": "user-home",
-                }.get(proto, "network-workstation")
-                self.treeModel.append(group_iter, [h.name, h, "gtk-network", "#fff", proto_icon])
-                added_by_group[gname] = added_by_group.get(gname, 0) + 1
-            self.writeConfig()
-            if added_by_group:
-                summary = ", ".join(f"{n} dans {g}" for g, n in sorted(added_by_group.items()))
-                msgbox(_(f"Import terminé : {summary}."))
+            n = self._import_done(host_dicts, default_group="LIBVIRT")
+            if n:
+                msgbox(_(f"{n} connection(s) imported from libvirt."))
             else:
-                msgbox(_("No new host (duplicates ignored)."))
+                msgbox(_("No new host (duplicates ignored."))
 
         LibvirtImportDialog(self.window, on_done, default_user)
 
     def on_mnu_import_proxmox_activate(self, widget):
-        """Ouvre le dialogue d'import de VMs depuis Proxmox.
-
-        Args:
-            widget (Gtk.MenuItem): Element de menu declencheur.
-        """
+        """Ouvre le dialogue d'import de VMs depuis Proxmox."""
         default_user = conf.__dict__.get("LIBVIRT_DEFAULT_USER", LIBVIRT_DEFAULT_USER)
 
         def on_done(host_dicts):
             if not host_dicts:
                 msgbox(_("No host imported."))
                 return
-            added_by_group = {}
-            for d in host_dicts:
-                gname = d["group"]
-                if gname not in groups:
-                    groups[gname] = []
-                group_iter = None
-                for i in range(self.treeModel.iter_n_children(None)):
-                    it = self.treeModel.iter_nth_child(None, i)
-                    if self.treeModel.get_value(it, 0) == gname:
-                        group_iter = it
-                        break
-                if group_iter is None:
-                    group_iter = self.treeModel.append(
-                        None, [gname, None, self.get_widget("imgDir"), "#fff"]
-                    )
-                if d["name"] in [h.name for h in groups[gname]]:
-                    continue
-                h = Host()
-                h.name = d["name"]
-                h.host = d["host"]
-                h.user = d["user"]
-                h.port = d["port"]
-                h.password = ""
-                h.description = d["description"]
-                h.log = False
-                h.tunnel = ""
-                h.options = ""
-                h.X11 = False
-                h.agent = True
-                h.compression = False
-                h.compressionLevel = 6
-                h.term = ""
-                h.keepAlive = 0
-                h.tabColor = ""
-                h.fontColor = ""
-                h.backColor = ""
-                h.font = ""
-                h.lineColor = ""
-                h.protocol = d.get("protocol", "ssh")
-                h.port = str(d.get("port", 22))
-                groups[gname].append(h)
-                proto = d.get("protocol", "ssh") or "ssh"
-                proto_icon = {
-                    "ssh": "utilities-terminal",
-                    "telnet": "utilities-terminal",
-                    "rdp": "computer",
-                    "vnc": "video-display",
-                    "spice": "video-display",
-                    "serial": "modem",
-                    "local": "user-home",
-                }.get(proto, "network-workstation")
-                self.treeModel.append(group_iter, [h.name, h, "gtk-network", "#fff", proto_icon])
-                added_by_group[gname] = added_by_group.get(gname, 0) + 1
-            self.writeConfig()
-            if added_by_group:
-                summary = ", ".join(f"{n} dans {g}" for g, n in sorted(added_by_group.items()))
-                msgbox(_(f"Import Proxmox terminé : {summary}."))
+            n = self._import_done(host_dicts, default_group="PROXMOX")
+            if n:
+                msgbox(_(f"{n} connection(s) imported from Proxmox."))
             else:
                 msgbox(_("No new host (duplicates ignored)."))
 
         ProxmoxImportDialog(self.window, on_done, default_user)
+
+    def _import_done(self, host_dicts, default_group="IMPORT"):
+        """Ajoute des hôtes importés dans le groupe fixe (pas de sous-groupe via nom VM).
+
+        Args:
+            host_dicts (list[dict]): Connexions importées.
+            default_group (str): Nom de groupe cible (LIBVIRT, PROXMOX…).
+
+        Returns:
+            int: Nombre d'hôtes ajoutés.
+        """
+        added = 0
+        _proto_icon = {
+            "ssh": "utilities-terminal", "telnet": "utilities-terminal",
+            "rdp": "computer", "vnc": "video-display", "spice": "video-display",
+            "serial": "modem", "local": "user-home",
+        }
+        for d in host_dicts:
+            # Ignorer la ventilation par nom — tout va dans default_group
+            gname = default_group
+            if gname not in groups:
+                groups[gname] = []
+            if d["name"] in [h.name for h in groups[gname]]:
+                continue
+            h = Host()
+            h.group = gname
+            h.name = d["name"]
+            h.host = d.get("host", "")
+            h.user = d.get("user", "root")
+            h.password = ""
+            h.private_key = ""
+            h.description = d.get("description", "")
+            h.log = False
+            h.tunnel = ""
+            h.type = d.get("type", d.get("protocol", "ssh"))
+            h.commands = ""
+            h.keep_alive = 0
+            h.font_color = ""
+            h.back_color = ""
+            h.x11 = False
+            h.agent = True
+            h.compression = False
+            h.compressionLevel = ""
+            h.extra_params = d.get("extra_params", "")
+            h.log = False
+            h.backspace_key = 0
+            h.delete_key = 0
+            h.term = ""
+            h.protocol = d.get("protocol", "ssh")
+            h.port = str(d.get("port", 22))
+            h.serial_databits = "8"
+            h.serial_parity = "n"
+            h.serial_stopbits = "1"
+            h.serial_flow = "n"
+            groups[gname].append(h)
+            added += 1
+        self.updateTree()
+        self.writeConfig()
+        return added
+
+    # ── CSV / JSON import/export ──────────────────────────────────────────────
+
+    # Champs exportés (sans mot de passe)
+    _CSV_FIELDS = [
+        "group", "name", "description", "host", "user", "port", "type", "protocol",
+        "extra_params", "commands", "keep_alive", "font_color", "back_color",
+        "x11", "agent", "compression", "compressionLevel", "log",
+        "backspace_key", "delete_key", "term",
+        "serial_databits", "serial_parity", "serial_stopbits", "serial_flow",
+    ]
+
+    def _all_hosts(self):
+        """Retourne la liste plate de tous les Host."""
+        return [h for grp in groups.values() for h in grp]
+
+    def _host_to_dict(self, h):
+        """Sérialise un Host en dict sans mot de passe."""
+        return {f: str(getattr(h, f, "") or "") for f in self._CSV_FIELDS}
+
+    def _dict_to_host(self, d):
+        """Désérialise un dict en Host (pas de mot de passe)."""
+        h = Host()
+        h.group = d.get("group", "IMPORT")
+        h.name = d.get("name", "")
+        h.description = d.get("description", "")
+        h.host = d.get("host", "")
+        h.user = d.get("user", "")
+        h.password = ""
+        h.private_key = ""
+        h.port = d.get("port", "22")
+        h.tunnel = ""
+        h.type = d.get("type", "ssh")
+        h.commands = d.get("commands", "")
+        h.keep_alive = int(d.get("keep_alive", 0) or 0)
+        h.font_color = d.get("font_color", "")
+        h.back_color = d.get("back_color", "")
+        h.x11 = str(d.get("x11", "False")).lower() in ("true", "1", "yes")
+        h.agent = str(d.get("agent", "False")).lower() in ("true", "1", "yes")
+        h.compression = str(d.get("compression", "False")).lower() in ("true", "1", "yes")
+        h.compressionLevel = d.get("compressionLevel", "")
+        h.extra_params = d.get("extra_params", "")
+        h.log = str(d.get("log", "False")).lower() in ("true", "1", "yes")
+        h.backspace_key = int(d.get("backspace_key", 0) or 0)
+        h.delete_key = int(d.get("delete_key", 0) or 0)
+        h.term = d.get("term", "")
+        h.protocol = d.get("protocol", d.get("type", "ssh"))
+        h.serial_databits = d.get("serial_databits", "8")
+        h.serial_parity = d.get("serial_parity", "n")
+        h.serial_stopbits = d.get("serial_stopbits", "1")
+        h.serial_flow = d.get("serial_flow", "n")
+        return h
+
+    def _import_hosts_from_list(self, host_list):
+        """Ajoute une liste de Host dans le modèle et écrit la config."""
+        added = 0
+        for h in host_list:
+            gname = h.group or "IMPORT"
+            if gname not in groups:
+                groups[gname] = []
+            # Skip doublons (même nom dans même groupe)
+            if any(x.name == h.name for x in groups[gname]):
+                continue
+            groups[gname].append(h)
+            added += 1
+        self.updateTree()
+        self.writeConfig()
+        return added
+
+    def on_mnu_import_csv_activate(self, widget, *args):
+        """Importe des connexions depuis un fichier CSV (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Import from CSV"), action=Gtk.FileChooserAction.OPEN
+        )
+        if not filename:
+            return
+        import csv as _csv
+        try:
+            with open(filename, newline="", encoding="utf-8") as f:
+                reader = _csv.DictReader(f)
+                hosts = [self._dict_to_host(row) for row in reader if row.get("name")]
+        except Exception as e:
+            msgbox(_(f"CSV import error: {e}"))
+            return
+        if not hosts:
+            msgbox(_("No valid entry found in CSV."))
+            return
+        n = self._import_hosts_from_list(hosts)
+        msgbox(_(f"{n} connection(s) imported from CSV."))
+
+    def on_mnu_import_json_activate(self, widget, *args):
+        """Importe des connexions depuis un fichier JSON (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Import from JSON"), action=Gtk.FileChooserAction.OPEN
+        )
+        if not filename:
+            return
+        import json as _json
+        try:
+            with open(filename, encoding="utf-8") as f:
+                data = _json.load(f)
+            if isinstance(data, dict):
+                data = list(data.values())
+            hosts = [self._dict_to_host(d) for d in data if isinstance(d, dict) and d.get("name")]
+        except Exception as e:
+            msgbox(_(f"JSON import error: {e}"))
+            return
+        if not hosts:
+            msgbox(_("No valid entry found in JSON."))
+            return
+        n = self._import_hosts_from_list(hosts)
+        msgbox(_(f"{n} connection(s) imported from JSON."))
+
+    def on_mnu_export_csv_activate(self, widget, *args):
+        """Exporte toutes les connexions vers un fichier CSV (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Export to CSV"), action=Gtk.FileChooserAction.SAVE
+        )
+        if not filename:
+            return
+        if not filename.endswith(".csv"):
+            filename += ".csv"
+        import csv as _csv
+        try:
+            hosts = self._all_hosts()
+            with open(filename, "w", newline="", encoding="utf-8") as f:
+                writer = _csv.DictWriter(f, fieldnames=self._CSV_FIELDS)
+                writer.writeheader()
+                for h in hosts:
+                    writer.writerow(self._host_to_dict(h))
+        except Exception as e:
+            msgbox(_(f"CSV export error: {e}"))
+            return
+        msgbox(_(f"{len(hosts)} connection(s) exported to {filename}."))
+
+    def on_mnu_export_json_activate(self, widget, *args):
+        """Exporte toutes les connexions vers un fichier JSON (sans mot de passe)."""
+        filename = show_open_dialog(
+            parent=self.wMain, title=_("Export to JSON"), action=Gtk.FileChooserAction.SAVE
+        )
+        if not filename:
+            return
+        if not filename.endswith(".json"):
+            filename += ".json"
+        import json as _json
+        try:
+            hosts = self._all_hosts()
+            data = [self._host_to_dict(h) for h in hosts]
+            with open(filename, "w", encoding="utf-8") as f:
+                _json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            msgbox(_(f"JSON export error: {e}"))
+            return
+        msgbox(_(f"{len(hosts)} connection(s) exported to {filename}."))
+
+    # ── Dark mode ─────────────────────────────────────────────────────────────
+
+    def _apply_dark_mode(self, enabled):
+        """Active ou désactive le mode sombre GTK."""
+        settings = Gtk.Settings.get_default()
+        settings.set_property("gtk-application-prefer-dark-theme", enabled)
+
+    def on_mnu_dark_mode_toggled(self, widget, *args):
+        """Bascule le mode sombre GTK et persiste l'état."""
+        enabled = widget.get_active()
+        conf.DARK_MODE = enabled
+        conf.THEME_MODE = "dark" if enabled else "light"
+        self._apply_dark_mode(enabled)
+        self.writeConfig()
 
     def createMenuItem(self, shortcut, label):
         """Cree un Gtk.MenuItem avec etiquette et action.
@@ -5785,7 +6219,6 @@ class Wmain(GCMBase):
         self.treeServers.set_model(self.treeModel)
 
         self.treeServers.set_level_indentation(5)
-        # self.treeServers.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
 
         column = Gtk.TreeViewColumn()
         column.set_title("Servers")
@@ -5808,6 +6241,20 @@ class Wmain(GCMBase):
         column.pack_start(renderer, expand=True)
         column.add_attribute(renderer, "text", 0)
         column.add_attribute(renderer, "cell-background", 3)
+
+        # ── Drag & drop ───────────────────────────────────────────────────────
+        _dnd_target = Gtk.TargetEntry.new("GCM_TREE_ROW", Gtk.TargetFlags.SAME_WIDGET, 0)
+        self.treeServers.enable_model_drag_source(
+            Gdk.ModifierType.BUTTON1_MASK,
+            [_dnd_target],
+            Gdk.DragAction.MOVE,
+        )
+        self.treeServers.enable_model_drag_dest(
+            [_dnd_target],
+            Gdk.DragAction.MOVE,
+        )
+        self.treeServers.connect("drag-data-get", self._on_tree_drag_data_get)
+        self.treeServers.connect("drag-data-received", self._on_tree_drag_data_received)
 
         self.treeServers.set_has_tooltip(True)
         self.treeServers.connect("query-tooltip", self.on_treeServers_tooltip)
@@ -5911,6 +6358,8 @@ class Wmain(GCMBase):
         conf.CYCLE_TABS = _gopt("options", "cycle-tabs", conf.CYCLE_TABS, bool)
         conf.SHOW_PANEL = _gopt("window", "show-panel", conf.SHOW_PANEL, bool)
         conf.SHOW_TOOLBAR = _gopt("window", "show-toolbar", conf.SHOW_TOOLBAR, bool)
+        conf.DARK_MODE = _gopt("window", "dark-mode", conf.DARK_MODE, bool)
+        conf.THEME_MODE = _gopt("window", "theme-mode", conf.THEME_MODE)
         conf.STARTUP_LOCAL = _gopt("options", "startup-local", conf.STARTUP_LOCAL, bool)
         conf.LOG_LOCAL = _gopt("options", "log-local", conf.LOG_LOCAL, bool)
         conf.CONFIRM_ON_CLOSE_TAB_MIDDLE = _gopt(
@@ -6010,6 +6459,154 @@ class Wmain(GCMBase):
         nodes = []
         self.treeModel.foreach(self.is_node_collapsed, nodes)
         return nodes
+
+    # ── Drag & drop ───────────────────────────────────────────────────────────
+
+    def _on_tree_drag_data_get(self, widget, context, selection, info, time):
+        """Fournit le chemin de la ligne source lors d'un drag."""
+        model, it = self.treeServers.get_selection().get_selected()
+        if it is None:
+            return
+        path = model.get_string_from_iter(it)
+        selection.set(selection.get_target(), 8, path.encode())
+
+    def _on_tree_drag_data_received(self, widget, context, x, y, selection, info, time):
+        """Reçoit les données drop et déplace l'hôte ou le groupe."""
+        src_path_str = selection.get_data().decode()
+        try:
+            src_it = self.treeModel.get_iter_from_string(src_path_str)
+        except (ValueError, RuntimeError):
+            Gdk.drag_status(context, 0, time)
+            return
+
+        src_host = self.treeModel.get_value(src_it, 1)          # None = dossier
+        src_name = self.treeModel.get_value(src_it, 0)
+        src_parent = self.treeModel.iter_parent(src_it)
+
+        # Groupe source
+        def _full_group(it):
+            """Construit le chemin complet group/subgroup depuis un iter."""
+            parts = []
+            cur = it
+            while cur:
+                parts.insert(0, self.treeModel.get_value(cur, 0))
+                cur = self.treeModel.iter_parent(cur)
+            return "/".join(parts)
+
+        drop_info = self.treeServers.get_dest_row_at_pos(x, y)
+        if drop_info is None:
+            Gdk.drag_status(context, 0, time)
+            return
+        dest_path_gtk, drop_pos = drop_info
+        try:
+            dest_it = self.treeModel.get_iter(dest_path_gtk)
+        except Exception:
+            Gdk.drag_status(context, 0, time)
+            return
+
+        dest_host = self.treeModel.get_value(dest_it, 1)
+        dest_parent = self.treeModel.iter_parent(dest_it)
+
+        # ── Hôte vers dossier ou hôte (même niveau ou changement de groupe) ──
+        if src_host is not None:
+            # Groupe source de l'hôte
+            src_grp = _full_group(src_parent) if src_parent else ""
+
+            # Groupe destination
+            if dest_host is None:
+                # Drop sur un dossier → déplace dans ce dossier
+                dest_grp = _full_group(dest_it)
+            elif dest_parent is not None:
+                dest_grp = _full_group(dest_parent)
+            else:
+                dest_grp = src_grp  # même niveau racine
+
+            if src_grp == dest_grp:
+                # Réordonnancement dans le même groupe
+                lst = groups.get(src_grp, [])
+                try:
+                    idx_src = next(i for i, h in enumerate(lst) if h is src_host)
+                except StopIteration:
+                    Gdk.drag_status(context, 0, time)
+                    return
+                lst.pop(idx_src)
+                if dest_host is not None:
+                    try:
+                        idx_dst = next(i for i, h in enumerate(lst) if h is dest_host)
+                    except StopIteration:
+                        idx_dst = len(lst)
+                    if drop_pos in (
+                        Gtk.TreeViewDropPosition.AFTER,
+                        Gtk.TreeViewDropPosition.INTO_OR_AFTER,
+                    ):
+                        idx_dst += 1
+                    lst.insert(idx_dst, src_host)
+                else:
+                    lst.append(src_host)
+                groups[src_grp] = lst
+            else:
+                # Changement de groupe
+                if src_grp in groups and src_host in groups[src_grp]:
+                    groups[src_grp].remove(src_host)
+                    if not groups[src_grp]:
+                        del groups[src_grp]
+                src_host.group = dest_grp
+                if dest_grp not in groups:
+                    groups[dest_grp] = []
+                groups[dest_grp].append(src_host)
+
+            context.finish(True, True, time)
+            self.updateTree()
+            self.writeConfig()
+            return
+
+        # ── Dossier / groupe → autre dossier (devient enfant) ────────────────
+        if src_host is None:
+            src_full = _full_group(src_it)
+
+            # Cible : le dossier sur lequel on dépose
+            if dest_host is None:
+                dest_full = _full_group(dest_it)
+            else:
+                # Drop sur un hôte → prendre le parent du dossier dest
+                if dest_parent is not None:
+                    dest_full = _full_group(dest_parent)
+                else:
+                    Gdk.drag_status(context, 0, time)
+                    return
+
+            # Pas de déplacement sur soi-même ou sur un descendant
+            if dest_full == src_full or dest_full.startswith(src_full + "/"):
+                Gdk.drag_status(context, 0, time)
+                return
+
+            src_leaf = src_full.split("/")[-1]
+            new_full = f"{dest_full}/{src_leaf}"
+
+            # Collision de noms ?
+            if new_full in groups or any(k.startswith(new_full + "/") for k in groups):
+                msgbox(_(f"A group named '{src_leaf}' already exists in '{dest_full}'."))
+                Gdk.drag_status(context, 0, time)
+                return
+
+            # Renommer toutes les clés src_full et src_full/...
+            to_move = {k: v for k, v in list(groups.items())
+                       if k == src_full or k.startswith(src_full + "/")}
+            for old_key, hosts in to_move.items():
+                new_key = new_full + old_key[len(src_full):]
+                del groups[old_key]
+                groups[new_key] = hosts
+                for h in hosts:
+                    h.group = new_key
+
+            context.finish(True, True, time)
+            self.updateTree()
+            self.writeConfig()
+            return
+
+        Gdk.drag_status(context, 0, time)
+
+
 
     def set_collapsed_nodes(self):
         """Applique l'etat reduit/etendu aux noeuds de l'arbre."""
@@ -6226,6 +6823,8 @@ class Wmain(GCMBase):
         )
         cp.set("window", "show-panel", conf.SHOW_PANEL)
         cp.set("window", "show-toolbar", conf.SHOW_TOOLBAR)
+        cp.set("window", "dark-mode", conf.DARK_MODE)
+        cp.set("window", "theme-mode", conf.THEME_MODE)
 
         i = 1
         for grupo in groups:
@@ -6953,6 +7552,95 @@ class Wmain(GCMBase):
 
     # -- Wmain.on_btnDel_clicked }
 
+    # ── Gestion des groupes ───────────────────────────────────────────────────
+
+    def _selected_folder_path(self):
+        """Retourne le chemin complet du dossier sélectionné (ou None si hôte/rien)."""
+        sel = self.treeServers.get_selection().get_selected()[1]
+        if sel is None:
+            return None
+        if not self.treeModel.iter_has_child(sel):
+            # hôte sélectionné → on prend son groupe parent
+            sel = self.treeModel.iter_parent(sel)
+            if sel is None:
+                return None
+        return self._iter_full_path(sel)
+
+    def _iter_full_path(self, it):
+        """Construit le chemin complet d'un iter (ex: LINUX/debian)."""
+        parts = []
+        cur = it
+        while cur:
+            parts.insert(0, self.treeModel.get_value(cur, 0))
+            cur = self.treeModel.iter_parent(cur)
+        return "/".join(parts)
+
+    def _on_new_group_clicked(self, widget, *args):
+        """Crée un nouveau groupe, enfant du groupe sélectionné si applicable."""
+        name = inputbox(_("New Group"), _("Group name:"))
+        if not name:
+            return
+        name = name.strip().strip("/")
+        if not name:
+            return
+
+        # Déterminer le parent
+        sel = self.treeServers.get_selection().get_selected()[1]
+        parent_path = None
+        if sel is not None:
+            if self.treeModel.iter_has_child(sel):
+                parent_path = self._iter_full_path(sel)
+            else:
+                parent_it = self.treeModel.iter_parent(sel)
+                if parent_it is not None:
+                    parent_path = self._iter_full_path(parent_it)
+
+        full_name = f"{parent_path}/{name}" if parent_path else name
+
+        if full_name in groups:
+            msgbox(_(f"Group '{full_name}' already exists."))
+            return
+
+        groups[full_name] = []
+        self.updateTree()
+        self.writeConfig()
+
+    def _on_rename_group_clicked(self, widget, *args):
+        """Renomme le groupe sélectionné (et tous ses sous-groupes et hôtes enfants)."""
+        sel = self.treeServers.get_selection().get_selected()[1]
+        if sel is None or not self.treeModel.iter_has_child(sel):
+            return
+
+        old_full = self._iter_full_path(sel)
+        # Juste le dernier composant comme valeur initiale
+        old_leaf = self.treeModel.get_value(sel, 0)
+        new_leaf = inputbox(_("Rename Group"), _("New name:"), old_leaf)
+        if not new_leaf or new_leaf.strip() == old_leaf:
+            return
+        new_leaf = new_leaf.strip().strip("/")
+
+        # Calculer le nouveau chemin complet
+        parent_it = self.treeModel.iter_parent(sel)
+        parent_path = self._iter_full_path(parent_it) if parent_it else None
+        new_full = f"{parent_path}/{new_leaf}" if parent_path else new_leaf
+
+        if new_full in groups and new_full != old_full:
+            msgbox(_(f"Group '{new_full}' already exists."))
+            return
+
+        # Renommer dans groups : clé principale + tous les sous-groupes
+        to_rename = {k: v for k, v in groups.items()
+                     if k == old_full or k.startswith(old_full + "/")}
+        for old_key, hosts in to_rename.items():
+            new_key = new_full + old_key[len(old_full):]
+            del groups[old_key]
+            groups[new_key] = hosts
+            for h in hosts:
+                h.group = new_key
+
+        self.updateTree()
+        self.writeConfig()
+
     # -- Wmain.on_btnHSplit_clicked {
     def on_btnHSplit_clicked(self, widget, *args):
         """Gestionnaire du bouton Division horizontale.
@@ -7175,23 +7863,31 @@ class Wmain(GCMBase):
             y = int(event.y)
             pthinfo = self.treeServers.get_path_at_pos(x, y)
             if pthinfo is None:
+                # Clic dans le vide — seules les actions globales restent
                 self.popupMenuFolder.mnuDel.hide()
                 self.popupMenuFolder.mnuEdit.hide()
                 self.popupMenuFolder.mnuCopyAddress.hide()
                 self.popupMenuFolder.mnuDup.hide()
+                self.popupMenuFolder.mnuRenameGroup.hide()
             else:
                 path, col, cellx, celly = pthinfo
-                if self.treeModel.iter_children(self.treeModel.get_iter(path)):
+                self.treeServers.grab_focus()
+                self.treeServers.set_cursor(path, col, 0)
+                it = self.treeModel.get_iter(path)
+                is_folder = self.treeModel.iter_has_child(it)
+                if is_folder:
+                    # Nœud dossier/groupe
                     self.popupMenuFolder.mnuEdit.hide()
                     self.popupMenuFolder.mnuCopyAddress.hide()
                     self.popupMenuFolder.mnuDup.hide()
+                    self.popupMenuFolder.mnuRenameGroup.show()
                 else:
+                    # Nœud hôte
                     self.popupMenuFolder.mnuEdit.show()
                     self.popupMenuFolder.mnuCopyAddress.show()
                     self.popupMenuFolder.mnuDup.show()
+                    self.popupMenuFolder.mnuRenameGroup.hide()
                 self.popupMenuFolder.mnuDel.show()
-                self.treeServers.grab_focus()
-                self.treeServers.set_cursor(path, col, 0)
             self.popupMenuFolder.popup(None, None, None, None, event.button, event.time)
             return True
         else:
@@ -7493,7 +8189,10 @@ class Whost(GCMBase):
         global groups
 
         self.cmbGroup = self.get_widget("cmbGroup")
-        # self.cmbGroup.set_model(Gtk.ListStore(str))
+        # Le groupe est géré via l'arborescence — lecture seule dans le dialogue
+        self.cmbGroup.set_sensitive(False)
+        if self.cmbGroup.get_has_entry() and self.cmbGroup.get_child():
+            self.cmbGroup.get_child().set_editable(False)
         self.txtName = self.get_widget("txtName")
         self.txtDescription = self.get_widget("txtDescription")
         self.txtHost = self.get_widget("txtHost")
@@ -8449,6 +9148,33 @@ class Wconfig(GCMBase):
         self.btnFColor.selected_color = fcolor
         self.btnBColor.selected_color = bcolor
 
+        # ── Thème GTK (Light / Dark / System) dans l'onglet Colors ────────────
+        _colors_tab = self.get_widget("table6")
+        if _colors_tab is not None:
+            _theme_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            _theme_lbl = Gtk.Label(label=_("GTK Theme:"))
+            _theme_lbl.set_xalign(0)
+            _theme_box.pack_start(_theme_lbl, False, False, 0)
+            self._cmb_theme = Gtk.ComboBoxText()
+            self._cmb_theme.append("system", _("System"))
+            self._cmb_theme.append("light", _("Light"))
+            self._cmb_theme.append("dark", _("Dark"))
+            # Sélectionner l'état actuel
+            _tm = getattr(conf, "THEME_MODE", "system")
+            if _tm not in ("system", "light", "dark"):
+                _tm = "dark" if conf.DARK_MODE else "light"
+            self._cmb_theme.set_active_id(_tm)
+            self._cmb_theme.connect("changed", self._on_theme_combo_changed)
+            _theme_box.pack_start(self._cmb_theme, False, False, 0)
+            _theme_box.show_all()
+            # Attacher sous le GtkTable Colors (dans le parent du table6)
+            _parent = _colors_tab.get_parent()
+            if _parent is not None:
+                _theme_box.set_margin_start(4)
+                _theme_box.set_margin_top(6)
+                _parent.pack_start(_theme_box, False, False, 0)
+                _parent.reorder_child(_theme_box, -1)
+
         # Fuente
         if len(conf.FONT) == 0 or conf.FONT == "monospace":
             conf.FONT = "monospace"
@@ -8638,6 +9364,37 @@ class Wconfig(GCMBase):
         )
 
     # -- Wconfig custom methods }
+
+    def _on_theme_combo_changed(self, combo):
+        """Bascule le thème GTK depuis le combo Light/Dark/System."""
+        theme_id = combo.get_active_id() or "system"
+        conf.THEME_MODE = theme_id
+        settings = Gtk.Settings.get_default()
+        if theme_id == "dark":
+            conf.DARK_MODE = True
+            settings.set_property("gtk-application-prefer-dark-theme", True)
+        elif theme_id == "light":
+            conf.DARK_MODE = False
+            settings.set_property("gtk-application-prefer-dark-theme", False)
+        else:
+            # System : détecter color-scheme du bureau
+            try:
+                import subprocess as _sp2
+                _dark = _sp2.run(
+                    ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                conf.DARK_MODE = _dark.returncode == 0 and "dark" in _dark.stdout.lower()
+            except Exception:
+                conf.DARK_MODE = False
+            settings.set_property("gtk-application-prefer-dark-theme", conf.DARK_MODE)
+        wMain.writeConfig()
+        # Synchronise le GtkCheckMenuItem du menu Vue
+        mnu_dark = wMain.get_widget("mnu_dark_mode")
+        if mnu_dark:
+            mnu_dark.handler_block_by_func(wMain.on_mnu_dark_mode_toggled)
+            mnu_dark.set_active(conf.DARK_MODE)
+            mnu_dark.handler_unblock_by_func(wMain.on_mnu_dark_mode_toggled)
 
     # -- Wconfig.on_cancelbutton1_clicked {
     def on_cancelbutton1_clicked(self, widget, *args):

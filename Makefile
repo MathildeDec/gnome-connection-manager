@@ -9,7 +9,7 @@ PKG_ARCH_RPM = noarch
 PKG_LICENSE = GPLv3
 PKG_DEB     = $(PKG_NAME)_$(PKG_VERSION)_$(PKG_ARCH).deb
 PKG_RPM     = $(PKG_NAME)-$(PKG_VERSION).$(PKG_ARCH_RPM).rpm
-PKG_OPENSUSE = $(PKG_NAME)-$(PKG_VERSION).$(PKG_ARCH_RPM).rpm
+PKG_OPENSUSE = $(PKG_NAME)-opensuse-$(PKG_VERSION).$(PKG_ARCH_RPM).rpm
 
 TMPINSTALLDIR = /tmp/$(PKG_NAME)-fpm-install
 
@@ -22,7 +22,7 @@ FPM_COMMON = -s dir -n $(PKG_NAME) -v $(PKG_VERSION) -C $(TMPINSTALLDIR) \
 # ── Cibles principales ────────────────────────────────────────────────────────
 .PHONY: all deb rpm opensuse install translate test lint validate clean help
 
-all: deb rpm
+all:  test lint deb rpm opensuse translate validate
 
 help:
 	@echo "Cibles disponibles :"
@@ -39,15 +39,24 @@ help:
 # ── Compilation des traductions ───────────────────────────────────────────────
 translate:
 	@echo "Compilation des fichiers .po → .mo…"
-	msgfmt lang/de_DE.po  -o lang/de/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/en_US.po  -o lang/en/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/fr_FR.po  -o lang/fr/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/it_IT.po  -o lang/it/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/ko_KO.po  -o lang/ko/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/pl_PL.po  -o lang/pl/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/pt_BR.po  -o lang/pt/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/ru_RU.po  -o lang/ru/LC_MESSAGES/gcm-lang.mo
-	msgfmt lang/uk_UA.po  -o lang/uk/LC_MESSAGES/gcm-lang.mo
+
+
+
+
+
+
+
+
+
+	msgfmt lang/de_DE.po  -o lang/de_DE/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/en_US.po  -o lang/en_US/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/fr_FR.po  -o lang/fr_FR/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/it_IT.po  -o lang/it_IT/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/ko_KR.po  -o lang/ko_KR/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/pl_PL.po  -o lang/pl_PL/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/pt_BR.po  -o lang/pt_BR/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/ru_RU.po  -o lang/ru_RU/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/uk_UA.po  -o lang/uk_UA/LC_MESSAGES/gcm-lang.mo
 	msgfmt lang/ja_JP.po  -o lang/ja_JP/LC_MESSAGES/gcm-lang.mo
 	msgfmt lang/ar_AR.po  -o lang/ar_AR/LC_MESSAGES/gcm-lang.mo
 	msgfmt lang/tr_TR.po  -o lang/tr_TR/LC_MESSAGES/gcm-lang.mo
@@ -55,6 +64,18 @@ translate:
 	msgfmt lang/cs_CZ.po  -o lang/cs_CZ/LC_MESSAGES/gcm-lang.mo
 	msgfmt lang/sv_SE.po  -o lang/sv_SE/LC_MESSAGES/gcm-lang.mo
 	msgfmt lang/nb_NO.po  -o lang/nb_NO/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/zh_CN.po  -o lang/zh_CN/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/vi_VN.po  -o lang/vi_VN/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/th_TH.po  -o lang/th_TH/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/fi_FI.po  -o lang/fi_FI/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/hu_HU.po  -o lang/hu_HU/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/ro_RO.po  -o lang/ro_RO/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/da_DK.po  -o lang/da_DK/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/el_GR.po  -o lang/el_GR/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/fa_IR.po  -o lang/fa_IR/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/he_IL.po  -o lang/he_IL/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/hi_IN.po  -o lang/hi_IN/LC_MESSAGES/gcm-lang.mo
+	msgfmt lang/id_ID.po  -o lang/id_ID/LC_MESSAGES/gcm-lang.mo
 	@echo "\033[92mOK : traductions compilées\033[0m"
 
 # ── Installation dans un répertoire temporaire ────────────────────────────────
