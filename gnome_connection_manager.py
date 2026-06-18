@@ -11,7 +11,6 @@
 # Gnome Connection Manager
 # Renzo Bertuzzi - CHILE
 # Fork Mathilde Deuscher - FRANCE
-# TODO
 
 
 import base64
@@ -21,13 +20,20 @@ import operator
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import threading
 import time
 from threading import Thread
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    # `_` est injecté dans les builtins à l'exécution par bindtextdomain().
+    # Cette déclaration sert uniquement au type-checker (Pylance) : elle évite
+    # les faux positifs "_ is not defined" sans affecter le runtime.
+    def _(message: str) -> str: ...
+
 
 try:
     from loguru import logger as _loguru_logger
@@ -66,6 +72,13 @@ try:
     _PARAMIKO_OK = True
 except ImportError:
     _PARAMIKO_OK = False
+
+try:
+    from ssh_config_editor import SshConfigEditorDialog
+
+    _SSH_CONFIG_EDITOR_OK = True
+except ImportError:
+    _SSH_CONFIG_EDITOR_OK = False
 
 try:
     import gi
@@ -120,8 +133,6 @@ if e != 0:
 # Gdk.threads_init()
 
 import re as _re
-import tokenize as _tokenize
-import weakref as _weakref
 
 _gcm_app_name = ""
 
@@ -209,101 +220,24 @@ def bindtextdomain(app_name, locale_dir=None):
         builtins.__dict__["_"] = lambda x: x
 
 
-class GCMBase:
-    """Base class GTK3 natif remplacant SimpleGladeApp.
-
-    Charge un fichier .glade via Gtk.Builder, expose tous les widgets
-    comme attributs d'instance, connecte les signaux, puis appelle new().
-    """
-
-    def __init__(self, path, root=None, domain=None, parent=None, **kwargs):
-        """Initialise le chargement Glade et l'arbre de widgets.
-
-        Args:
-            path (str): Chemin vers le fichier .glade.
-            root (str, optional): Nom du widget racine a charger.
-            domain (str, optional): Domaine de traduction.
-            parent (Gtk.Window, optional): Fenetre parente (pour les dialogues).
-            **kwargs: Attributs supplementaires a definir sur l'instance.
-        """
-        for key, value in kwargs.items():
-            try:
-                setattr(self, key, _weakref.proxy(value))
-            except TypeError:
-                setattr(self, key, value)
-
-        self.builder = Gtk.Builder()
-        if domain:
-            self.builder.set_translation_domain(domain)
-
-        if root:
-            if parent:
-                self.builder.expose_object("wMain", parent)
-            self.builder.add_objects_from_file(path, [root])
-            self.main_widget = self.builder.get_object(root)
-            if self.main_widget:
-                self.main_widget.show_all()
-        else:
-            self.builder.add_from_file(path)
-            self.main_widget = None
-
-        self._normalize_names()
-        self.new()
-        self.builder.connect_signals(self)
-
-    def _normalize_names(self):
-        """Expose chaque widget GTK comme attribut self.<widget_api_name>."""
-        for widget in self.builder.get_objects():
-            if isinstance(widget, Gtk.Buildable):
-                raw = Gtk.Buildable.get_name(widget)
-                parts = raw.split(":")
-                api_name = "_".join(_re.findall(_tokenize.Name, parts[-1]))
-                if api_name and not hasattr(self, api_name):
-                    setattr(self, api_name, widget)
-
-    def get_widget(self, name):
-        """Retourne le widget GTK identifie par name.
-
-        Args:
-            name (str): Nom du widget dans le fichier Glade.
-
-        Returns:
-            Gtk.Widget or None: Widget trouve ou None.
-        """
-        return self.builder.get_object(name)
-
-    def new(self):
-        """Appelee apres le chargement Glade. A surcharger dans les sous-classes."""
-        pass
-
-    def run(self):
-        """Demarre la boucle evenementielle GTK principale."""
-        try:
-            Gtk.main()
-        except KeyboardInterrupt:
-            pass
-
-    def quit(self, *args):
-        """Quitte la boucle evenementielle GTK.
-
-        Args:
-            *args: Arguments ignores (compatibilite signal GTK).
-        """
-        Gtk.main_quit()
-
-    def gtk_main_quit(self, *args):
-        """Callback GTK predefined: quitte l'application.
-
-        Args:
-            *args: Arguments ignores.
-        """
-        Gtk.main_quit()
-
-
+# Import des modules refactorisés
 import configparser
 
 import pyAES
 import urlregex
+from models import Host, HostUtils
+from utils import GCMBase, conf
+from widgets import (
+    EntryDialog,
+    MultilineCellRenderer,
+    NotebookTabLabel,
+    RdpEmbeddedTab,
+    RdpTab,
+    SerialTab,
+    SpiceTab,
+    VncTab,
+    vte_run,
+)
 
 app_name = "Gnome Connection Manager"
 app_version = "1.3.3"
@@ -314,7 +248,7 @@ BASE_PATH = os.path.dirname(os.path.abspath(sys.argv[0]))
 
 SSH_BIN = "ssh"
 TEL_BIN = "telnet"
-RDP_BIN = shutil.which("xfreerdp") or shutil.which("xfreerdp3") or "xfreerdp"
+
 SHELL = os.environ["SHELL"]
 DEFAULT_TERM_TYPE = "xterm-256color"
 
@@ -343,6 +277,11 @@ KEY_FILE = CONFIG_DIR + "/.gcm.key"
 
 if not os.path.exists(CONFIG_DIR):
     os.makedirs(CONFIG_DIR)
+
+# Initialiser les valeurs de conf dépendantes du contexte d'exécution
+conf.LOG_PATH = CONFIG_DIR + "/logs"
+conf.CONTINUOUS_LOG_PATH = CONFIG_DIR + "/log"
+conf.APP_TITLE = app_name
 
 
 def _setup_app_logger():
@@ -443,41 +382,6 @@ enc_passwd = ""
 
 
 # Variables de configuracion
-class conf:
-    WORD_SEPARATORS = "-A-Za-z0-9,./?%&#:_=+@~"
-    BUFFER_LINES = 2000
-    STARTUP_LOCAL = True
-    LOG_LOCAL = False
-    CONFIRM_ON_EXIT = True
-    FONT_COLOR = ""
-    BACK_COLOR = ""
-    TRANSPARENCY = 0
-    TERM = ""
-    PASTE_ON_RIGHT_CLICK = 1
-    CONFIRM_ON_CLOSE_TAB = 1
-    CONFIRM_ON_CLOSE_TAB_MIDDLE = 1
-    AUTO_CLOSE_TAB = 0
-    CYCLE_TABS = True
-    COLLAPSED_FOLDERS = ""
-    LEFT_PANEL_WIDTH = 100
-    CHECK_UPDATES = True
-    WINDOW_WIDTH = -1
-    WINDOW_HEIGHT = -1
-    FONT = ""
-    DISABLE_HOSTS_STRIPES = False
-    AUTO_COPY_SELECTION = 0
-    LOG_PATH = CONFIG_DIR + "/logs"
-    CONTINUOUS_TAB_LOG = False
-    CONTINUOUS_LOG_PATH = CONFIG_DIR + "/log"
-    SHOW_TOOLBAR = True
-    SHOW_PANEL = True
-    DARK_MODE = False
-    THEME_MODE = "system"  # "system" | "light" | "dark"
-    VERSION = 0
-    UPDATE_TITLE = 0
-    APP_TITLE = app_name
-
-
 def msgbox(text, parent=None):
     """Affiche une boite de dialogue d'erreur modale.
 
@@ -871,255 +775,6 @@ def vte_feed(terminal, data):
         terminal.feed_child(data, len(data))
 
 
-def vte_run(terminal, command, arg=None):
-    """Lance une commande dans un terminal VTE.
-
-    Construit l'environnement complet (PATH, TERM, SSH_AUTH_SOCK, DISPLAY, etc.)
-    et lance la commande via spawn_async (VTE >= 0.48) ou spawn_sync.
-
-    Args:
-        terminal (Vte.Terminal): Terminal VTE dans lequel lancer la commande.
-        command (str): Chemin de l'executable a lancer.
-        arg (list, optional): Arguments supplementaires. Defaults to None.
-    """
-    term_type = getattr(getattr(terminal, "host", None), "term", None) or "xterm"
-    # fix #89: transmettre SSH_AUTH_SOCK et vars essentielles au processus VTE
-    envv = ["PATH=%s" % os.getenv("PATH"), "TERM=%s" % term_type]
-    for _ekey in (
-        "SSH_AUTH_SOCK",
-        "SSH_AGENT_PID",
-        "DISPLAY",
-        "WAYLAND_DISPLAY",
-        "HOME",
-        "USER",
-        "LOGNAME",
-        "LANG",
-        "LC_ALL",
-        "XDG_RUNTIME_DIR",
-        "DBUS_SESSION_BUS_ADDRESS",
-        "GNOME_KEYRING_CONTROL",
-    ):
-        _eval = os.getenv(_ekey)
-        if _eval:
-            envv.append("%s=%s" % (_ekey, _eval))
-    args = []
-    args.append(command)
-    if arg:
-        args += arg
-    flag_spawn = (
-        GLib.SpawnFlags.DEFAULT if command == SHELL else GLib.SpawnFlags.FILE_AND_ARGV_ZERO
-    )
-    if TERMINAL_V048:
-        terminal.spawn_async(
-            Vte.PtyFlags.DEFAULT,
-            os.getenv("HOME"),
-            args,
-            envv,
-            flag_spawn | GLib.SpawnFlags.SEARCH_PATH,
-            None,
-            None,
-            -1,
-            None,
-            lambda term, pid, err, user_data: None,
-            None,
-        )
-    else:
-        terminal.spawn_sync(
-            Vte.PtyFlags.DEFAULT,
-            os.getenv("HOME"),
-            args,
-            envv,
-            flag_spawn | GLib.SpawnFlags.DO_NOT_REAP_CHILD | GLib.SpawnFlags.SEARCH_PATH,
-            None,
-            None,
-            None,
-        )
-
-
-# ─── RDP (étape 5) ──────────────────────────────────────────────────────────
-
-
-class RdpTab(Gtk.Box):
-    """Widget affiche dans le Gtk.Notebook pour les connexions RDP.
-
-    Lance xfreerdp en fenetre externe, affiche le statut, le log stderr
-    et un champ d'options modifiable a la volee.
-    """
-
-    def __init__(self, host, get_password_fn):
-        """Initialise le panneau RDP.
-
-        Args:
-            host (Host): Objet Host GCM avec protocol='rdp'.
-            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
-        """
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.host = host
-        self._get_password = get_password_fn
-        self._proc = None
-        self.set_margin_start(16)
-        self.set_margin_end(16)
-        self.set_margin_top(16)
-        self.set_margin_bottom(16)
-        self._build_ui()
-
-    def _build_ui(self):
-        """Construit l'interface du panneau RDP."""
-        h = self.host
-        port = getattr(h, "port", 3389) or 3389
-        title = Gtk.Label()
-        title.set_markup(f"<b>RDP \u2014 {h.name}</b><small>   {h.user}@{h.host}:{port}</small>")
-        title.set_xalign(0)
-        self.pack_start(title, False, False, 0)
-        if h.description:
-            d = Gtk.Label(label=h.description)
-            d.set_xalign(0)
-            d.get_style_context().add_class("dim-label")
-            self.pack_start(d, False, False, 0)
-        self.pack_start(Gtk.Separator(), False, False, 4)
-        self._lbl_status = Gtk.Label(label=_("Waiting…"))
-        self._lbl_status.set_xalign(0)
-        self.pack_start(self._lbl_status, False, False, 0)
-        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._btn_connect = Gtk.Button(label=_("Connect"))
-        self._btn_connect.get_style_context().add_class("suggested-action")
-        self._btn_connect.connect("clicked", self._on_connect)
-        hb.pack_start(self._btn_connect, False, False, 0)
-        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
-        self._btn_disconnect.set_sensitive(False)
-        self._btn_disconnect.connect("clicked", self._on_disconnect)
-        hb.pack_start(self._btn_disconnect, False, False, 0)
-        self.pack_start(hb, False, False, 0)
-        self.pack_start(Gtk.Separator(), False, False, 4)
-        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb2.pack_start(Gtk.Label(label=_("xfreerdp options:")), False, False, 0)
-        self._entry_opts = Gtk.Entry()
-        self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
-        self._entry_opts.set_tooltip_text(
-            "Parametres additionnels xfreerdp\n"
-            "Ex : /drive:home,/home/user  /sound:sys:alsa  /multimon  +clipboard"
-        )
-        hb2.pack_start(self._entry_opts, True, True, 0)
-        self.pack_start(hb2, False, False, 0)
-        self.pack_start(Gtk.Label(label=_("xfreerdp log:")), False, False, 2)
-        self._log_buf = Gtk.TextBuffer()
-        lv = Gtk.TextView(buffer=self._log_buf)
-        lv.set_editable(False)
-        lv.set_monospace(True)
-        lv.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        sw = Gtk.ScrolledWindow()
-        sw.set_min_content_height(160)
-        sw.add(lv)
-        self.pack_start(sw, True, True, 0)
-        self._log_view = lv
-        self.show_all()
-
-    def _build_cmd(self):
-        """Construit la commande xfreerdp a executer.
-
-        Returns:
-            list[str]: Liste d'arguments pour subprocess.Popen.
-        """
-        h = self.host
-        port = getattr(h, "port", 3389) or 3389
-        pwd = self._get_password() or ""
-        opts = self._entry_opts.get_text().strip()
-        user = h.user
-        if "\\" in user:
-            domain, uname = user.split("\\", 1)
-            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/d:{domain}", f"/u:{uname}"]
-        else:
-            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/u:{user}"]
-        if pwd:
-            cmd.append(f"/p:{pwd}")
-        cmd += ["/cert:ignore", "/dynamic-resolution"]
-        if opts:
-            cmd += shlex.split(opts)
-        return cmd
-
-    def _on_connect(self, widget):
-        """Lance la connexion xfreerdp.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur (peut etre None).
-        """
-        if self._proc is not None and self._proc.poll() is None:
-            return
-        # Persister les options modifiees par l'utilisateur dans le widget
-        self.host.extra_params = self._entry_opts.get_text().strip()
-        cmd = self._build_cmd()
-        cmd_display = ["****" if a.startswith("/p:") else a for a in cmd]
-        self._log(f"$ {' '.join(cmd_display)}\n")
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-        except FileNotFoundError:
-            self._log(
-                f"ERREUR : xfreerdp introuvable ({RDP_BIN})\n  sudo apt install freerdp2-x11\n"
-            )
-            self._set_status(_("xfreerdp not found"))
-            return
-        self._set_status(_("Connecting…"))
-        self._btn_connect.set_sensitive(False)
-        self._btn_disconnect.set_sensitive(True)
-        threading.Thread(target=self._read_output, daemon=True).start()
-
-    def _on_disconnect(self, widget):
-        """Termine le processus xfreerdp.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur.
-        """
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
-        self._set_status(_("Disconnect"))
-        self._btn_connect.set_sensitive(True)
-        self._btn_disconnect.set_sensitive(False)
-
-    def _read_output(self):
-        """Lit la sortie de xfreerdp en arriere-plan et l'affiche dans le log."""
-        try:
-            for line in self._proc.stdout:
-                GLib.idle_add(self._log, line)
-        except Exception:
-            pass
-        rc = self._proc.wait()
-        if rc == 0:
-            GLib.idle_add(self._set_status, _("Session ended"))
-        else:
-            GLib.idle_add(self._set_status, _("Ended (code {rc})").format(rc=rc))
-        GLib.idle_add(self._btn_connect.set_sensitive, True)
-        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
-
-    def _log(self, text):
-        """Ajoute du texte dans le TextView de log.
-
-        Args:
-            text (str): Texte a afficher.
-        """
-        self._log_buf.insert(self._log_buf.get_end_iter(), text)
-        self._log_view.scroll_mark_onscreen(self._log_buf.get_insert())
-
-    def _set_status(self, text):
-        """Met a jour le label de statut.
-
-        Args:
-            text (str): Nouveau statut.
-        """
-        self._lbl_status.set_text(text)
-
-    def connect_rdp(self):
-        """Lance la connexion RDP automatiquement (appele depuis addTab)."""
-        self._on_connect(None)
-
-
-# ─── RDP EMBEDDED (étape 6) — XEmbed via Gtk.Socket ─────────────────────────
-
-
 def _rdp_socket_available():
     """Teste si Gtk.Socket (XEmbed) est utilisable.
 
@@ -1142,247 +797,7 @@ def _rdp_socket_available():
         return False
 
 
-class RdpEmbeddedTab(Gtk.Box):
-    """Widget RDP avec session xfreerdp embarquee via XEmbed (Gtk.Socket).
-
-    La fenetre xfreerdp s'affiche directement dans l'onglet GCM.
-    Necessite X11 (Wayland+XWayland ou Xorg). Fallback: RdpTab.
-    """
-
-    def __init__(self, host, get_password_fn):
-        """Initialise le panneau RDP embarque.
-
-        Args:
-            host (Host): Objet Host GCM avec protocol='rdp'.
-            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
-        """
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.host = host
-        self._get_password = get_password_fn
-        self._proc = None
-        self._xid = None
-        self._build_ui()
-
-    def _build_ui(self):
-        """Construit la barre d'outils et la zone XEmbed."""
-        h = self.host
-        port = getattr(h, "port", 3389) or 3389
-
-        # Barre d'outils compacte
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        toolbar.set_margin_start(6)
-        toolbar.set_margin_end(6)
-        toolbar.set_margin_top(4)
-        toolbar.set_margin_bottom(4)
-
-        title = Gtk.Label()
-        title.set_markup(f"<b>RDP</b> <small>{h.user}@{h.host}:{port}</small>")
-        title.set_xalign(0)
-        toolbar.pack_start(title, True, True, 0)
-
-        self._lbl_status = Gtk.Label(label=_("Waiting…"))
-        self._lbl_status.get_style_context().add_class("dim-label")
-        toolbar.pack_start(self._lbl_status, False, False, 8)
-
-        self._btn_connect = Gtk.Button(label=_("Connect"))
-        self._btn_connect.get_style_context().add_class("suggested-action")
-        self._btn_connect.connect("clicked", self._on_connect)
-        toolbar.pack_start(self._btn_connect, False, False, 0)
-
-        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
-        self._btn_disconnect.set_sensitive(False)
-        self._btn_disconnect.connect("clicked", self._on_disconnect)
-        toolbar.pack_start(self._btn_disconnect, False, False, 0)
-
-        self.pack_start(toolbar, False, False, 0)
-        self.pack_start(Gtk.Separator(), False, False, 0)
-
-        # Zone XEmbed
-        self._socket = Gtk.Socket()
-        self._socket.connect("plug-removed", self._on_plug_removed)
-        self._socket.connect("plug-added", self._on_plug_added)
-        self._socket.connect("realize", self._on_socket_realized)
-        self._socket.set_hexpand(True)
-        self._socket.set_vexpand(True)
-        self.pack_start(self._socket, True, True, 0)
-
-        self.show_all()
-
-    def _on_socket_realized(self, widget):
-        """Recupere le XID apres realisation du socket.
-
-        Args:
-            widget (Gtk.Socket): Socket GTK.
-        """
-        self._xid = self._socket.get_id()
-
-    def _on_plug_added(self, widget):
-        """Signale que xfreerdp s'est connecte au socket XEmbed.
-
-        Args:
-            widget (Gtk.Socket): Socket GTK.
-        """
-        GLib.idle_add(self._set_status, _("Connect"))
-        GLib.idle_add(self._btn_connect.set_sensitive, False)
-        GLib.idle_add(self._btn_disconnect.set_sensitive, True)
-
-    def _on_plug_removed(self, widget):
-        """Signale que xfreerdp s'est deconnecte du socket XEmbed.
-
-        Args:
-            widget (Gtk.Socket): Socket GTK.
-
-        Returns:
-            bool: True pour garder le socket en vie.
-        """
-        GLib.idle_add(self._set_status, _("Session ended"))
-        GLib.idle_add(self._btn_connect.set_sensitive, True)
-        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
-        self._proc = None
-        return True  # conserver le socket (ne pas le détruire)
-
-    def _build_cmd(self):
-        """Construit la commande xfreerdp avec /parent-window pour XEmbed.
-
-        Returns:
-            list[str]: Arguments pour subprocess.Popen.
-        """
-        h = self.host
-        port = getattr(h, "port", 3389) or 3389
-        pwd = self._get_password() or ""
-        opts = getattr(h, "extra_params", "") or ""
-        user = h.user
-
-        if "\\" in user:
-            domain, uname = user.split("\\", 1)
-            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/d:{domain}", f"/u:{uname}"]
-        else:
-            cmd = [RDP_BIN, f"/v:{h.host}:{port}", f"/u:{user}"]
-
-        if pwd:
-            cmd.append(f"/p:{pwd}")
-
-        xid = self._xid or self._socket.get_id()
-        cmd += [
-            "/cert:ignore",
-            "/dynamic-resolution",
-            f"/parent-window:{hex(xid)}",
-        ]
-
-        if opts:
-            cmd += shlex.split(opts)
-
-        return cmd
-
-    def _on_connect(self, widget):
-        """Lance xfreerdp en mode XEmbed.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur (peut etre None).
-        """
-        if self._proc is not None and self._proc.poll() is None:
-            return
-        # S'assurer que le socket est realize
-        if not self._socket.get_realized():
-            self._socket.realize()
-        self._xid = self._socket.get_id()
-
-        cmd = self._build_cmd()
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            self._set_status(_("xfreerdp not found"))
-            return
-        self._set_status(_("Connecting…"))
-        self._btn_connect.set_sensitive(False)
-        threading.Thread(target=self._wait_proc, daemon=True).start()
-
-    def _wait_proc(self):
-        """Attend la fin du processus xfreerdp en arriere-plan."""
-        if self._proc:
-            rc = self._proc.wait()
-            if rc != 0:
-                GLib.idle_add(
-                    self._set_status,
-                    _("Ended (code {rc})").format(rc=rc),
-                )
-        GLib.idle_add(self._btn_connect.set_sensitive, True)
-        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
-        self._proc = None
-
-    def _on_disconnect(self, widget):
-        """Termine la session xfreerdp.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur.
-        """
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
-        self._set_status(_("Disconnect"))
-        self._btn_connect.set_sensitive(True)
-        self._btn_disconnect.set_sensitive(False)
-
-    def _set_status(self, text):
-        """Met a jour le label de statut.
-
-        Args:
-            text (str): Nouveau statut.
-        """
-        self._lbl_status.set_text(text)
-
-    def connect_rdp(self):
-        """Lance la connexion RDP automatiquement (appele depuis addTab)."""
-        if self._socket.get_realized():
-            self._on_connect(None)
-        else:
-            # Connexion unique : stocker l'ID pour eviter l'accumulation de signaux
-            if not getattr(self, "_realize_handler_id", None):
-                self._realize_handler_id = self._socket.connect(
-                    "realize",
-                    self._on_realize_connect,
-                )
-
-    def _on_realize_connect(self, widget):
-        """Callback realize unique : deconnecte le signal puis lance xfreerdp.
-
-        Args:
-            widget (Gtk.Socket): Socket GTK.
-        """
-        if self._realize_handler_id:
-            self._socket.disconnect(self._realize_handler_id)
-            self._realize_handler_id = None
-        GLib.idle_add(self._on_connect, None)
-
-
 # ─── VNC / SPICE (#102) ──────────────────────────────────────────────────────
-
-# Détection des binaires VNC disponibles (ordre de préférence)
-VNC_BIN = (
-    shutil.which("vncviewer")
-    or shutil.which("tigervnc")
-    or shutil.which("xtightvncviewer")
-    or shutil.which("xvnc4viewer")
-    or shutil.which("vinagre")
-    or shutil.which("remmina")
-    or "vncviewer"
-)
-
-# Détection des binaires SPICE disponibles
-SPICE_BIN = (
-    shutil.which("remote-viewer")
-    or shutil.which("virt-viewer")
-    or shutil.which("spicy")
-    or "remote-viewer"
-)
-
-# Détection du binaire serial disponible (picocom > minicom > screen)
-SERIAL_BIN = (
-    shutil.which("picocom") or shutil.which("minicom") or shutil.which("screen") or "picocom"
-)
 
 # Port par défaut par protocole (serial : débit par défaut 9600)
 _PROTO_DEFAULTS = {
@@ -1461,761 +876,6 @@ def _serial_templates_save(cp):
     for name, tpl in _SERIAL_TEMPLATES.items():
         cp.set("serial_templates", name, ",".join(tpl))
 
-
-class VncTab(Gtk.Box):
-    """Widget affiche dans le Gtk.Notebook pour les connexions VNC.
-
-    Lance vncviewer (ou vinagre/remmina) en fenetre externe.
-    Affiche le statut et un champ d'options modifiable.
-    """
-
-    def __init__(self, host, get_password_fn):
-        """Initialise le panneau VNC.
-
-        Args:
-            host (Host): Objet Host GCM avec protocol='vnc'.
-            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
-        """
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.host = host
-        self._get_password = get_password_fn
-        self._proc = None
-        self.set_margin_start(16)
-        self.set_margin_end(16)
-        self.set_margin_top(16)
-        self.set_margin_bottom(16)
-        self._build_ui()
-
-    def _build_ui(self):
-        """Construit l'interface du panneau VNC."""
-        h = self.host
-        port = getattr(h, "port", "5900") or "5900"
-        title = Gtk.Label()
-        title.set_markup(f"<b>VNC — {h.name}</b><small>   {h.host}:{port}</small>")
-        title.set_xalign(0)
-        self.pack_start(title, False, False, 0)
-        if h.description:
-            d = Gtk.Label(label=h.description)
-            d.set_xalign(0)
-            d.get_style_context().add_class("dim-label")
-            self.pack_start(d, False, False, 0)
-        self.pack_start(Gtk.Separator(), False, False, 4)
-        self._lbl_status = Gtk.Label(label=_("Waiting…"))
-        self._lbl_status.set_xalign(0)
-        self.pack_start(self._lbl_status, False, False, 0)
-        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._btn_connect = Gtk.Button(label=_("Connect"))
-        self._btn_connect.get_style_context().add_class("suggested-action")
-        self._btn_connect.connect("clicked", self._on_connect)
-        hb.pack_start(self._btn_connect, False, False, 0)
-        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
-        self._btn_disconnect.set_sensitive(False)
-        self._btn_disconnect.connect("clicked", self._on_disconnect)
-        hb.pack_start(self._btn_disconnect, False, False, 0)
-        self.pack_start(hb, False, False, 0)
-        self.pack_start(Gtk.Separator(), False, False, 4)
-        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb2.pack_start(Gtk.Label(label=_("xfreerdp options:")), False, False, 0)
-        self._entry_opts = Gtk.Entry()
-        self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
-        self._entry_opts.set_tooltip_text(
-            "Paramètres additionnels vncviewer\nEx: -FullScreen -FullColour -CompressLevel 6"
-        )
-        hb2.pack_start(self._entry_opts, True, True, 0)
-        self.pack_start(hb2, False, False, 0)
-        # Binaire détecté
-        lbl_bin = Gtk.Label()
-        lbl_bin.set_markup(f"<small><i>Binaire détecté : {VNC_BIN}</i></small>")
-        lbl_bin.set_xalign(0)
-        self.pack_start(lbl_bin, False, False, 0)
-        self.show_all()
-
-    def _build_cmd(self):
-        """Construit la commande vncviewer.
-
-        Returns:
-            list[str]: Arguments pour subprocess.Popen.
-        """
-        h = self.host
-        port = getattr(h, "port", "5900") or "5900"
-        pwd = self._get_password() or ""
-        opts_str = self._entry_opts.get_text().strip()
-        bin_name = os.path.basename(VNC_BIN)
-        # Construction selon le binaire
-        if bin_name in ("vinagre", "remmina"):
-            # URI style
-            if pwd:
-                cmd = [VNC_BIN, f"vnc://{h.user}:{pwd}@{h.host}:{port}"]
-            else:
-                cmd = [VNC_BIN, f"vnc://{h.host}:{port}"]
-        else:
-            # vncviewer style (tigervnc, xtightvncviewer, etc.)
-            cmd = [VNC_BIN, f"{h.host}:{port}"]
-            if pwd:
-                cmd += ["-passwd", "/dev/stdin"]
-        if opts_str:
-            cmd += shlex.split(opts_str)
-        return cmd, pwd
-
-    def _on_connect(self, widget):
-        """Lance la connexion VNC.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur.
-        """
-        if self._proc is not None and self._proc.poll() is None:
-            return
-        self.host.extra_params = self._entry_opts.get_text().strip()
-        cmd, pwd = self._build_cmd()
-        bin_name = os.path.basename(VNC_BIN)
-        try:
-            if bin_name not in ("vinagre", "remmina") and pwd:
-                # Passer le mot de passe sur stdin
-                self._proc = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                self._proc.stdin.write(pwd.encode() + b"\n")
-                self._proc.stdin.close()
-            else:
-                self._proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-        except FileNotFoundError:
-            self._set_status(_("xfreerdp not found"))
-            return
-        self._set_status(_("Connecting…"))
-        self._btn_connect.set_sensitive(False)
-        self._btn_disconnect.set_sensitive(True)
-        threading.Thread(target=self._wait_proc, daemon=True).start()
-
-    def _wait_proc(self):
-        """Attend la fin du processus VNC en arriere-plan."""
-        if self._proc:
-            rc = self._proc.wait()
-            if rc != 0:
-                GLib.idle_add(self._set_status, _("Ended (code {rc})").format(rc=rc))
-            else:
-                GLib.idle_add(self._set_status, _("Session ended"))
-        GLib.idle_add(self._btn_connect.set_sensitive, True)
-        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
-        self._proc = None
-
-    def _on_disconnect(self, widget):
-        """Termine la session VNC.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur.
-        """
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
-        self._set_status(_("Disconnect"))
-        self._btn_connect.set_sensitive(True)
-        self._btn_disconnect.set_sensitive(False)
-
-    def _set_status(self, text):
-        """Met a jour le label de statut.
-
-        Args:
-            text (str): Nouveau statut.
-        """
-        self._lbl_status.set_text(text)
-
-    def connect_vnc(self):
-        """Lance la connexion VNC automatiquement (appele depuis addTab)."""
-        self._on_connect(None)
-
-
-class SpiceTab(Gtk.Box):
-    """Widget affiche dans le Gtk.Notebook pour les connexions SPICE.
-
-    Lance remote-viewer (virt-viewer) en fenetre externe avec URI spice://.
-    """
-
-    def __init__(self, host, get_password_fn):
-        """Initialise le panneau SPICE.
-
-        Args:
-            host (Host): Objet Host GCM avec protocol='spice'.
-            get_password_fn (callable): Fonction retournant le mot de passe dechiffre.
-        """
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.host = host
-        self._get_password = get_password_fn
-        self._proc = None
-        self.set_margin_start(16)
-        self.set_margin_end(16)
-        self.set_margin_top(16)
-        self.set_margin_bottom(16)
-        self._build_ui()
-
-    def _build_ui(self):
-        """Construit l'interface du panneau SPICE."""
-        h = self.host
-        port = getattr(h, "port", "5930") or "5930"
-        title = Gtk.Label()
-        title.set_markup(f"<b>SPICE — {h.name}</b><small>   {h.host}:{port}</small>")
-        title.set_xalign(0)
-        self.pack_start(title, False, False, 0)
-        if h.description:
-            d = Gtk.Label(label=h.description)
-            d.set_xalign(0)
-            d.get_style_context().add_class("dim-label")
-            self.pack_start(d, False, False, 0)
-        self.pack_start(Gtk.Separator(), False, False, 4)
-        self._lbl_status = Gtk.Label(label=_("Waiting…"))
-        self._lbl_status.set_xalign(0)
-        self.pack_start(self._lbl_status, False, False, 0)
-        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._btn_connect = Gtk.Button(label=_("Connect"))
-        self._btn_connect.get_style_context().add_class("suggested-action")
-        self._btn_connect.connect("clicked", self._on_connect)
-        hb.pack_start(self._btn_connect, False, False, 0)
-        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
-        self._btn_disconnect.set_sensitive(False)
-        self._btn_disconnect.connect("clicked", self._on_disconnect)
-        hb.pack_start(self._btn_disconnect, False, False, 0)
-        self.pack_start(hb, False, False, 0)
-        self.pack_start(Gtk.Separator(), False, False, 4)
-        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb2.pack_start(Gtk.Label(label=_("xfreerdp options:")), False, False, 0)
-        self._entry_opts = Gtk.Entry()
-        self._entry_opts.set_text(getattr(h, "extra_params", "") or "")
-        self._entry_opts.set_tooltip_text(
-            "Paramètres additionnels remote-viewer\n"
-            "Ex: --spice-ca-file=/etc/ssl/certs/ca.crt --full-screen"
-        )
-        hb2.pack_start(self._entry_opts, True, True, 0)
-        self.pack_start(hb2, False, False, 0)
-        lbl_bin = Gtk.Label()
-        lbl_bin.set_markup(f"<small><i>Binaire détecté : {SPICE_BIN}</i></small>")
-        lbl_bin.set_xalign(0)
-        self.pack_start(lbl_bin, False, False, 0)
-        self.show_all()
-
-    def _build_cmd(self):
-        """Construit la commande remote-viewer avec URI spice://.
-
-        Trois modes selon extra_params :
-        - '--proxmox NODE VMID' : ticket Proxmox généré via SSH, fichier .vv temporaire
-        - '--connect qemu+ssh://...' : tunnel libvirt natif (virt-viewer)
-        - (vide/autres) : URI spice://host?port=PORT standard
-
-        Returns:
-            list[str]: Arguments pour subprocess.Popen, ou None si erreur.
-        """
-        h = self.host
-        port = getattr(h, "port", "5930") or "5930"
-        pwd = self._get_password() or ""
-        opts_str = self._entry_opts.get_text().strip()
-
-        # Mode Proxmox : génération de ticket SPICE via pvesh
-        if opts_str.startswith("--proxmox "):
-            parts = opts_str.split()
-            if len(parts) >= 3:
-                node_name, vmid = parts[1], parts[2]
-            else:
-                self._set_status(_("Erreur : --proxmox NODE VMID requis"))
-                return None
-            hv_host = h.host
-            hv_port = (
-                int(h.port) if str(h.port).isdigit() and int(h.port) not in (5900, 5930) else 22
-            )
-            hv_user = h.user or "root"
-            try:
-                import paramiko as _paramiko
-
-                _client = _paramiko.SSHClient()
-                _client.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
-                _client.connect(hv_host, port=hv_port, username=hv_user, timeout=10)
-                cmd_pvesh = (
-                    f"pvesh create /nodes/{node_name}/qemu/{vmid}/spiceproxy --output-format json"
-                )
-                _stdin, stdout, stderr = _client.exec_command(cmd_pvesh)
-                out = stdout.read().decode().strip()
-                _client.close()
-            except Exception as exc:
-                self._set_status(_(f"Erreur SSH : {exc}"))
-                return None
-            try:
-                ticket = json.loads(out)
-            except Exception:
-                self._set_status(_(f"Erreur ticket SPICE : {out[:80]}"))
-                return None
-            # Écriture du fichier .vv temporaire
-            vv_lines = [
-                "[virt-viewer]",
-                "type=spice",
-                f"host={ticket['host']}",
-                f"tls-port={ticket['tls-port']}",
-                f"password={ticket['password']}",
-                f"proxy={ticket.get('proxy', '')}",
-                f"host-subject={ticket.get('host-subject', '')}",
-                f"ca={ticket.get('ca', '')}",
-                "delete-this-file=1",
-            ]
-            import tempfile as _tempfile
-
-            vv_fd, vv_path = _tempfile.mkstemp(suffix=".vv", prefix="gcm-spice-")
-            with os.fdopen(vv_fd, "w") as vv_f:
-                vv_f.write("\n".join(vv_lines) + "\n")
-            return [SPICE_BIN, vv_path]
-
-        # Mode libvirt URI : virt-viewer gère le tunnel SSH nativement
-        if opts_str.startswith("--connect"):
-            return [SPICE_BIN] + shlex.split(opts_str)
-
-        # Mode standard : spice://host?port=PORT
-        if pwd:
-            uri = f"spice://{h.host}?port={port}&password={pwd}"
-        else:
-            uri = f"spice://{h.host}?port={port}"
-        cmd = [SPICE_BIN, uri]
-        if opts_str:
-            cmd += shlex.split(opts_str)
-        return cmd
-
-    def _on_connect(self, widget):
-        """Lance la connexion SPICE.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur.
-        """
-        if self._proc is not None and self._proc.poll() is None:
-            return
-        self.host.extra_params = self._entry_opts.get_text().strip()
-        cmd = self._build_cmd()
-        if cmd is None:
-            return
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            self._set_status(_("xfreerdp not found"))
-            return
-        self._set_status(_("Connecting…"))
-        self._btn_connect.set_sensitive(False)
-        self._btn_disconnect.set_sensitive(True)
-        threading.Thread(target=self._wait_proc, daemon=True).start()
-
-    def _wait_proc(self):
-        """Attend la fin du processus SPICE en arriere-plan."""
-        if self._proc:
-            rc = self._proc.wait()
-            if rc != 0:
-                GLib.idle_add(self._set_status, _("Ended (code {rc})").format(rc=rc))
-            else:
-                GLib.idle_add(self._set_status, _("Session ended"))
-        GLib.idle_add(self._btn_connect.set_sensitive, True)
-        GLib.idle_add(self._btn_disconnect.set_sensitive, False)
-        self._proc = None
-
-    def _on_disconnect(self, widget):
-        """Termine la session SPICE.
-
-        Args:
-            widget (Gtk.Button): Bouton declencheur.
-        """
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
-        self._set_status(_("Disconnect"))
-        self._btn_connect.set_sensitive(True)
-        self._btn_disconnect.set_sensitive(False)
-
-    def _set_status(self, text):
-        """Met a jour le label de statut.
-
-        Args:
-            text (str): Nouveau statut.
-        """
-        self._lbl_status.set_text(text)
-
-    def connect_spice(self):
-        """Lance la connexion SPICE automatiquement (appele depuis addTab)."""
-        self._on_connect(None)
-
-
-# ─── SERIAL / RS-232 / RS-485 ───────────────────────────────────────────────
-
-
-class SerialTab(Gtk.Box):
-    """Onglet de connexion série embarquant un terminal VTE.
-
-    Lance picocom (ou minicom / screen) dans le widget VTE intégré.
-    Supporte des templates constructeur (Cisco, HP Comware, Aruba…).
-
-    Paramètres série complets exposés dans l'UI :
-        - Port série (/dev/ttyUSBx, /dev/ttySx…)
-        - Débit (baud rate) : 300 → 921600
-        - Bits de données : 5 / 6 / 7 / 8
-        - Parité : Aucune / Paire / Impaire
-        - Bits de stop : 1 / 2
-        - Contrôle de flux : Aucun / XON-XOFF / RTS-CTS / DSR-DTR
-
-    Args:
-        host (Host): Hôte avec protocol='serial'.
-            - host.host         : chemin du port
-            - host.port         : débit en bauds
-            - host.extra_params : options libres supplémentaires
-            - host.type         : clé template
-    """
-
-    # Correspondances valeur interne → label UI
-    _FLOW_LABELS = [
-        ("n", "None"),
-        ("x", "XON/XOFF (soft)"),
-        ("h", "RTS/CTS (hard)"),
-        ("d", "DSR/DTR"),
-    ]
-    _PARITY_LABELS = [
-        ("n", "Aucune (N)"),
-        ("e", "Paire (E)"),
-        ("o", "Impaire (O)"),
-    ]
-    _DATABITS_VALUES = ("5", "6", "7", "8")
-    _STOPBITS_VALUES = ("1", "2")
-
-    def __init__(self, host):
-        """Initialise le widget SerialTab."""
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.host = host
-
-        # ── ligne 1 : appareil + débit + template ───────────────────────────
-        hb1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb1.set_margin_start(6)
-        hb1.set_margin_end(6)
-        hb1.set_margin_top(4)
-
-        # Port série
-        lbl_dev = Gtk.Label(label=_("Serial port:"))
-        lbl_dev.set_xalign(1.0)
-        self._entry_dev = Gtk.Entry()
-        self._entry_dev.set_text(getattr(host, "host", "/dev/ttyUSB0") or "/dev/ttyUSB0")
-        self._entry_dev.set_tooltip_text(_("Ex : /dev/ttyUSB0, /dev/ttyS0, /dev/ttyACM0"))
-        self._entry_dev.set_hexpand(True)
-
-        # Débit (baud rate)
-        lbl_baud = Gtk.Label(label=_("Baud rate:"))
-        lbl_baud.set_xalign(1.0)
-        self._cmb_baud = Gtk.ComboBoxText()
-        for b in (
-            "300",
-            "1200",
-            "2400",
-            "4800",
-            "9600",
-            "19200",
-            "38400",
-            "57600",
-            "115200",
-            "230400",
-            "460800",
-            "921600",
-        ):
-            self._cmb_baud.append_text(b)
-        self._cmb_baud.set_tooltip_text(_("Transmission speed in baud"))
-        baud = str(getattr(host, "port", "9600") or "9600")
-        self._cmb_select(self._cmb_baud, baud, 4)  # défaut 9600 (idx 4)
-
-        # Template constructeur
-        lbl_tpl = Gtk.Label(label=_("Template:"))
-        lbl_tpl.set_xalign(1.0)
-        self._cmb_tpl = Gtk.ComboBoxText()
-        for tpl_name in _SERIAL_TEMPLATES:
-            self._cmb_tpl.append_text(tpl_name)
-        self._cmb_tpl.set_tooltip_text(_("Load vendor-recommended serial settings"))
-        tpl_saved = getattr(host, "type", "") or ""
-        tpl_list = list(_SERIAL_TEMPLATES.keys())
-        tpl_idx = tpl_list.index(tpl_saved) if tpl_saved in tpl_list else 10
-        self._cmb_tpl.set_active(tpl_idx)
-        self._cmb_tpl.connect("changed", self._on_template_changed)
-
-        for w in (
-            lbl_dev,
-            self._entry_dev,
-            lbl_baud,
-            self._cmb_baud,
-            lbl_tpl,
-            self._cmb_tpl,
-        ):
-            hb1.pack_start(w, False, False, 0)
-
-        # ── ligne 2 : paramètres série (databits, parity, stopbits, flow) ──
-        hb2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        hb2.set_margin_start(6)
-        hb2.set_margin_end(6)
-
-        # Bits de données
-        lbl_data = Gtk.Label(label=_("Data bits:"))
-        lbl_data.set_xalign(1.0)
-        self._cmb_databits = Gtk.ComboBoxText()
-        for d in self._DATABITS_VALUES:
-            self._cmb_databits.append_text(d)
-        self._cmb_databits.set_tooltip_text(_("Number of data bits per byte (8 = standard)"))
-        self._cmb_databits.set_active(3)  # 8 par défaut
-
-        # Parité
-        lbl_par = Gtk.Label(label=_("Parity:"))
-        lbl_par.set_xalign(1.0)
-        self._cmb_parity = Gtk.ComboBoxText()
-        for _code, _label in self._PARITY_LABELS:
-            self._cmb_parity.append_text(_label)
-        self._cmb_parity.set_tooltip_text(_("Parity bit: None (N) = standard, Even (E), Odd (O)"))
-        self._cmb_parity.set_active(0)  # None par défaut
-
-        # Bits de stop
-        lbl_stop = Gtk.Label(label=_("Stop bits:"))
-        lbl_stop.set_xalign(1.0)
-        self._cmb_stopbits = Gtk.ComboBoxText()
-        for s in self._STOPBITS_VALUES:
-            self._cmb_stopbits.append_text(s)
-        self._cmb_stopbits.set_tooltip_text(
-            _("Stop bits: 1 = standard, 2 = RS-485 / legacy hardware")
-        )
-        self._cmb_stopbits.set_active(0)  # 1 par défaut
-
-        # Contrôle de flux
-        lbl_flow = Gtk.Label(label=_("Flow control:"))
-        lbl_flow.set_xalign(1.0)
-        self._cmb_flow = Gtk.ComboBoxText()
-        for _code, _label in self._FLOW_LABELS:
-            self._cmb_flow.append_text(_label)
-        self._cmb_flow.set_tooltip_text(
-            _(
-                "Flow control:\n"
-                "  None = standard console\n"
-                "  XON/XOFF = software (Ctrl-Q/Ctrl-S)\n"
-                "  RTS/CTS = hardware (full cable)\n"
-                "  DSR/DTR = legacy hardware"
-            )
-        )
-        self._cmb_flow.set_active(0)  # Aucun par défaut
-
-        # Options libres
-        lbl_opts = Gtk.Label(label=_("xfreerdp options:"))
-        lbl_opts.set_xalign(1.0)
-        self._entry_opts = Gtk.Entry()
-        self._entry_opts.set_text(getattr(host, "extra_params", "") or "")
-        self._entry_opts.set_tooltip_text(
-            _(
-                "Additional raw options passed to the binary\n"
-                "Ex: --logfile /tmp/serial.log  (picocom)\n"
-                "     -o -x  (minicom)"
-            )
-        )
-
-        # Boutons
-        self._btn_connect = Gtk.Button(label=_("Connect"))
-        self._btn_connect.connect("clicked", self._on_connect)
-        self._btn_disconnect = Gtk.Button(label=_("Disconnect"))
-        self._btn_disconnect.set_sensitive(False)
-        self._btn_disconnect.connect("clicked", self._on_disconnect)
-
-        for w in (
-            lbl_data,
-            self._cmb_databits,
-            lbl_par,
-            self._cmb_parity,
-            lbl_stop,
-            self._cmb_stopbits,
-            lbl_flow,
-            self._cmb_flow,
-            lbl_opts,
-            self._entry_opts,
-            self._btn_connect,
-            self._btn_disconnect,
-        ):
-            hb2.pack_start(w, False, False, 0)
-
-        # ── infos + terminal ────────────────────────────────────────────────
-        lbl_bin = Gtk.Label()
-        lbl_bin.set_markup(f"<small><i>Detected binary: {SERIAL_BIN}</i></small>")
-        lbl_bin.set_xalign(0.0)
-        lbl_bin.set_margin_start(6)
-
-        self._lbl_status = Gtk.Label(label=_("Disconnect"))
-        self._lbl_status.set_xalign(0.0)
-        self._lbl_status.set_margin_start(6)
-
-        self._terminal = Vte.Terminal()
-        self._terminal.set_scrollback_lines(5000)
-        sw = Gtk.ScrolledWindow()
-        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        sw.add(self._terminal)
-        sw.set_vexpand(True)
-        sw.set_hexpand(True)
-
-        self.pack_start(hb1, False, False, 0)
-        self.pack_start(hb2, False, False, 0)
-        self.pack_start(lbl_bin, False, False, 0)
-        self.pack_start(self._lbl_status, False, False, 0)
-        self.pack_start(sw, True, True, 0)
-        self.show_all()
-
-        # Appliquer le template après construction de l'UI
-        if tpl_saved in _SERIAL_TEMPLATES:
-            self._apply_template(tpl_saved)
-
-    # ── helpers ─────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _cmb_select(cmb, value, default_idx=0):
-        """Sélectionne l'entrée dont le texte == value, sinon default_idx."""
-        model = cmb.get_model()
-        it = model.get_iter_first()
-        while it is not None:
-            if model[it][0] == value:
-                cmb.set_active_iter(it)
-                return
-            it = model.iter_next(it)
-        cmb.set_active(default_idx)
-
-    def _flow_code(self):
-        idx = self._cmb_flow.get_active()
-        return self._FLOW_LABELS[idx][0] if 0 <= idx < len(self._FLOW_LABELS) else "n"
-
-    def _parity_code(self):
-        idx = self._cmb_parity.get_active()
-        return self._PARITY_LABELS[idx][0] if 0 <= idx < len(self._PARITY_LABELS) else "n"
-
-    def _databits(self):
-        return self._cmb_databits.get_active_text() or "8"
-
-    def _stopbits(self):
-        return self._cmb_stopbits.get_active_text() or "1"
-
-    # ── template ────────────────────────────────────────────────────────────
-
-    def _apply_template(self, name):
-        """Applique les paramètres d'un template aux combos de l'UI."""
-        if name not in _SERIAL_TEMPLATES:
-            return
-        baud, flow, parity, databits, stopbits = _SERIAL_TEMPLATES[name]
-        self._cmb_select(self._cmb_baud, baud, 4)
-        # flow
-        flow_codes = [c for c, _ in self._FLOW_LABELS]
-        self._cmb_flow.set_active(flow_codes.index(flow) if flow in flow_codes else 0)
-        # parity
-        parity_codes = [c for c, _ in self._PARITY_LABELS]
-        self._cmb_parity.set_active(parity_codes.index(parity) if parity in parity_codes else 0)
-        # databits / stopbits
-        self._cmb_select(self._cmb_databits, databits, 3)
-        self._cmb_select(self._cmb_stopbits, stopbits, 0)
-        self.host.type = name
-
-    def _on_template_changed(self, cmb):
-        """Applique le template sélectionné sur tous les combos."""
-        name = cmb.get_active_text()
-        self._apply_template(name)
-
-    # ── construction de la commande ─────────────────────────────────────────
-
-    def _build_cmd(self):
-        """Construit la liste d'arguments pour le sous-processus série.
-
-        Les paramètres (débit, databits, parity, stopbits, flow) sont lus
-        directement depuis les combos dédiés, pas depuis une chaîne brute.
-
-        Returns:
-            list[str]: Commande prête pour vte_run().
-        """
-        device = self._entry_dev.get_text().strip() or "/dev/ttyUSB0"
-        baud = self._cmb_baud.get_active_text() or "9600"
-        flow = self._flow_code()
-        parity = self._parity_code()
-        databits = self._databits()
-        stopbits = self._stopbits()
-        extra = self._entry_opts.get_text().strip()
-        bin_name = os.path.basename(SERIAL_BIN)
-
-        if bin_name == "picocom":
-            cmd = [
-                SERIAL_BIN,
-                "--baud",
-                baud,
-                "--flow",
-                flow,
-                "--parity",
-                parity,
-                "--databits",
-                databits,
-                "--stopbits",
-                stopbits,
-            ]
-            if extra:
-                cmd += shlex.split(extra)
-            cmd.append(device)
-        elif bin_name == "minicom":
-            # minicom : -b baud  -D device  --databits  --stopbits
-            # flow via --8bit / -f (xon) / --rtscts (rts/cts)
-            cmd = [
-                SERIAL_BIN,
-                "-b",
-                baud,
-                "-D",
-                device,
-                "--databits",
-                databits,
-                "--stopbits",
-                stopbits,
-            ]
-            if flow == "x":
-                cmd += ["-f", "on"]
-            elif flow == "h":
-                cmd += ["--rtscts"]
-            if extra:
-                cmd += shlex.split(extra)
-        else:  # screen : device baud [databits[parity[stopbits]]]
-            # screen accepte 8n1, 7e1, etc. comme troisième argument
-            parity_map = {"n": "n", "e": "e", "o": "o"}
-            combo = f"{databits}{parity_map.get(parity, 'n')}{stopbits}"
-            cmd = [SERIAL_BIN, device, baud, combo]
-            if extra:
-                cmd += shlex.split(extra)
-        return cmd
-
-    # ── connexion / déconnexion ──────────────────────────────────────────────
-
-    def _on_connect(self, widget):
-        """Lance la session série dans le terminal VTE."""
-        self.host.extra_params = self._entry_opts.get_text().strip()
-        self.host.port = self._cmb_baud.get_active_text() or "9600"
-        self.host.host = self._entry_dev.get_text().strip()
-        cmd = self._build_cmd()
-        if not cmd:
-            return
-        self._lbl_status.set_text(_("Connecting…"))
-        self._btn_connect.set_sensitive(False)
-        self._btn_disconnect.set_sensitive(True)
-        vte_run(self._terminal, cmd[0], cmd[1:])
-
-    def _on_disconnect(self, widget):
-        """Envoie SIGTERM au processus fils du VTE."""
-        try:
-            pid = self._terminal.get_pty().get_fd()
-            if pid and pid > 0:
-                import signal as _signal
-
-                os.kill(pid, _signal.SIGTERM)
-        except Exception:
-            pass
-        self._lbl_status.set_text(_("Disconnect"))
-        self._btn_connect.set_sensitive(True)
-        self._btn_disconnect.set_sensitive(False)
-
-    def connect_serial(self):
-        """Démarre la session série automatiquement (appelé depuis addTab)."""
-        self._on_connect(None)
-
-
-# ─── LIBVIRT IMPORT (étape 4) ───────────────────────────────────────────────
 
 LIBVIRT_DEFAULT_USER = "root"  # écrasé par config["libvirt_default_user"]
 
@@ -3889,9 +2549,7 @@ class ProxmoxImportDialog:
         ctrl_box.pack_start(btn_none, False, False, 0)
         self._preview_box.pack_start(ctrl_box, False, False, 0)
 
-        self._preview_store = Gtk.ListStore(
-            bool, str, str, str, str, str, bool, str, str, int
-        )
+        self._preview_store = Gtk.ListStore(bool, str, str, str, str, str, bool, str, str, int)
         tv_prev = Gtk.TreeView(model=self._preview_store)
         tv_prev.set_enable_search(True)
         tv_prev.set_search_column(self._COL_NAME)
@@ -3904,12 +2562,12 @@ class ProxmoxImportDialog:
         tv_prev.append_column(col_sel)
 
         for title, col_idx, min_w, expand in (
-            (_("Proto"),     self._COL_PROTO,     55,  False),
-            (_("VM name"),   self._COL_NAME,      170, True),
-            (_("Group"),     self._COL_GROUP,     90,  False),
-            (_("IP / Host"), self._COL_HOST,      120, False),
-            (_("State"),     self._COL_STATE,     75,  False),
-            (_("Imported"),  self._COL_EXIST_LBL, 70,  False),
+            (_("Proto"), self._COL_PROTO, 55, False),
+            (_("VM name"), self._COL_NAME, 170, True),
+            (_("Group"), self._COL_GROUP, 90, False),
+            (_("IP / Host"), self._COL_HOST, 120, False),
+            (_("State"), self._COL_STATE, 75, False),
+            (_("Imported"), self._COL_EXIST_LBL, 70, False),
         ):
             cr = Gtk.CellRendererText()
             col = Gtk.TreeViewColumn(title, cr, text=col_idx, foreground=self._COL_FG)
@@ -3954,7 +2612,14 @@ class ProxmoxImportDialog:
             self._uri_store.append([True, uri])
 
     def _normalize_manual_uri(self, raw_target):
-        """Convertit une saisie libre en URI qemu+ssh://.../system."""
+        """Convertit une saisie libre en URI qemu+ssh://.../system.
+
+        Args:
+            raw_target (str): Cible saisie (IP, user@host, URI complète, etc.).
+
+        Returns:
+            str: URI normalisée, ou chaîne vide si entrée invalide.
+        """
         raw = (raw_target or "").strip()
         if not raw:
             return ""
@@ -3977,6 +2642,14 @@ class ProxmoxImportDialog:
         return f"qemu+ssh://{user}@{host}:{port}/system"
 
     def _on_add_manual_uri(self, widget):
+        """Ajoute une cible Proxmox saisie manuellement à la liste.
+
+        Args:
+            widget (Gtk.Widget): Widget déclencheur.
+
+        Returns:
+            None: Met à jour la liste des cibles et le log UI.
+        """
         uri = self._normalize_manual_uri(self._entry_manual_uri.get_text())
         if not uri:
             self._log(_("Invalid Proxmox target."))
@@ -4052,9 +2725,7 @@ class ProxmoxImportDialog:
             return
 
         def worker():
-            results = _proxmox_fetch_hosts(
-                uris, user, self._log, self._set_progress, proto_filter
-            )
+            results = _proxmox_fetch_hosts(uris, user, self._log, self._set_progress, proto_filter)
             GLib.idle_add(self._show_preview, results)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -5386,6 +4057,28 @@ class Wmain(GCMBase):
 
         ProxmoxImportDialog(self.window, on_done, default_user)
 
+    def on_mnu_edit_ssh_config_activate(self, widget: object) -> None:
+        """Ouvre le dialogue d'édition de ~/.ssh/config.
+
+        Args:
+            widget: MenuItem déclencheur (non utilisé directement).
+        """
+        if not _SSH_CONFIG_EDITOR_OK:
+            msgbox(
+                _(
+                    "ssh_config_editor module not found.\n"
+                    "Make sure ssh_config_editor.py and ssh_config_parser.py "
+                    "are in the same directory as gnome_connection_manager.py."
+                )
+            )
+            return
+
+        dlg = SshConfigEditorDialog(parent=self.window)
+        response = dlg.run()
+        if response == Gtk.ResponseType.OK:
+            dlg.save()
+        dlg.destroy()
+
     def _import_done(self, host_dicts, default_group="IMPORT"):
         """Ajoute des hôtes importés dans le groupe fixe (pas de sous-groupe via nom VM).
 
@@ -5398,9 +4091,13 @@ class Wmain(GCMBase):
         """
         added = 0
         _proto_icon = {
-            "ssh": "utilities-terminal", "telnet": "utilities-terminal",
-            "rdp": "computer", "vnc": "video-display", "spice": "video-display",
-            "serial": "modem", "local": "user-home",
+            "ssh": "utilities-terminal",
+            "telnet": "utilities-terminal",
+            "rdp": "computer",
+            "vnc": "video-display",
+            "spice": "video-display",
+            "serial": "modem",
+            "local": "user-home",
         }
         for d in host_dicts:
             # Ignorer la ventilation par nom — tout va dans default_group
@@ -5439,6 +4136,57 @@ class Wmain(GCMBase):
             h.serial_parity = "n"
             h.serial_stopbits = "1"
             h.serial_flow = "n"
+            h.serial_tool = "picocom"
+            h.serial_baud = "9600"
+            # ── RDP : défauts adaptés aux VMs importées ───────────────────────
+            h.rdp_domain = d.get("rdp_domain", "")
+            h.rdp_geometry = d.get("rdp_geometry", "fullscreen")
+            h.rdp_width = d.get("rdp_width", "")
+            h.rdp_height = d.get("rdp_height", "")
+            h.rdp_cert_ignore = d.get(
+                "rdp_cert_ignore",
+                d.get("protocol") == "rdp",
+            )
+            h.rdp_dyn_res = d.get("rdp_dyn_res", False)
+            h.rdp_remote_app = d.get("rdp_remote_app", "")
+            # ── VNC ───────────────────────────────────────────────────────────
+            h.vnc_viewer = d.get("vnc_viewer", "tigervnc")
+            h.vnc_display = d.get("vnc_display", "")
+            h.vnc_view_only = d.get("vnc_view_only", False)
+            h.vnc_fullscreen = d.get("vnc_fullscreen", False)
+            # ── SPICE : décoder extra_params legacy → attributs structurés ────
+            _ep = (d.get("extra_params") or "").strip()
+            if d.get("protocol") == "spice" and _ep.startswith("--connect "):
+                # format libvirt : "--connect qemu+ssh://user@host[:port]/system vm_name"
+                _parts = _ep.split(None, 2)
+                h.spice_mode = "libvirt"
+                h.spice_libvirt_uri = _parts[1] if len(_parts) > 1 else ""
+                h.spice_vm_name = _parts[2] if len(_parts) > 2 else ""
+                h.spice_tls_port = ""
+                h.spice_ca_cert = ""
+                h.spice_px_node = ""
+                h.spice_px_vmid = ""
+                # Vider extra_params : les infos sont maintenant dans les attributs
+                h.extra_params = ""
+            elif d.get("protocol") == "spice" and _ep.startswith("--proxmox "):
+                # format proxmox legacy : "--proxmox NODE VMID"
+                _parts = _ep.split()
+                h.spice_mode = "proxmox"
+                h.spice_px_node = _parts[1] if len(_parts) > 1 else ""
+                h.spice_px_vmid = _parts[2] if len(_parts) > 2 else ""
+                h.spice_libvirt_uri = ""
+                h.spice_vm_name = ""
+                h.spice_tls_port = ""
+                h.spice_ca_cert = ""
+                h.extra_params = ""
+            else:
+                h.spice_mode = d.get("spice_mode", "uri")
+                h.spice_libvirt_uri = d.get("spice_libvirt_uri", "")
+                h.spice_vm_name = d.get("spice_vm_name", "")
+                h.spice_tls_port = d.get("spice_tls_port", "")
+                h.spice_ca_cert = d.get("spice_ca_cert", "")
+                h.spice_px_node = d.get("spice_px_node", "")
+                h.spice_px_vmid = d.get("spice_px_vmid", "")
             groups[gname].append(h)
             added += 1
         self.updateTree()
@@ -5449,11 +4197,51 @@ class Wmain(GCMBase):
 
     # Champs exportés (sans mot de passe)
     _CSV_FIELDS = [
-        "group", "name", "description", "host", "user", "port", "type", "protocol",
-        "extra_params", "commands", "keep_alive", "font_color", "back_color",
-        "x11", "agent", "compression", "compressionLevel", "log",
-        "backspace_key", "delete_key", "term",
-        "serial_databits", "serial_parity", "serial_stopbits", "serial_flow",
+        "group",
+        "name",
+        "description",
+        "host",
+        "user",
+        "port",
+        "type",
+        "protocol",
+        "extra_params",
+        "commands",
+        "keep_alive",
+        "font_color",
+        "back_color",
+        "x11",
+        "agent",
+        "compression",
+        "compressionLevel",
+        "log",
+        "backspace_key",
+        "delete_key",
+        "term",
+        "serial_databits",
+        "serial_parity",
+        "serial_stopbits",
+        "serial_flow",
+        "serial_tool",
+        "serial_baud",
+        "rdp_domain",
+        "rdp_geometry",
+        "rdp_width",
+        "rdp_height",
+        "rdp_cert_ignore",
+        "rdp_dyn_res",
+        "rdp_remote_app",
+        "vnc_viewer",
+        "vnc_display",
+        "vnc_view_only",
+        "vnc_fullscreen",
+        "spice_mode",
+        "spice_tls_port",
+        "spice_ca_cert",
+        "spice_libvirt_uri",
+        "spice_vm_name",
+        "spice_px_node",
+        "spice_px_vmid",
     ]
 
     def _all_hosts(self):
@@ -5495,6 +4283,26 @@ class Wmain(GCMBase):
         h.serial_parity = d.get("serial_parity", "n")
         h.serial_stopbits = d.get("serial_stopbits", "1")
         h.serial_flow = d.get("serial_flow", "n")
+        h.serial_tool = d.get("serial_tool", "picocom")
+        h.serial_baud = d.get("serial_baud", "9600")
+        h.rdp_domain = d.get("rdp_domain", "")
+        h.rdp_geometry = d.get("rdp_geometry", "fullscreen")
+        h.rdp_width = d.get("rdp_width", "")
+        h.rdp_height = d.get("rdp_height", "")
+        h.rdp_cert_ignore = str(d.get("rdp_cert_ignore", False)).lower() in ("true", "1", "yes")
+        h.rdp_dyn_res = str(d.get("rdp_dyn_res", False)).lower() in ("true", "1", "yes")
+        h.rdp_remote_app = d.get("rdp_remote_app", "")
+        h.vnc_viewer = d.get("vnc_viewer", "tigervnc")
+        h.vnc_display = d.get("vnc_display", "")
+        h.vnc_view_only = str(d.get("vnc_view_only", False)).lower() in ("true", "1", "yes")
+        h.vnc_fullscreen = str(d.get("vnc_fullscreen", False)).lower() in ("true", "1", "yes")
+        h.spice_mode = d.get("spice_mode", "uri")
+        h.spice_tls_port = d.get("spice_tls_port", "")
+        h.spice_ca_cert = d.get("spice_ca_cert", "")
+        h.spice_libvirt_uri = d.get("spice_libvirt_uri", "")
+        h.spice_vm_name = d.get("spice_vm_name", "")
+        h.spice_px_node = d.get("spice_px_node", "")
+        h.spice_px_vmid = d.get("spice_px_vmid", "")
         return h
 
     def _import_hosts_from_list(self, host_list):
@@ -5521,6 +4329,7 @@ class Wmain(GCMBase):
         if not filename:
             return
         import csv as _csv
+
         try:
             with open(filename, newline="", encoding="utf-8") as f:
                 reader = _csv.DictReader(f)
@@ -5542,6 +4351,7 @@ class Wmain(GCMBase):
         if not filename:
             return
         import json as _json
+
         try:
             with open(filename, encoding="utf-8") as f:
                 data = _json.load(f)
@@ -5567,6 +4377,7 @@ class Wmain(GCMBase):
         if not filename.endswith(".csv"):
             filename += ".csv"
         import csv as _csv
+
         try:
             hosts = self._all_hosts()
             with open(filename, "w", newline="", encoding="utf-8") as f:
@@ -5589,6 +4400,7 @@ class Wmain(GCMBase):
         if not filename.endswith(".json"):
             filename += ".json"
         import json as _json
+
         try:
             hosts = self._all_hosts()
             data = [self._host_to_dict(h) for h in hosts]
@@ -6438,6 +5250,16 @@ class Wmain(GCMBase):
                     f"{_('Invalid entry in configuration file')}: {sys.exc_info()[1]}"
                 )
 
+        # Restaurer les groupes vides (dossiers créés sans hôtes)
+        try:
+            empty_names = cp.get("empty_groups", "names")
+            for g in empty_names.split(","):
+                g = g.strip()
+                if g and g not in groups:
+                    groups[g] = []
+        except Exception:
+            pass
+
     def is_node_collapsed(self, model, path, iter, nodes):
         """Indique si un noeud de l'arbre est reduit.
 
@@ -6479,7 +5301,7 @@ class Wmain(GCMBase):
             Gdk.drag_status(context, 0, time)
             return
 
-        src_host = self.treeModel.get_value(src_it, 1)          # None = dossier
+        src_host = self.treeModel.get_value(src_it, 1)  # None = dossier
         src_name = self.treeModel.get_value(src_it, 0)
         src_parent = self.treeModel.iter_parent(src_it)
 
@@ -6590,10 +5412,13 @@ class Wmain(GCMBase):
                 return
 
             # Renommer toutes les clés src_full et src_full/...
-            to_move = {k: v for k, v in list(groups.items())
-                       if k == src_full or k.startswith(src_full + "/")}
+            to_move = {
+                k: v
+                for k, v in list(groups.items())
+                if k == src_full or k.startswith(src_full + "/")
+            }
             for old_key, hosts in to_move.items():
-                new_key = new_full + old_key[len(src_full):]
+                new_key = new_full + old_key[len(src_full) :]
                 del groups[old_key]
                 groups[new_key] = hosts
                 for h in hosts:
@@ -6605,8 +5430,6 @@ class Wmain(GCMBase):
             return
 
         Gdk.drag_status(context, 0, time)
-
-
 
     def set_collapsed_nodes(self):
         """Applique l'etat reduit/etendu aux noeuds de l'arbre."""
@@ -6628,8 +5451,10 @@ class Wmain(GCMBase):
 
     def updateTree(self):
         """Met a jour l'arbre des serveurs depuis la configuration."""
-        for grupo in dict(groups):
-            if len(groups[grupo]) == 0:
+        # Ne pas supprimer les groupes vides — ils sont des dossiers valides
+        # (on retire seulement les None/clés vides générés par erreur)
+        for grupo in list(groups.keys()):
+            if grupo is None or grupo == "":
                 del groups[grupo]
 
         if conf.COLLAPSED_FOLDERS == None:
@@ -6833,6 +5658,11 @@ class Wmain(GCMBase):
                 cp.add_section(section)
                 HostUtils.save_host_to_ini(cp, section, host)
                 i += 1
+
+        # Persister les groupes vides (dossiers sans hôtes)
+        cp.add_section("empty_groups")
+        empty = [g for g, hosts in groups.items() if len(hosts) == 0]
+        cp.set("empty_groups", "names", ",".join(empty))
 
         cp.add_section("shortcuts")
         i = 1
@@ -7441,21 +6271,29 @@ class Wmain(GCMBase):
 
     # -- Wmain.on_btnAdd_clicked {
     def on_btnAdd_clicked(self, widget, *args):
-        """Gestionnaire du bouton Ajouter un hote.
-
-        Args:
-            widget (Gtk.Button): Bouton clique.
-        """
+        """Gestionnaire du bouton Ajouter un hote."""
         group = ""
-        if self.treeServers.get_selection().get_selected()[1] != None:
+        if self.treeServers.get_selection().get_selected()[1] is not None:
             selected = self.treeServers.get_selection().get_selected()[1]
-            group = self.get_group(selected)
-            if self.treeModel.iter_has_child(self.treeServers.get_selection().get_selected()[1]):
-                selected = self.treeServers.get_selection().get_selected()[1]
-                group = self.treeModel.get_value(selected, 0)
-                parent_group = self.get_group(selected)
-                if parent_group != "":
-                    group = parent_group + "/" + group
+            if self.treeModel.iter_has_child(selected):
+                # Nœud dossier sélectionné → groupe = chemin complet du dossier
+                group = self._iter_full_path(selected)
+            else:
+                # Nœud hôte sélectionné → groupe = parent
+                group = self.get_group(selected)
+                parent_it = self.treeModel.iter_parent(selected)
+                if parent_it is not None:
+                    group = self._iter_full_path(parent_it)
+        if not group:
+            # Aucune sélection — demander le groupe
+            existing = sorted(groups.keys())
+            if existing:
+                group = existing[0]
+            else:
+                group = inputbox(_("Add Host"), _("Group name:"), "HOSTS")
+                if not group:
+                    return
+                group = group.strip()
         wHost = Whost()
         wHost.init(group)
         self.updateTree()
@@ -7629,10 +6467,11 @@ class Wmain(GCMBase):
             return
 
         # Renommer dans groups : clé principale + tous les sous-groupes
-        to_rename = {k: v for k, v in groups.items()
-                     if k == old_full or k.startswith(old_full + "/")}
+        to_rename = {
+            k: v for k, v in groups.items() if k == old_full or k.startswith(old_full + "/")
+        }
         for old_key, hosts in to_rename.items():
-            new_key = new_full + old_key[len(old_full):]
+            new_key = new_full + old_key[len(old_full) :]
             del groups[old_key]
             groups[new_key] = hosts
             for h in hosts:
@@ -7899,254 +6738,6 @@ class Wmain(GCMBase):
     # -- Wmain.on_tvServers_button_press_event }
 
 
-class Host:
-    def __init__(self, *args):
-        """Initialise l'instance."""
-        try:
-            self.i = 0
-            self.group = self.get_arg(args, None)
-            self.name = self.get_arg(args, None)
-            self.description = self.get_arg(args, None)
-            self.host = self.get_arg(args, None)
-            self.user = self.get_arg(args, None)
-            self.password = self.get_arg(args, None)
-            self.private_key = self.get_arg(args, None)
-            self.port = self.get_arg(args, 22)
-            self.tunnel = self.get_arg(args, "").split(",")
-            self.type = self.get_arg(args, "ssh")
-            self.commands = self.get_arg(args, None)
-            self.keep_alive = self.get_arg(args, 0)
-            self.font_color = self.get_arg(args, "")
-            self.back_color = self.get_arg(args, "")
-            self.x11 = self.get_arg(args, False)
-            self.agent = self.get_arg(args, False)
-            self.compression = self.get_arg(args, False)
-            self.compressionLevel = self.get_arg(args, "")
-            self.extra_params = self.get_arg(args, "")
-            self.log = self.get_arg(args, False)
-            self.backspace_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
-            self.delete_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
-            self.term = self.get_arg(args, "")
-            self.protocol = self.get_arg(args, "ssh")
-            # Paramètres série (RS-232/RS-485)
-            self.serial_databits = self.get_arg(args, "8")
-            self.serial_parity = self.get_arg(args, "n")
-            self.serial_stopbits = self.get_arg(args, "1")
-            self.serial_flow = self.get_arg(args, "n")
-        except:
-            pass
-
-    def get_arg(self, args, default):
-        """Retourne la valeur d'un argument de connexion.
-
-        Args:
-            key (str): Nom de l'argument.
-
-        Returns:
-            str: Valeur de l'argument ou chaine vide.
-        """
-        arg = args[self.i] if len(args) > self.i else default
-        self.i += 1
-        return arg
-
-    def __repr__(self):
-        """Retourne une representation textuelle de l'hote.
-
-        Returns:
-            str: Representation de l'hote.
-        """
-        return "group=[%s],\t name=[%s],\t host=[%s],\t type=[%s]" % (
-            self.group,
-            self.name,
-            self.host,
-            self.type,
-        )
-
-    def tunnel_as_string(self):
-        """Retourne la definition des tunnels SSH sous forme de chaine.
-
-        Returns:
-            str: Chaine de tunnels formatee.
-        """
-        return ",".join(self.tunnel)
-
-    def clone(self):
-        """Cree une copie profonde de l'hote.
-
-        Returns:
-            Host: Nouvel hote identique.
-        """
-        return Host(
-            self.group,
-            self.name,
-            self.description,
-            self.host,
-            self.user,
-            self.password,
-            self.private_key,
-            self.port,
-            self.tunnel_as_string(),
-            self.type,
-            self.commands,
-            self.keep_alive,
-            self.font_color,
-            self.back_color,
-            self.x11,
-            self.agent,
-            self.compression,
-            self.compressionLevel,
-            self.extra_params,
-            self.log,
-            self.backspace_key,
-            self.delete_key,
-            self.term,
-            getattr(self, "protocol", "ssh"),
-            getattr(self, "serial_databits", "8"),
-            getattr(self, "serial_parity", "n"),
-            getattr(self, "serial_stopbits", "1"),
-            getattr(self, "serial_flow", "n"),
-        )
-
-
-class HostUtils:
-    @staticmethod
-    def get_val(cp, section, name, default):
-        """Retourne la valeur d'un champ de l'hote avec valeur par defaut.
-
-        Args:
-            key (str): Nom du champ.
-            default (str, optional): Valeur par defaut.
-
-        Returns:
-            str: Valeur du champ.
-        """
-        try:
-            return cp.get(section, name) if type(default) != bool else cp.getboolean(section, name)
-        except:
-            return default
-
-    @staticmethod
-    def load_host_from_ini(cp, section, pwd=""):
-        """Charge les parametres d'un hote depuis une section INI.
-
-        Args:
-            config (configparser.ConfigParser): Objet de configuration.
-            section (str): Nom de la section.
-        """
-        if pwd == "":
-            pwd = get_password()
-        group = cp.get(section, "group")
-        name = cp.get(section, "name")
-        host = cp.get(section, "host")
-        user = cp.get(section, "user")
-        password = decrypt(pwd, cp.get(section, "pass"))
-        description = HostUtils.get_val(cp, section, "description", "")
-        private_key = HostUtils.get_val(cp, section, "private_key", "")
-        port = HostUtils.get_val(cp, section, "port", "22")
-        tunnel = HostUtils.get_val(cp, section, "tunnel", "")
-        ctype = HostUtils.get_val(cp, section, "type", "ssh")
-        commands = (
-            HostUtils.get_val(cp, section, "commands", "")
-            .replace("\x00", "\n")
-            .replace("\\n", "\n")
-        )
-        keepalive = HostUtils.get_val(cp, section, "keepalive", "")
-        fcolor = HostUtils.get_val(cp, section, "font-color", "")
-        bcolor = HostUtils.get_val(cp, section, "back-color", "")
-        x11 = HostUtils.get_val(cp, section, "x11", False)
-        agent = HostUtils.get_val(cp, section, "agent", False)
-        compression = HostUtils.get_val(cp, section, "compression", False)
-        compressionLevel = HostUtils.get_val(cp, section, "compression-level", "")
-        extra_params = HostUtils.get_val(cp, section, "extra_params", "")
-        log = HostUtils.get_val(cp, section, "log", False)
-        backspace_key = int(
-            HostUtils.get_val(cp, section, "backspace-key", int(Vte.EraseBinding.AUTO))
-        )
-        delete_key = int(HostUtils.get_val(cp, section, "delete-key", int(Vte.EraseBinding.AUTO)))
-        term = HostUtils.get_val(cp, section, "term", "")
-        protocol = HostUtils.get_val(cp, section, "protocol", "ssh")
-        serial_databits = HostUtils.get_val(cp, section, "serial_databits", "8")
-        serial_parity = HostUtils.get_val(cp, section, "serial_parity", "n")
-        serial_stopbits = HostUtils.get_val(cp, section, "serial_stopbits", "1")
-        serial_flow = HostUtils.get_val(cp, section, "serial_flow", "n")
-        h = Host(
-            group,
-            name,
-            description,
-            host,
-            user,
-            password,
-            private_key,
-            port,
-            tunnel,
-            ctype,
-            commands,
-            keepalive,
-            fcolor,
-            bcolor,
-            x11,
-            agent,
-            compression,
-            compressionLevel,
-            extra_params,
-            log,
-            backspace_key,
-            delete_key,
-            term,
-            protocol,
-            serial_databits,
-            serial_parity,
-            serial_stopbits,
-            serial_flow,
-        )
-        h.protocol = protocol
-        return h
-
-    @staticmethod
-    def save_host_to_ini(cp, section, host, pwd=""):
-        """Sauvegarde les parametres d'un hote dans une section INI.
-
-        Args:
-            config (configparser.ConfigParser): Objet de configuration.
-        """
-
-        def _s(v):
-            """Coerce any value to str safely (None → '')."""
-            return "" if v is None else str(v)
-
-        if pwd == "":
-            pwd = get_password()
-        cp.set(section, "group", _s(host.group))
-        cp.set(section, "name", _s(host.name))
-        cp.set(section, "description", _s(host.description))
-        cp.set(section, "host", _s(host.host))
-        cp.set(section, "user", _s(host.user))
-        cp.set(section, "pass", encrypt(pwd, host.password))
-        cp.set(section, "private_key", _s(host.private_key))
-        cp.set(section, "port", _s(host.port))
-        cp.set(section, "tunnel", host.tunnel_as_string())
-        cp.set(section, "type", _s(host.type))
-        commands = host.commands or ""
-        cp.set(section, "commands", commands.replace("\n", "\\n"))
-        cp.set(section, "keepalive", str(host.keep_alive))
-        cp.set(section, "font-color", str(host.font_color))
-        cp.set(section, "back-color", str(host.back_color))
-        cp.set(section, "x11", str(host.x11))
-        cp.set(section, "agent", str(host.agent))
-        cp.set(section, "compression", str(host.compression))
-        cp.set(section, "compression-level", str(host.compressionLevel))
-        cp.set(section, "extra_params", str(host.extra_params))
-        cp.set(section, "log", str(host.log))
-        cp.set(section, "backspace-key", str(host.backspace_key))
-        cp.set(section, "delete-key", str(host.delete_key))
-        cp.set(section, "term", str(host.term))
-        cp.set(section, "protocol", str(getattr(host, "protocol", "ssh")))
-        cp.set(section, "serial_databits", str(getattr(host, "serial_databits", "8")))
-        cp.set(section, "serial_parity", str(getattr(host, "serial_parity", "n")))
-        cp.set(section, "serial_stopbits", str(getattr(host, "serial_stopbits", "1")))
-        cp.set(section, "serial_flow", str(getattr(host, "serial_flow", "n")))
-
-
 class Whost(GCMBase):
     def __init__(
         self,
@@ -8190,6 +6781,8 @@ class Whost(GCMBase):
 
         self.cmbGroup = self.get_widget("cmbGroup")
         # Le groupe est géré via l'arborescence — lecture seule dans le dialogue
+        # On stocke la valeur dans un attribut dédié pour la récupérer à la validation
+        self._group_value = ""
         self.cmbGroup.set_sensitive(False)
         if self.cmbGroup.get_has_entry() and self.cmbGroup.get_child():
             self.cmbGroup.get_child().set_editable(False)
@@ -8265,18 +6858,246 @@ class Whost(GCMBase):
         # cmbProtocol = alias vers cmbType (le widget glade affiché à l'utilisateur)
         self.cmbProtocol = self.cmbType
 
-        # Frame SPICE contextuel (libvirt tunnel ou Proxmox proxy)
-        self._inject_spice_frame()
+        # ── Widgets onglet RDP ──────────────────────────────────────────────
+        self.rdpTxtDomain = self.get_widget("rdpTxtDomain")
+        self.rdpCmbGeometry = self.get_widget("rdpCmbGeometry")
+        self.rdpBoxCustomGeo = self.get_widget("rdpBoxCustomGeo")
+        self.rdpTxtWidth = self.get_widget("rdpTxtWidth")
+        self.rdpTxtHeight = self.get_widget("rdpTxtHeight")
+        self.rdpChkCertIgnore = self.get_widget("rdpChkCertIgnore")
+        self.rdpChkDynRes = self.get_widget("rdpChkDynRes")
+        self.rdpTxtRemoteApp = self.get_widget("rdpTxtRemoteApp")
+        if self.rdpCmbGeometry:
+            self.rdpCmbGeometry.connect("changed", self._on_rdp_geometry_changed)
+
+        # ── Widgets onglet VNC ──────────────────────────────────────────────
+        self.vncCmbViewer = self.get_widget("vncCmbViewer")
+        self.vncTxtDisplay = self.get_widget("vncTxtDisplay")
+        self.vncChkViewOnly = self.get_widget("vncChkViewOnly")
+        self.vncChkFullscreen = self.get_widget("vncChkFullscreen")
+
+        # ── Widgets onglet SPICE ────────────────────────────────────────────
+        self.spiceRadioUri = self.get_widget("spiceRadioUri")
+        self.spiceRadioLibvirt = self.get_widget("spiceRadioLibvirt")
+        self.spiceRadioProxmox = self.get_widget("spiceRadioProxmox")
+        self.spiceGridUri = self.get_widget("spiceGridUri")
+        self.spiceGridLibvirt = self.get_widget("spiceGridLibvirt")
+        self.spiceGridProxmox = self.get_widget("spiceGridProxmox")
+        self.spiceTxtTlsPort = self.get_widget("spiceTxtTlsPort")
+        self.spiceTxtCaCert = self.get_widget("spiceTxtCaCert")
+        self.spiceTxtLibvirtUri = self.get_widget("spiceTxtLibvirtUri")
+        self.spiceTxtVmName = self.get_widget("spiceTxtVmName")
+        self.spiceTxtPxNode = self.get_widget("spiceTxtPxNode")
+        self.spiceTxtPxVmid = self.get_widget("spiceTxtPxVmid")
+
+        # ── Widgets onglet Serial ───────────────────────────────────────────
+        self.serialCmbTemplate = self.get_widget("serialCmbTemplate")
+        self.serialCmbBaud = self.get_widget("serialCmbBaud")
+        self.serialCmbDatabits = self.get_widget("serialCmbDatabits")
+        self.serialCmbParity = self.get_widget("serialCmbParity")
+        self.serialCmbStopbits = self.get_widget("serialCmbStopbits")
+        self.serialCmbFlow = self.get_widget("serialCmbFlow")
+        self.serialCmbTool = self.get_widget("serialCmbTool")
+
+        # Valeurs par défaut Serial
+        self._cmb_set_id(self.serialCmbBaud, "9600")
+        self._cmb_set_id(self.serialCmbDatabits, "8")
+        self._cmb_set_id(self.serialCmbParity, "n")
+        self._cmb_set_id(self.serialCmbStopbits, "1")
+        self._cmb_set_id(self.serialCmbFlow, "n")
+        self._cmb_set_id(self.serialCmbTool, "picocom")
+        self._cmb_set_id(self.serialCmbTemplate, "custom")
+        # Valeur par défaut RDP geometry
+        self._cmb_set_id(self.rdpCmbGeometry, "fullscreen")
 
     # -- Whost.new }
 
-    def _inject_spice_frame(self):
-        """Injecte un frame SPICE contextuel sous la grille Properties.
+    # ── helpers ComboBoxText ────────────────────────────────────────────────
 
-        Affiche des champs assistés pour construire extra_params SPICE :
-        - Mode libvirt (tunnel SSH) : URI + nom VM → '--connect URI vm'
-        - Mode Proxmox (proxy API)  : Node + VMID  → '--proxmox NODE VMID'
-        Le frame se montre/masque selon le protocole sélectionné.
+    def _cmb_set_id(self, cmb, item_id):
+        """Sélectionne l'item d'un GtkComboBoxText par son id XML glade.
+
+        Args:
+            cmb: GtkComboBoxText cible (peut être None).
+            item_id: valeur de l'attribut id de l'item glade.
+        """
+        if cmb is None:
+            return
+        model = cmb.get_model()
+        if model is None:
+            return
+        it = model.get_iter_first()
+        idx = 0
+        while it is not None:
+            if model.get_value(it, 0) == item_id:
+                cmb.set_active(idx)
+                return
+            it = model.iter_next(it)
+            idx += 1
+        cmb.set_active(0)
+
+    def _cmb_get_id(self, cmb, default=""):
+        """Retourne l'id actif d'un GtkComboBoxText (colonne 0 du modèle).
+
+        Args:
+            cmb: GtkComboBoxText source (peut être None).
+            default: valeur retournée si rien de sélectionné.
+
+        Returns:
+            str: id actif ou default.
+        """
+        if cmb is None:
+            return default
+        idx = cmb.get_active()
+        model = cmb.get_model()
+        if model is None or idx < 0:
+            return default
+        it = model.iter_nth_child(None, idx)
+        return model.get_value(it, 0) if it else default
+
+    # ── handler RDP geometry ────────────────────────────────────────────────
+
+    def _on_rdp_geometry_changed(self, cmb):
+        """Affiche/masque la boîte WxH custom selon la sélection géométrie RDP.
+
+        Args:
+            cmb: GtkComboBoxText rdpCmbGeometry.
+        """
+        is_custom = self._cmb_get_id(cmb) == "custom"
+        if self.rdpBoxCustomGeo:
+            if is_custom:
+                self.rdpBoxCustomGeo.show()
+            else:
+                self.rdpBoxCustomGeo.hide()
+
+    # ── handlers SPICE (glade-natifs) ──────────────────────────────────────
+
+    def on_spiceRadioUri_toggled(self, widget, *args):
+        """Affiche la section URI et masque libvirt/Proxmox.
+
+        Args:
+            widget: GtkRadioButton spiceRadioUri.
+        """
+        if not widget.get_active():
+            return
+        if self.spiceGridUri:
+            self.spiceGridUri.show()
+        if self.spiceGridLibvirt:
+            self.spiceGridLibvirt.hide()
+        if self.spiceGridProxmox:
+            self.spiceGridProxmox.hide()
+
+    def on_spiceRadioLibvirt_toggled(self, widget, *args):
+        """Affiche la section libvirt et masque URI/Proxmox.
+
+        Args:
+            widget: GtkRadioButton spiceRadioLibvirt.
+        """
+        if not widget.get_active():
+            return
+        if self.spiceGridUri:
+            self.spiceGridUri.hide()
+        if self.spiceGridLibvirt:
+            self.spiceGridLibvirt.show()
+        if self.spiceGridProxmox:
+            self.spiceGridProxmox.hide()
+
+    def on_spiceRadioProxmox_toggled(self, widget, *args):
+        """Affiche la section Proxmox et masque URI/libvirt.
+
+        Args:
+            widget: GtkRadioButton spiceRadioProxmox.
+        """
+        if not widget.get_active():
+            return
+        if self.spiceGridUri:
+            self.spiceGridUri.hide()
+        if self.spiceGridLibvirt:
+            self.spiceGridLibvirt.hide()
+        if self.spiceGridProxmox:
+            self.spiceGridProxmox.show()
+
+    # ── handler Serial template ─────────────────────────────────────────────
+
+    # Préréglages par constructeur : (baud, databits, parity, stopbits, flow)
+    _SERIAL_TEMPLATES = {
+        "cisco": ("9600", "8", "n", "1", "n"),
+        "h3c": ("9600", "8", "n", "1", "n"),
+        "juniper": ("9600", "8", "n", "1", "n"),
+        "aruba": ("9600", "8", "n", "1", "n"),
+        "bmc": ("115200", "8", "n", "1", "n"),
+    }
+
+    def on_serialCmbTemplate_changed(self, widget, *args):
+        """Pré-remplit les combos série selon le template constructeur.
+
+        Args:
+            widget: GtkComboBoxText serialCmbTemplate.
+        """
+        tpl_id = self._cmb_get_id(widget, "custom")
+        tpl = self._SERIAL_TEMPLATES.get(tpl_id)
+        if tpl is None:
+            return
+        baud, db, par, sb, fl = tpl
+        self._cmb_set_id(self.serialCmbBaud, baud)
+        self._cmb_set_id(self.serialCmbDatabits, db)
+        self._cmb_set_id(self.serialCmbParity, par)
+        self._cmb_set_id(self.serialCmbStopbits, sb)
+        self._cmb_set_id(self.serialCmbFlow, fl)
+
+    # ── compatibilité ascendante (anciens attributs injectés) ───────────────
+
+    def _inject_spice_frame(self):
+        """Obsolète — les widgets SPICE sont maintenant dans le glade.
+
+        Args:
+            (none)
+        """
+        pass  # gardé pour ne pas casser d'éventuels appels hérités
+
+    # ── stub attributs legacy (_serial_cmb_*, _spice_*) ────────────────────
+    # Les anciennes méthodes init()/on_okbutton1 testaient hasattr(self, "_serial_cmb_databits").
+    # On expose les nouveaux widgets sous les deux noms pour la compatibilité.
+
+    @property
+    def _serial_cmb_databits(self):
+        """Alias legacy → serialCmbDatabits."""
+        return self.serialCmbDatabits
+
+    @property
+    def _serial_cmb_parity(self):
+        """Alias legacy → serialCmbParity."""
+        return self.serialCmbParity
+
+    @property
+    def _serial_cmb_stopbits(self):
+        """Alias legacy → serialCmbStopbits."""
+        return self.serialCmbStopbits
+
+    @property
+    def _serial_cmb_flow(self):
+        """Alias legacy → serialCmbFlow."""
+        return self.serialCmbFlow
+
+    # ── vieille implémentation inline supprimée (remplacée par glade) ───────
+    #
+    # Méthodes supprimées :
+    #   _on_spice_mode_toggled  → on_spiceRadioUri/Libvirt/Proxmox_toggled
+    #   _on_spice_apply         → plus nécessaire (champs persistés directement)
+    #   _spice_prefill_from_extra_params → _spice_load_from_host() dans init()
+    #
+    # Le code ci-dessous était l'ancienne implémentation dynamique.
+    # Il est conservé sous forme de commentaire pour référence.
+    #
+    # def _inject_spice_frame(self):  [voir archive git]
+
+    def _inject_spice_frame_LEGACY(self):  # noqa — archive
+        """Ancienne injection dynamique conservée pour référence git.
+
+        Ne pas appeler.
+
+        Args:
+            (none)
         """
         nb = self.get_widget("nbHost")
         sw_props = self.get_widget("swHostProps")
@@ -8380,60 +7201,6 @@ class Whost(GCMBase):
         self._spice_frame.set_no_show_all(True)
         self._spice_frame.hide()
 
-        # Connecter les radios
-        self._spice_radio_libvirt.connect("toggled", self._on_spice_mode_toggled)
-        self._spice_radio_proxmox.connect("toggled", self._on_spice_mode_toggled)
-
-        # Pré-remplir depuis extra_params si déjà en mode spice
-        self._spice_prefill_from_extra_params()
-
-    def _on_spice_mode_toggled(self, widget):
-        """Affiche la section libvirt ou Proxmox selon le radio sélectionné."""
-        is_libvirt = self._spice_radio_libvirt.get_active()
-        if is_libvirt:
-            self._spice_libvirt_box.show()
-            self._spice_proxmox_box.hide()
-        else:
-            self._spice_libvirt_box.hide()
-            self._spice_proxmox_box.show()
-
-    def _on_spice_apply(self, widget):
-        """Construit extra_params SPICE depuis les champs du frame et remplit txtExtraParams."""
-        if self._spice_radio_libvirt.get_active():
-            uri = self._spice_entry_uri.get_text().strip()
-            vm = self._spice_entry_vmname.get_text().strip()
-            if uri and vm:
-                self.txtExtraParams.set_text(f"--connect {uri} {vm}")
-            elif uri:
-                self.txtExtraParams.set_text(f"--connect {uri}")
-        else:
-            node = self._spice_entry_node.get_text().strip()
-            vmid = self._spice_entry_vmid.get_text().strip()
-            if node and vmid:
-                self.txtExtraParams.set_text(f"--proxmox {node} {vmid}")
-
-    def _spice_prefill_from_extra_params(self):
-        """Pré-remplit les champs SPICE si extra_params contient déjà --connect ou --proxmox."""
-        if not hasattr(self, "txtExtraParams"):
-            return
-        val = self.txtExtraParams.get_text().strip()
-        if val.startswith("--connect "):
-            parts = val.split(None, 2)
-            if len(parts) >= 2 and hasattr(self, "_spice_entry_uri"):
-                self._spice_entry_uri.set_text(parts[1])
-            if len(parts) >= 3 and hasattr(self, "_spice_entry_vmname"):
-                self._spice_entry_vmname.set_text(parts[2])
-            if hasattr(self, "_spice_radio_libvirt"):
-                self._spice_radio_libvirt.set_active(True)
-        elif val.startswith("--proxmox "):
-            parts = val.split()
-            if len(parts) >= 2 and hasattr(self, "_spice_entry_node"):
-                self._spice_entry_node.set_text(parts[1])
-            if len(parts) >= 3 and hasattr(self, "_spice_entry_vmid"):
-                self._spice_entry_vmid.set_text(parts[2])
-            if hasattr(self, "_spice_radio_proxmox"):
-                self._spice_radio_proxmox.set_active(True)
-
     # -- Whost custom methods {
     def _on_proto_changed(self, cmb):
         """Adapte le port par defaut au protocole selectionne.
@@ -8447,12 +7214,8 @@ class Whost(GCMBase):
             self.txtPort.set_text(_PROTO_DEFAULTS.get(proto, ""))
 
     def init(self, group, host=None):
-        """Initialise les parametres de configuration avec les valeurs par defaut.
-
-        Args:
-            group: Parametre group.
-            host: Parametre host.
-        """
+        """Initialise les parametres de configuration avec les valeurs par defaut."""
+        self._group_value = group
         self.cmbGroup.get_child().set_text(group)
         if host == None:
             self.isNew = True
@@ -8532,35 +7295,86 @@ class Whost(GCMBase):
         self.cmbDelete.set_active(host.delete_key)
         self.update_texttags()
         self.txtTerm.set_text(host.term)
-        # Paramètres série
-        _parity_codes = ["n", "e", "o"]
-        _flow_codes = ["n", "x", "h", "d"]
-        _databits_vals = ["5", "6", "7", "8"]
-        _stopbits_vals = ["1", "2"]
-        _db = getattr(host, "serial_databits", "8")
-        _par = getattr(host, "serial_parity", "n")
-        _sb = getattr(host, "serial_stopbits", "1")
-        _fl = getattr(host, "serial_flow", "n")
-        if hasattr(self, "_serial_cmb_databits"):
-            self._serial_cmb_databits.set_active(
-                _databits_vals.index(_db) if _db in _databits_vals else 3
-            )
-        if hasattr(self, "_serial_cmb_parity"):
-            self._serial_cmb_parity.set_active(
-                _parity_codes.index(_par) if _par in _parity_codes else 0
-            )
-        if hasattr(self, "_serial_cmb_stopbits"):
-            self._serial_cmb_stopbits.set_active(
-                _stopbits_vals.index(_sb) if _sb in _stopbits_vals else 0
-            )
-        if hasattr(self, "_serial_cmb_flow"):
-            self._serial_cmb_flow.set_active(_flow_codes.index(_fl) if _fl in _flow_codes else 0)
-        # Afficher/masquer le frame série si présent
-        if hasattr(self, "_serial_frame"):
-            if proto == "serial":
-                self._serial_frame.show()
-            else:
-                self._serial_frame.hide()
+        # ── Onglet Serial ────────────────────────────────────────────────────
+        self._cmb_set_id(self.serialCmbBaud, getattr(host, "serial_baud", "9600"))
+        self._cmb_set_id(self.serialCmbDatabits, getattr(host, "serial_databits", "8"))
+        self._cmb_set_id(self.serialCmbParity, getattr(host, "serial_parity", "n"))
+        self._cmb_set_id(self.serialCmbStopbits, getattr(host, "serial_stopbits", "1"))
+        self._cmb_set_id(self.serialCmbFlow, getattr(host, "serial_flow", "n"))
+        self._cmb_set_id(self.serialCmbTool, getattr(host, "serial_tool", "picocom"))
+
+        # ── Onglet RDP ───────────────────────────────────────────────────────
+        if self.rdpTxtDomain:
+            self.rdpTxtDomain.set_text(getattr(host, "rdp_domain", ""))
+        geo = getattr(host, "rdp_geometry", "fullscreen")
+        self._cmb_set_id(self.rdpCmbGeometry, geo)
+        if geo == "custom" and self.rdpBoxCustomGeo:
+            self.rdpBoxCustomGeo.show()
+            if self.rdpTxtWidth:
+                self.rdpTxtWidth.set_text(getattr(host, "rdp_width", ""))
+            if self.rdpTxtHeight:
+                self.rdpTxtHeight.set_text(getattr(host, "rdp_height", ""))
+        if self.rdpChkCertIgnore:
+            v = getattr(host, "rdp_cert_ignore", False)
+            self.rdpChkCertIgnore.set_active(str(v).lower() in ("true", "1", "yes"))
+        if self.rdpChkDynRes:
+            v = getattr(host, "rdp_dyn_res", False)
+            self.rdpChkDynRes.set_active(str(v).lower() in ("true", "1", "yes"))
+        if self.rdpTxtRemoteApp:
+            self.rdpTxtRemoteApp.set_text(getattr(host, "rdp_remote_app", ""))
+
+        # ── Onglet VNC ───────────────────────────────────────────────────────
+        self._cmb_set_id(self.vncCmbViewer, getattr(host, "vnc_viewer", "tigervnc"))
+        if self.vncTxtDisplay:
+            self.vncTxtDisplay.set_text(getattr(host, "vnc_display", ""))
+        if self.vncChkViewOnly:
+            v = getattr(host, "vnc_view_only", False)
+            self.vncChkViewOnly.set_active(str(v).lower() in ("true", "1", "yes"))
+        if self.vncChkFullscreen:
+            v = getattr(host, "vnc_fullscreen", False)
+            self.vncChkFullscreen.set_active(str(v).lower() in ("true", "1", "yes"))
+
+        # ── Onglet SPICE ─────────────────────────────────────────────────────
+        spice_mode = getattr(host, "spice_mode", "uri")
+        if spice_mode == "libvirt":
+            if self.spiceRadioLibvirt:
+                self.spiceRadioLibvirt.set_active(True)
+            if self.spiceGridUri:
+                self.spiceGridUri.hide()
+            if self.spiceGridLibvirt:
+                self.spiceGridLibvirt.show()
+            if self.spiceGridProxmox:
+                self.spiceGridProxmox.hide()
+        elif spice_mode == "proxmox":
+            if self.spiceRadioProxmox:
+                self.spiceRadioProxmox.set_active(True)
+            if self.spiceGridUri:
+                self.spiceGridUri.hide()
+            if self.spiceGridLibvirt:
+                self.spiceGridLibvirt.hide()
+            if self.spiceGridProxmox:
+                self.spiceGridProxmox.show()
+        else:
+            if self.spiceRadioUri:
+                self.spiceRadioUri.set_active(True)
+            if self.spiceGridUri:
+                self.spiceGridUri.show()
+            if self.spiceGridLibvirt:
+                self.spiceGridLibvirt.hide()
+            if self.spiceGridProxmox:
+                self.spiceGridProxmox.hide()
+        if self.spiceTxtTlsPort:
+            self.spiceTxtTlsPort.set_text(getattr(host, "spice_tls_port", ""))
+        if self.spiceTxtCaCert:
+            self.spiceTxtCaCert.set_text(getattr(host, "spice_ca_cert", ""))
+        if self.spiceTxtLibvirtUri:
+            self.spiceTxtLibvirtUri.set_text(getattr(host, "spice_libvirt_uri", ""))
+        if self.spiceTxtVmName:
+            self.spiceTxtVmName.set_text(getattr(host, "spice_vm_name", ""))
+        if self.spiceTxtPxNode:
+            self.spiceTxtPxNode.set_text(getattr(host, "spice_px_node", ""))
+        if self.spiceTxtPxVmid:
+            self.spiceTxtPxVmid.set_text(getattr(host, "spice_px_vmid", ""))
 
     def update_texttags(self, *args):
         """Met a jour les tags de texte (couleurs, polices) dans la vue."""
@@ -8606,6 +7420,9 @@ class Whost(GCMBase):
             and self.cmbGroup.get_child() is not None
         ):
             group_txt = self.cmbGroup.get_child().get_text()
+        # Fallback sur la valeur stockée à l'init (cmbGroup peut être insensible)
+        if not group_txt and hasattr(self, "_group_value"):
+            group_txt = self._group_value
         group = (group_txt or "").strip()
         name = self.txtName.get_text().strip()
         description = self.txtDescription.get_text().strip()
@@ -8663,24 +7480,44 @@ class Whost(GCMBase):
             else "ssh"
         )
         # Lire les paramètres série depuis les combos dédiés
-        _parity_codes = ["n", "e", "o"]
-        _flow_codes = ["n", "x", "h", "d"]
-        _databits_vals = ["5", "6", "7", "8"]
-        _stopbits_vals = ["1", "2"]
-        _si_db = (
-            self._serial_cmb_databits.get_active() if hasattr(self, "_serial_cmb_databits") else -1
+        # ── Lire Serial ──────────────────────────────────────────────────────
+        serial_baud = self._cmb_get_id(self.serialCmbBaud, "9600")
+        serial_databits = self._cmb_get_id(self.serialCmbDatabits, "8")
+        serial_parity = self._cmb_get_id(self.serialCmbParity, "n")
+        serial_stopbits = self._cmb_get_id(self.serialCmbStopbits, "1")
+        serial_flow = self._cmb_get_id(self.serialCmbFlow, "n")
+        serial_tool = self._cmb_get_id(self.serialCmbTool, "picocom")
+
+        # ── Lire RDP ─────────────────────────────────────────────────────────
+        rdp_domain = self.rdpTxtDomain.get_text().strip() if self.rdpTxtDomain else ""
+        rdp_geometry = self._cmb_get_id(self.rdpCmbGeometry, "fullscreen")
+        rdp_width = self.rdpTxtWidth.get_text().strip() if self.rdpTxtWidth else ""
+        rdp_height = self.rdpTxtHeight.get_text().strip() if self.rdpTxtHeight else ""
+        rdp_cert_ignore = self.rdpChkCertIgnore.get_active() if self.rdpChkCertIgnore else False
+        rdp_dyn_res = self.rdpChkDynRes.get_active() if self.rdpChkDynRes else False
+        rdp_remote_app = self.rdpTxtRemoteApp.get_text().strip() if self.rdpTxtRemoteApp else ""
+
+        # ── Lire VNC ─────────────────────────────────────────────────────────
+        vnc_viewer = self._cmb_get_id(self.vncCmbViewer, "tigervnc")
+        vnc_display = self.vncTxtDisplay.get_text().strip() if self.vncTxtDisplay else ""
+        vnc_view_only = self.vncChkViewOnly.get_active() if self.vncChkViewOnly else False
+        vnc_fullscreen = self.vncChkFullscreen.get_active() if self.vncChkFullscreen else False
+
+        # ── Lire SPICE ───────────────────────────────────────────────────────
+        if self.spiceRadioLibvirt and self.spiceRadioLibvirt.get_active():
+            spice_mode = "libvirt"
+        elif self.spiceRadioProxmox and self.spiceRadioProxmox.get_active():
+            spice_mode = "proxmox"
+        else:
+            spice_mode = "uri"
+        spice_tls_port = self.spiceTxtTlsPort.get_text().strip() if self.spiceTxtTlsPort else ""
+        spice_ca_cert = self.spiceTxtCaCert.get_text().strip() if self.spiceTxtCaCert else ""
+        spice_libvirt_uri = (
+            self.spiceTxtLibvirtUri.get_text().strip() if self.spiceTxtLibvirtUri else ""
         )
-        _si_par = (
-            self._serial_cmb_parity.get_active() if hasattr(self, "_serial_cmb_parity") else -1
-        )
-        _si_sb = (
-            self._serial_cmb_stopbits.get_active() if hasattr(self, "_serial_cmb_stopbits") else -1
-        )
-        _si_fl = self._serial_cmb_flow.get_active() if hasattr(self, "_serial_cmb_flow") else -1
-        serial_databits = _databits_vals[_si_db] if 0 <= _si_db < 4 else "8"
-        serial_parity = _parity_codes[_si_par] if 0 <= _si_par < 3 else "n"
-        serial_stopbits = _stopbits_vals[_si_sb] if 0 <= _si_sb < 2 else "1"
-        serial_flow = _flow_codes[_si_fl] if 0 <= _si_fl < 4 else "n"
+        spice_vm_name = self.spiceTxtVmName.get_text().strip() if self.spiceTxtVmName else ""
+        spice_px_node = self.spiceTxtPxNode.get_text().strip() if self.spiceTxtPxNode else ""
+        spice_px_vmid = self.spiceTxtPxVmid.get_text().strip() if self.spiceTxtPxVmid else ""
 
         host = Host(
             group,
@@ -8711,7 +7548,27 @@ class Whost(GCMBase):
             serial_parity,
             serial_stopbits,
             serial_flow,
+            serial_tool,
+            rdp_domain,
+            rdp_geometry,
+            rdp_width,
+            rdp_height,
+            rdp_cert_ignore,
+            rdp_dyn_res,
+            rdp_remote_app,
+            vnc_viewer,
+            vnc_display,
+            vnc_view_only,
+            vnc_fullscreen,
+            spice_mode,
+            spice_tls_port,
+            spice_ca_cert,
+            spice_libvirt_uri,
+            spice_vm_name,
+            spice_px_node,
+            spice_px_vmid,
         )
+        host.serial_baud = serial_baud
         host.protocol = protocol
 
         try:
@@ -9380,9 +8237,12 @@ class Wconfig(GCMBase):
             # System : détecter color-scheme du bureau
             try:
                 import subprocess as _sp2
+
                 _dark = _sp2.run(
                     ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
-                    capture_output=True, text=True, timeout=3,
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
                 )
                 conf.DARK_MODE = _dark.returncode == 0 and "dark" in _dark.stdout.lower()
             except Exception:
@@ -9722,365 +8582,6 @@ class Wcluster(GCMBase):
                 )
 
     # -- Wcluster.on_txtCommands_key_press_event }
-
-
-class NotebookTabLabel(Gtk.Box):
-    """Notebook tab label with close button."""
-
-    def __init__(self, title, owner_, widget_, popup_):
-        """Initialise l'instance.
-
-        Args:
-            title: Parametre title.
-            owner_: Parametre owner_.
-            widget_: Parametre widget_.
-            popup_: Parametre popup_.
-        """
-        Gtk.Box.__init__(
-            self, orientation=Gtk.Orientation.HORIZONTAL, homogeneous=False, spacing=0
-        )
-
-        self.title = title
-        self.owner = owner_
-        self.eb = Gtk.EventBox()
-        label = self.label = Gtk.Label()
-        self.eb.connect("button-press-event", self.popupmenu, label)
-        label.halign = 0
-        label.valign = 0.5
-        label.set_text(title)
-        self.eb.add(label)
-        self.pack_start(self.eb, True, True, 0)
-        label.show()
-        self.eb.show()
-        close_image = Gtk.Image.new_from_icon_name("window-close", Gtk.IconSize.MENU)
-        _, image_w, image_h = Gtk.icon_size_lookup(Gtk.IconSize.MENU)
-        self.widget_ = widget_
-        self.popup = popup_
-        close_btn = Gtk.Button()
-        close_btn.set_relief(Gtk.ReliefStyle.NONE)
-        close_btn.connect("clicked", self.on_close_tab, owner_)
-        close_btn.set_size_request(image_w + 7, image_h + 6)
-        close_btn.add(close_image)
-        # style = close_btn.get_style();
-        self.eb2 = Gtk.EventBox()
-        self.eb2.add(close_btn)
-        self.pack_start(self.eb2, False, False, 0)
-        self.eb2.show()
-        close_btn.show_all()
-        self.is_active = True
-        self.eb.add_events(
-            Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK
-        )  # let the scroll-event pass through
-        self.eb2.add_events(
-            Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK
-        )  # let the scroll-event pass through
-        self.show()
-
-    def set_selected(self, sel):
-        """Marque ou demarque l'onglet comme selectionne visuellement.
-
-        Args:
-            selected (bool): True pour marquer comme selectionne.
-        """
-        if sel:
-            self.get_style_context().add_class("selected")
-        else:
-            self.get_style_context().remove_class("selected")
-        self.queue_draw()  # fix #67: forcer le redraw immédiat du label d'onglet
-
-    def on_close_tab(self, widget, notebook, *args):
-        """Gestionnaire du bouton fermeture d'onglet.
-
-        Args:
-            widget (Gtk.Button): Bouton clique.
-        """
-        if (
-            conf.CONFIRM_ON_CLOSE_TAB
-            and msgconfirm("%s [%s]?" % (_("Close console"), self.label.get_text().strip()))
-            != Gtk.ResponseType.OK
-        ):
-            return True
-
-        self.close_tab(widget)
-
-    def close_tab(self, widget):
-        """Ferme l'onglet associe au terminal.
-
-        Args:
-            widget: Parametre widget.
-        """
-        notebook = self.widget_.get_parent()
-        page = notebook.page_num(self.widget_)
-        if page >= 0:
-            notebook.is_closed = True
-            notebook.remove_page(page)
-            notebook.is_closed = False
-            self.widget_.destroy()
-
-    def mark_tab_as_closed(self):
-        """Marque visuellement l'onglet comme connexion fermee."""
-        self.label.set_markup(
-            "<span color='darkgray' strikethrough='true'>%s</span>" % (self.label.get_text())
-        )
-        self.is_active = False
-        if conf.AUTO_CLOSE_TAB != 0:
-            if conf.AUTO_CLOSE_TAB == 2:
-                parent_nb = self.widget_.get_parent()
-                if parent_nb is None:
-                    return
-                terminal = parent_nb.get_nth_page(parent_nb.page_num(self.widget_)).get_child()
-                if terminal.get_child_exit_status() != 0:
-                    return
-            self.close_tab(self.widget_)
-
-    def mark_tab_as_active(self):
-        """Marque visuellement l'onglet comme connexion active."""
-        self.label.set_markup("%s" % (self.label.get_text()))
-        self.is_active = True
-
-    def get_text(self):
-        """Retourne le texte de l'etiquette de l'onglet.
-
-        Returns:
-            str: Texte de l'onglet.
-        """
-        return self.label.get_text()
-
-    def popupmenu(self, widget, event, label):
-        """Affiche le menu contextuel de l'onglet.
-
-        Args:
-            widget (Gtk.Widget): Widget source.
-            event (Gdk.EventButton): Evenement souris.
-        """
-        if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 3:
-            self.popup.label = self.label
-            if self.is_active:
-                self.popup.mnuReopen.hide()
-            else:
-                self.popup.mnuReopen.show()
-
-            # show/hide split menu
-            nb = self.widget_.get_parent()
-            if nb.get_n_pages() > 1:
-                self.popup.mnuSplitH.show()
-                self.popup.mnuSplitV.show()
-            else:
-                self.popup.mnuSplitH.hide()
-                self.popup.mnuSplitV.hide()
-
-            # enable or disable log checkbox according to terminal
-            self.popup.mnuLog.set_active(
-                hasattr(self.widget_.get_children()[0], "log_handler_id")
-                and self.widget_.get_children()[0].log_handler_id != 0
-            )
-            self.popup.popup(None, None, None, None, event.button, event.time)
-            return True
-        elif event.type == Gdk.EventType.BUTTON_PRESS and event.button == 2:
-            if (
-                conf.CONFIRM_ON_CLOSE_TAB_MIDDLE
-                and msgconfirm("%s [%s]?" % (_("Close console"), self.label.get_text().strip()))
-                != Gtk.ResponseType.OK
-            ):
-                return True
-            self.close_tab(self.widget_)
-
-
-class EntryDialog(Gtk.Dialog):
-    def __init__(self, title, message, default_text="", modal=True, mask=False):
-        """Initialise l'instance.
-
-        Args:
-            title: Parametre title.
-            message: Parametre message.
-            default_text: Parametre default_text.
-            modal: Parametre modal.
-            mask: Parametre mask.
-        """
-        Gtk.Dialog.__init__(self)
-        self.set_title(title)
-        self.connect("destroy", self.quit)
-        self.connect("delete_event", self.quit)
-        if modal:
-            self.set_modal(True)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_border_width(10)
-        self.vbox.pack_start(box, True, True, 0)
-        box.show()
-        if message:
-            label = Gtk.Label(label=message)
-            box.pack_start(label, True, True, 0)
-            label.show()
-        self.entry = Gtk.Entry()
-        self.entry.set_text(default_text)
-        self.entry.set_visibility(not mask)
-        box.pack_start(self.entry, True, True, 0)
-        self.entry.show()
-        self.entry.grab_focus()
-        button = Gtk.Button(label=_("OK"))
-        button.connect("clicked", self.click)
-        self.entry.connect("activate", self.click)
-        button.set_can_default(True)
-        self.action_area.pack_start(button, True, True, 0)
-        button.show()
-        button.grab_default()
-        button = Gtk.Button(label=_("Cancel"))
-        button.connect("clicked", self.quit)
-        button.set_can_default(True)
-        self.action_area.pack_start(button, True, True, 0)
-        button.show()
-        self.ret = None
-
-    def quit(self, w=None, event=None):
-        """Ferme la boite de dialogue.
-
-        Args:
-            widget (Gtk.Widget): Widget declencheur.
-        """
-        self.hide()
-        self.destroy()
-
-    def click(self, button):
-        """Valide la saisie et ferme la boite de dialogue.
-
-        Args:
-            widget (Gtk.Widget): Widget declencheur.
-        """
-        self.value = self.entry.get_text()
-        self.response(Gtk.ResponseType.OK)
-
-
-class CellTextView(Gtk.TextView, Gtk.CellEditable):
-    __gtype_name__ = "CellTextView"
-
-    __gproperties__ = {
-        "editing-canceled": (
-            bool,
-            "Editing cancelled",
-            "Editing was cancelled",
-            False,
-            GObject.ParamFlags.READWRITE,
-        ),
-    }
-
-    def do_editing_done(self, *args):
-        """Signale la fin de l'edition en ligne."""
-        self.remove_widget()
-
-    def do_remove_widget(self, *args):
-        """Supprime le widget d'edition en ligne."""
-        pass
-
-    def do_start_editing(self, *args):
-        """Demarre l'edition en ligne.
-
-        Args:
-            event (Gdk.Event): Evenement declencheur.
-        """
-        pass
-
-    def get_text(self):
-        """Retourne le texte de l'etiquette de l'onglet.
-
-        Returns:
-            str: Texte de l'onglet.
-        """
-        text_buffer = self.get_buffer()
-        bounds = text_buffer.get_bounds()
-        return text_buffer.get_text(*bounds, include_hidden_chars=True)
-
-    def set_text(self, text):
-        """Definit le texte de l'editeur.
-
-        Args:
-            text (str): Texte a afficher.
-        """
-        self.get_buffer().set_text(text)
-
-
-class MultilineCellRenderer(Gtk.CellRendererText):
-    __gtype_name__ = "MultilineCellRenderer"
-
-    def __init__(self):
-        """Initialise l'instance."""
-        Gtk.CellRendererText.__init__(self)
-        self._in_editor_menu = False
-
-    def _on_editor_focus_out_event(self, editor, *args):
-        """Gestionnaire de perte de focus de l'editeur.
-
-        Args:
-            widget (Gtk.Widget): Widget source.
-            event (Gdk.EventFocus): Evenement focus.
-        """
-        if self._in_editor_menu:
-            return
-        editor.remove_widget()
-        self.emit("editing-canceled")
-
-    def _on_editor_key_press_event(self, editor, event):
-        """Gestionnaire de touche dans l'editeur inline.
-
-        Args:
-            widget (Gtk.Widget): Widget source.
-            event (Gdk.EventKey): Evenement clavier.
-        """
-        if event.state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK):
-            return
-        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-            editor.remove_widget()
-            self.emit("edited", editor.path, editor.get_text())
-        elif event.keyval == Gdk.KEY_Escape:
-            editor.remove_widget()
-            self.emit("editing-canceled")
-
-    def _on_editor_populate_popup(self, editor, menu):
-        """Gestionnaire de remplissage du menu contextuel de l'editeur.
-
-        Args:
-            widget (Gtk.Widget): Widget source.
-            popup (Gtk.Menu): Menu contextuel.
-        """
-        self._in_editor_menu = True
-
-        def on_menu_unmap(menu, self):
-            """Gestionnaire de fermeture du menu contextuel.
-
-            Args:
-                widget (Gtk.Menu): Menu ferme.
-            """
-            self._in_editor_menu = False
-
-        menu.connect("unmap", on_menu_unmap, self)
-
-    def _on_editor_pressed(self, editor, menu):
-        # avoid bug: gtk_text_mark_get_buffer: assertion 'GTK_IS_TEXT_MARK (mark)' failed
-        """Gestionnaire de clic souris dans l'editeur.
-
-        Args:
-            widget (Gtk.Widget): Widget source.
-            event (Gdk.EventButton): Evenement souris.
-        """
-        return True
-
-    def do_start_editing(self, event, widget, path, bg_area, cell_area, flags):
-        """Demarre l'edition en ligne.
-
-        Args:
-            event (Gdk.Event): Evenement declencheur.
-        """
-        editor = CellTextView()
-        set_widget_font(editor, self.props.font_desc)
-        editor.set_text(self.props.text)
-        editor.set_size_request(cell_area.width, cell_area.height)
-        editor.set_border_width(min(self.props.xpad, self.props.ypad))
-        editor.path = path
-        editor.connect("focus-out-event", self._on_editor_focus_out_event)
-        editor.connect("key-press-event", self._on_editor_key_press_event)
-        editor.connect("populate-popup", self._on_editor_populate_popup)
-        editor.connect("button-press-event", self._on_editor_pressed)
-        editor.show()
-        return editor
 
 
 class CheckUpdates(Thread):
