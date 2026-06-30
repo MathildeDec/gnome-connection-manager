@@ -12,7 +12,7 @@
 # Renzo Bertuzzi - CHILE
 # Fork Mathilde Deuscher - FRANCE
 
-
+# Import en haut du fichier
 import base64
 import json
 import logging
@@ -27,6 +27,8 @@ import time
 from threading import Thread
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+
+from ssh_migrate_gcm import migrate_ssh_hosts, patch_edit_host_dialog
 
 if TYPE_CHECKING:
     # `_` est injecté dans les builtins à l'exécution par bindtextdomain().
@@ -79,6 +81,13 @@ try:
     _SSH_CONFIG_EDITOR_OK = True
 except ImportError:
     _SSH_CONFIG_EDITOR_OK = False
+
+try:
+    from ssh_key_manager_dialog import SSHKeyManagerDialog
+
+    _SSH_KEY_MANAGER_OK = True
+except ImportError:
+    _SSH_KEY_MANAGER_OK = False
 
 try:
     import gi
@@ -298,7 +307,7 @@ def _setup_app_logger():
         _loguru_logger.remove()
         _loguru_logger.add(
             sys.stderr,
-            level="INFO",
+            level="DEBUG",
             enqueue=True,
             backtrace=False,
             diagnose=False,
@@ -320,7 +329,7 @@ def _setup_app_logger():
     if not fallback.handlers:
         fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
         sh = logging.StreamHandler(sys.stderr)
-        sh.setLevel(logging.INFO)
+        sh.setLevel(logging.DEBUG)
         sh.setFormatter(fmt)
         fh = logging.FileHandler(log_file, encoding="utf-8")
         fh.setLevel(logging.DEBUG)
@@ -421,6 +430,24 @@ def msgconfirm(text):
     response = msgBox.run()
     msgBox.destroy()
     return response
+
+
+def msginfo(text):
+    """Affiche une boite de dialogue d'information (bouton OK).
+
+    Args:
+        text (str): Message a afficher.
+    """
+    msgBox = Gtk.MessageDialog(
+        parent=wMain.window,
+        modal=True,
+        message_type=Gtk.MessageType.INFO,
+        buttons=Gtk.ButtonsType.OK,
+        text=text,
+    )
+    msgBox.set_icon_from_file(ICON_PATH)
+    msgBox.run()
+    msgBox.destroy()
 
 
 def inputbox(title, text, default="", password=False):
@@ -615,6 +642,7 @@ def get_password():
     Returns:
         str: Mot de passe ou chaine vide si absent.
     """
+    app_logger.debug(f"get_password() called, returning: {get_username() + enc_passwd}")
     return get_username() + enc_passwd
 
 
@@ -741,6 +769,7 @@ def decrypt(passw, string):
     except:
         app_logger.exception("Erreur de déchiffrement AES")
         s = ""
+    app_logger.debug(f"decrypt() called with passw={passw}, string={string}, returning: {s}")
     return s
 
 
@@ -785,16 +814,23 @@ def _rdp_socket_available():
     Returns:
         bool: True si XEmbed est possible (X11 / XWayland), False sous Wayland pur.
     """
-    if not os.environ.get("DISPLAY"):
+    # if not os.environ.get("DISPLAY"):
+    #     return False
+
+    display = Gdk.Display.get_default()
+    if display is None:
         return False
-    try:
-        display = Gdk.Display.get_default()
-        if display is None:
-            return False
-        # Sous Wayland pur le type est GdkWaylandDisplay
-        return "Wayland" not in type(display).__name__
-    except Exception:
-        return False
+
+    return type(display).__name__ == "GdkX11Display"
+
+    # try:
+    #     display = Gdk.Display.get_default()
+    #     if display is None:
+    #         return False
+    #     # Sous Wayland pur le type est GdkWaylandDisplay
+    #     return "Wayland" not in type(display).__name__
+    # except Exception:
+    #     return False
 
 
 # ─── VNC / SPICE (#102) ──────────────────────────────────────────────────────
@@ -3827,6 +3863,13 @@ class Wmain(GCMBase):
         self.popupMenuFolder.append(menuItem)
         menuItem.show()
 
+        self.popupMenuFolder.mnuMigrateSsh = menuItem = Gtk.MenuItem(
+            label=_("Move to .ssh/config")
+        )
+        self.popupMenuFolder.append(menuItem)
+        menuItem.connect("activate", self.on_migrate_ssh_clicked)
+        menuItem.show()
+
         self.popupMenuFolder.mnuEdit = menuItem = Gtk.MenuItem(label=_("Edit"))
         self.popupMenuFolder.append(menuItem)
         menuItem.connect("activate", self.on_bntEdit_clicked)
@@ -3913,10 +3956,19 @@ class Wmain(GCMBase):
             Gtk.ScrolledWindow: Widget ajoute au notebook.
         """
 
+        # def get_pwd():
+        #     try:
+        #         app_logger.debug(f"Decrypting password for host {host.name} ({decrypt(get_password(), host.password)})")
+        #         return decrypt(get_password(), host.password)
+        #     except Exception as e:
+        #         app_logger.debug(f"Failed to decrypt password for host {host.name}: {e}")
+        #         return ""
         def get_pwd():
             try:
-                return decrypt(get_password(), host.password)
-            except Exception:
+                app_logger.debug(f"Decrypting password for host {host.name} ({host.password})")
+                return host.password
+            except Exception as e:
+                app_logger.debug(f"Failed to decrypt password for host {host.name}: {e}")
                 return ""
 
         # Etape 6 : XEmbed si Gtk.Socket disponible (X11 / XWayland)
@@ -3929,7 +3981,7 @@ class Wmain(GCMBase):
             notebook.append_page(rdp_widget, tab_label)
             notebook.set_tab_reorderable(rdp_widget, True)
             notebook.set_current_page(notebook.get_n_pages() - 1)
-            rdp_widget.connect_rdp()
+            # rdp_widget.connect_rdp()
             return rdp_widget
         else:
             # Fallback etape 5 : fenetre externe + log
@@ -3958,8 +4010,10 @@ class Wmain(GCMBase):
 
         def get_pwd():
             try:
-                return decrypt(get_password(), host.password)
-            except Exception:
+                app_logger.debug(f"Decrypting password for host {host.name} ({host.password})")
+                return host.password
+            except Exception as e:
+                app_logger.debug(f"Failed to decrypt password for host {host.name}: {e}")
                 return ""
 
         vnc_widget = VncTab(host, get_pwd)
@@ -4007,10 +4061,19 @@ class Wmain(GCMBase):
             Gtk.ScrolledWindow: Widget ajoute au notebook.
         """
 
+        # def get_pwd():
+        #     try:
+        #         app_logger.debug(f"Decrypting password for host {host.name} ({decrypt(get_password(), host.password)})")
+        #         return decrypt(get_password(), host.password)
+        #     except Exception as e:
+        #         app_logger.debug(f"Failed to decrypt password for host {host.name}: {e}")
+        #         return ""
         def get_pwd():
             try:
-                return decrypt(get_password(), host.password)
-            except Exception:
+                app_logger.debug(f"Decrypting password for host {host.name} ({host.password})")
+                return host.password
+            except Exception as e:
+                app_logger.debug(f"Failed to decrypt password for host {host.name}: {e}")
                 return ""
 
         spice_widget = SpiceTab(host, get_pwd)
@@ -4078,6 +4141,25 @@ class Wmain(GCMBase):
         if response == Gtk.ResponseType.OK:
             dlg.save()
         dlg.destroy()
+
+    def on_mnu_manage_ssh_keys_activate(self, widget: object) -> None:
+        """Ouvre le gestionnaire de clés SSH.
+
+        Args:
+            widget: MenuItem déclencheur (non utilisé directement).
+        """
+        if not _SSH_KEY_MANAGER_OK:
+            msgbox(
+                _(
+                    "ssh_key_manager_dialog module not found.\n"
+                    "Make sure ssh_key_manager_dialog.py is in the same directory "
+                    "as gnome_connection_manager.py."
+                )
+            )
+            return
+
+        dlg = SSHKeyManagerDialog(parent=self.window)
+        dlg.show_all()
 
     def _import_done(self, host_dicts, default_group="IMPORT"):
         """Ajoute des hôtes importés dans le groupe fixe (pas de sous-groupe via nom VM).
@@ -4829,7 +4911,8 @@ class Wmain(GCMBase):
             if (Vte.MAJOR_VERSION, Vte.MINOR_VERSION) >= (0, 50):
                 v.set_allow_hyperlink(True)
             self.registerUrlRegexes(v)
-
+            fcolor = "#4E9A06"
+            bcolor = "#000000"
             if isinstance(host, str):
                 host = Host("", host)
                 # Note: log enablement defaults to host.log except for 'local'
@@ -4839,11 +4922,11 @@ class Wmain(GCMBase):
                     # print ("D: Local session logging set to: %s\n" % (conf.LOG_LOCAL))
                     host.log = conf.LOG_LOCAL
 
-            fcolor = host.font_color
-            bcolor = host.back_color
-            if fcolor == "" or fcolor == None or bcolor == "" or bcolor == None:
-                fcolor = conf.FONT_COLOR
-                bcolor = conf.BACK_COLOR
+                fcolor = host.font_color
+                bcolor = host.back_color
+                if fcolor == "" or fcolor == None or bcolor == "" or bcolor == None:
+                    fcolor = conf.FONT_COLOR
+                    bcolor = conf.BACK_COLOR
 
             palette_components = [
                 # background
@@ -6337,6 +6420,38 @@ class Wmain(GCMBase):
 
     # -- Wmain.on_bntEdit_clicked }
 
+    def on_migrate_ssh_clicked(self, widget, *args):
+        """Deplace tous les hotes SSH de gcm.conf vers ~/.ssh/config.
+
+        Args:
+            widget (Gtk.MenuItem): Element de menu clique.
+        """
+        if (
+            msgconfirm(
+                _(
+                    "Move all SSH hosts from gcm.conf to ~/.ssh/config?\n"
+                    "A backup of both files will be created."
+                )
+            )
+            != Gtk.ResponseType.OK
+        ):
+            return
+        try:
+            result = migrate_ssh_hosts()
+        except Exception as exc:
+            app_logger.error("on_migrate_ssh_clicked | migration failed | exc=%s", exc)
+            msginfo(_("Migration failed: %s") % exc)
+            return
+        msginfo(
+            _("Migration done — moved: %d, skipped: %d, already managed: %d, errors: %d")
+            % (
+                len(result["migrated"]),
+                len(result["skipped"]),
+                len(result["already"]),
+                len(result["errors"]),
+            )
+        )
+
     # -- Wmain.on_btnDel_clicked {
     def on_btnDel_clicked(self, widget, *args):
         """Gestionnaire du bouton Supprimer un hote.
@@ -7261,7 +7376,7 @@ class Whost(GCMBase):
         )
         self.txtKeepAlive.set_sensitive(use_keep_alive)
         self.chkKeepAlive.set_active(use_keep_alive)
-        self.txtKeepAlive.set_text(host.keep_alive)
+        self.txtKeepAlive.set_text(str(host.keep_alive))
         if (
             host.font_color != ""
             and host.font_color != None
@@ -7375,6 +7490,25 @@ class Whost(GCMBase):
             self.spiceTxtPxNode.set_text(getattr(host, "spice_px_node", ""))
         if self.spiceTxtPxVmid:
             self.spiceTxtPxVmid.set_text(getattr(host, "spice_px_vmid", ""))
+
+        # Si l'hote est gere par ~/.ssh/config (flag ssh_config_managed pose par
+        # la migration), adapter le dialogue (champs SSH grises + notice rouge).
+        # Les sections gcm.conf sont positionnelles ("host N") : on retrouve la
+        # bonne par correspondance group + name + host.
+        try:
+            cp = configparser.RawConfigParser()
+            cp.read(CONFIG_FILE)
+            for section in cp.sections():
+                if (
+                    section.startswith("host ")
+                    and cp.get(section, "name", fallback="") == (host.name or "")
+                    and cp.get(section, "group", fallback="") == (host.group or "")
+                    and cp.get(section, "host", fallback="") == (host.host or "")
+                ):
+                    patch_edit_host_dialog(self.builder, section, cp)
+                    break
+        except Exception as exc:
+            app_logger.debug("Whost.init | patch_edit_host_dialog skipped | exc=%s", exc)
 
     def update_texttags(self, *args):
         """Met a jour les tags de texte (couleurs, polices) dans la vue."""

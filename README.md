@@ -134,7 +134,7 @@ cd gnome-connection-manager
 
 ```bash
 # Obligatoires
-sudo apt install python3 python3-gi gir1.2-vte-2.91 gir1.2-gtk-3.0 expect
+sudo apt install python3 python3-gi gir1.2-vte-2.91 gir1.2-gtk-3.0 expect python3-pycryptodome
 
 # RDP
 sudo apt install freerdp2-x11          # ou freerdp3-x11
@@ -158,7 +158,7 @@ sudo apt install python3-paramiko
 
 ```bash
 sudo dnf install python3 python3-gobject vte291 expect freerdp \
-                 tigervnc virt-viewer picocom python3-paramiko
+                 tigervnc virt-viewer picocom python3-paramiko python3-pycryptodome
 ```
 
 ### Qualité du code
