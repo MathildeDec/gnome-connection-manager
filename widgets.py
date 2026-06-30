@@ -2,15 +2,22 @@
 # -*- coding: UTF-8 -*-
 """Widgets GTK personnalisés pour l'interface GCM."""
 
+import configparser
 import json
+import logging
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from Cryptodome.Cipher import DES
 from gi.repository import Gdk, GLib, GObject, Gtk, Vte
+
+from utils import conf
 
 if TYPE_CHECKING:
     # `_` est injecté dans les builtins à l'exécution par bindtextdomain().
@@ -18,6 +25,93 @@ if TYPE_CHECKING:
     # les faux positifs "_ is not defined" sans affecter le runtime.
     def _(message: str) -> str: ...
 
+
+try:
+    from loguru import logger as _loguru_logger
+
+    _LOGURU_OK = True
+except ImportError:
+    _LOGURU_OK = False
+
+try:
+    USERHOME_DIR = os.getenv("HOME")
+except:
+    USERHOME_DIR = ""
+if USERHOME_DIR is None or USERHOME_DIR == "":
+    try:
+        USERHOME_DIR = os.path.expanduser("~")
+    except:
+        USERHOME_DIR = ""
+
+assert (USERHOME_DIR is not None) and (USERHOME_DIR != ""), (
+    "FATAL: Could not determine home directory for the current user"
+)
+
+assert os.path.isdir(USERHOME_DIR), (
+    "FATAL: Could not locate home directory '%s' for the current user" % (USERHOME_DIR)
+)
+
+CONFIG_DIR = USERHOME_DIR + "/.gcm"
+CONFIG_FILE = CONFIG_DIR + "/gcm.conf"
+KEY_FILE = CONFIG_DIR + "/.gcm.key"
+
+if not os.path.exists(CONFIG_DIR):
+    os.makedirs(CONFIG_DIR)
+app_name = "Gnome Connection Manager"
+# Initialiser les valeurs de conf dépendantes du contexte d'exécution
+conf.LOG_PATH = CONFIG_DIR + "/logs"
+conf.CONTINUOUS_LOG_PATH = CONFIG_DIR + "/log"
+conf.APP_TITLE = app_name
+
+
+def _setup_app_logger():
+    """Initialise le logger applicatif (Loguru) avec fallback stdlib.
+
+    Returns:
+        object: Logger configuré (`loguru.logger` ou `logging.Logger`).
+    """
+    log_dir = os.path.join(CONFIG_DIR, "log")
+    log_file = os.path.join(log_dir, "gcm-app.log")
+    os.makedirs(log_dir, exist_ok=True)
+
+    if _LOGURU_OK:
+        _loguru_logger.remove()
+        _loguru_logger.add(
+            sys.stderr,
+            level="DEBUG",
+            enqueue=True,
+            backtrace=False,
+            diagnose=False,
+        )
+        _loguru_logger.add(
+            log_file,
+            level="DEBUG",
+            rotation="10 MB",
+            retention="14 days",
+            encoding="utf-8",
+            enqueue=True,
+            backtrace=True,
+            diagnose=False,
+        )
+        return _loguru_logger
+
+    fallback = logging.getLogger("gcm")
+    fallback.setLevel(logging.DEBUG)
+    if not fallback.handlers:
+        fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setLevel(logging.DEBUG)
+        sh.setFormatter(fmt)
+        fh = logging.FileHandler(log_file, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        fallback.addHandler(sh)
+        fallback.addHandler(fh)
+    fallback.warning("loguru non installé, fallback sur logging standard")
+    return fallback
+
+
+app_logger = _setup_app_logger()
 
 SHELL = os.environ["SHELL"]
 # check Terminal version
@@ -527,6 +621,7 @@ class RdpEmbeddedTab(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.host = host
         self._get_password = get_password_fn
+        app_logger.debug(f"RdpEmbeddedTab | init | mdp={self._get_password()}")
         self._proc = None
         self._xid = None
         self._build_ui()
@@ -582,7 +677,8 @@ class RdpEmbeddedTab(Gtk.Box):
         Args:
             widget (Gtk.Socket): Socket GTK.
         """
-        self._xid = self._socket.get_id()
+
+        self.connect_rdp()
 
     def _on_plug_added(self, widget):
         """Signale que xfreerdp s'est connecte au socket XEmbed.
@@ -639,7 +735,7 @@ class RdpEmbeddedTab(Gtk.Box):
 
         if opts:
             cmd += shlex.split(opts)
-
+        app_logger.debug("RdpEmbeddedTab | _build_cmd | cmd={cmd}", cmd=cmd)
         return cmd
 
     def _on_connect(self, widget):
@@ -653,7 +749,7 @@ class RdpEmbeddedTab(Gtk.Box):
         # S'assurer que le socket est realize
         if not self._socket.get_realized():
             self._socket.realize()
-        self._xid = self._socket.get_id()
+        # self._xid = self._socket.get_id()
 
         cmd = self._build_cmd()
         try:
@@ -704,6 +800,9 @@ class RdpEmbeddedTab(Gtk.Box):
 
     def connect_rdp(self):
         """Lance la connexion RDP automatiquement (appele depuis addTab)."""
+
+        self._xid = self._socket.get_id()
+        app_logger.debug("RdpEmbeddedTab | _on_socket_realized | XID={xid}", xid=self._xid)
         if self._socket.get_realized():
             self._on_connect(None)
         else:
@@ -743,7 +842,9 @@ class RdpTab(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.host = host
         self._get_password = get_password_fn
+        app_logger.debug(f"RdpTab | init | mdp={self._get_password()}")
         self._proc = None
+        self._xid = None
         self.set_margin_start(16)
         self.set_margin_end(16)
         self.set_margin_top(16)
@@ -790,6 +891,7 @@ class RdpTab(Gtk.Box):
         self.pack_start(hb2, False, False, 0)
         self.pack_start(Gtk.Label(label=_("xfreerdp log:")), False, False, 2)
         self._log_buf = Gtk.TextBuffer()
+        self._socket = Gtk.Socket()
         lv = Gtk.TextView(buffer=self._log_buf)
         lv.set_editable(False)
         lv.set_monospace(True)
@@ -862,6 +964,7 @@ class RdpTab(Gtk.Box):
         # ── Options libres additionnelles
         if opts:
             cmd += shlex.split(opts)
+        app_logger.debug("RdpTab | _build_cmd | cmd={cmd}", cmd=cmd)
         return cmd
 
     def _on_connect(self, widget):
@@ -961,6 +1064,7 @@ class VncTab(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.host = host
         self._get_password = get_password_fn
+        app_logger.debug(f"VncTab | init | mdp={self._get_password()}")
         self._proc = None
         self.set_margin_start(16)
         self.set_margin_end(16)
@@ -1023,8 +1127,9 @@ class VncTab(Gtk.Box):
             tuple[list[str], str]: (arguments Popen, mot de passe en clair).
         """
         h = self.host
-        port = str(getattr(h, "port", "5900") or "5900")
+        port = str(getattr(h, "port", "5900+") or "5900")
         pwd = self._get_password() or ""
+        app_logger.debug("VNC 1 password for host {host} is '{pwd}'", host=h.name, pwd=pwd)
         opts_str = self._entry_opts.get_text().strip()
         truthy = (True, "True", "true", "1", "yes")
 
@@ -1058,15 +1163,42 @@ class VncTab(Gtk.Box):
             # tigervnc / xtightvncviewer / vncviewer générique
             cmd = [vnc_bin, f"{h.host}:{effective_port}"]
             if pwd:
-                cmd += ["-passwd", "/dev/stdin"]
+                app_logger.debug(f"VNC password provided for host {h.name} '{pwd}' ")
+                self.make_vnc_passwd(pwd, "/tmp/klfhghzz")
+                cmd += ["-passwd", "/tmp/klfhghzz"]
             if getattr(h, "vnc_view_only", False) in truthy:
                 cmd.append("-ViewOnly")
             if getattr(h, "vnc_fullscreen", False) in truthy:
                 cmd.append("-FullScreen")
+                app_logger.debug(f"VNC fullscreen requested for host {h.name}; {cmd} ")
 
         if opts_str:
             cmd += shlex.split(opts_str)
+
+        app_logger.debug("VNC command built for host {host}: {cmd}", host=h.name, cmd=cmd)
         return cmd, pwd
+
+    def make_vnc_passwd(self, password: str, path: str) -> None:
+        """Génère un fichier passwd compatible TigerVNC/RFB.
+
+        Args:
+            password: Mot de passe en clair (tronqué à 8 caractères).
+            path: Chemin de destination du fichier passwd.
+        """
+        # Clé fixe RFB, bits inversés par octet
+        key = bytes([self.reverse_bits(b) for b in [23, 82, 107, 6, 35, 78, 88, 7]])
+        # Pad/tronque à 8 octets
+        pwd_bytes = password[:8].encode("ascii").ljust(8, b"\x00")
+        cipher = DES.new(key, DES.MODE_ECB)
+        encrypted = cipher.encrypt(pwd_bytes)
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(encrypted)
+        os.chmod(path, 0o600)
+
+    def reverse_bits(self, b: int) -> int:
+        return int(f"{b:08b}"[::-1], 2)
 
     def _on_connect(self, widget):
         """Lance la connexion VNC.
@@ -1157,16 +1289,19 @@ class SpiceTab(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.host = host
         self._get_password = get_password_fn
+        app_logger.debug(f"SpiceTab | init | mdp={self._get_password()}")
         self._proc = None
         self.set_margin_start(16)
         self.set_margin_end(16)
         self.set_margin_top(16)
         self.set_margin_bottom(16)
+        print(f"_build_ui() called for SpiceTab with host: {host.name}")
         self._build_ui()
 
     def _build_ui(self):
         """Construit l'interface du panneau SPICE."""
         h = self.host
+
         port = getattr(h, "port", "5930") or "5930"
         title = Gtk.Label()
         title.set_markup(f"<b>SPICE — {h.name}</b><small>   {h.host}:{port}</small>")
@@ -1206,6 +1341,7 @@ class SpiceTab(Gtk.Box):
         lbl_bin.set_markup(f"<small><i>Binaire détecté : {SPICE_BIN}</i></small>")
         lbl_bin.set_xalign(0)
         self.pack_start(lbl_bin, False, False, 0)
+        app_logger.debug(f"SPICE: SPICE_BIN = {SPICE_BIN}")
         self.show_all()
 
     def _build_cmd(self):
@@ -1222,6 +1358,13 @@ class SpiceTab(Gtk.Box):
         Returns:
             list[str]: Arguments pour subprocess.Popen, ou None si erreur.
         """
+
+        pairs = parse_spice_hosts(Path(CONFIG_FILE))
+        try:
+            n = HostsUpdater().update(pairs)
+        except PermissionError as exc:
+            app_logger.error("hosts update | {exc}", exc=exc)
+
         h = self.host
         port = str(getattr(h, "port", "5930") or "5930")
         pwd = self._get_password() or ""
@@ -1250,10 +1393,12 @@ class SpiceTab(Gtk.Box):
                 cmd_pvesh = (
                     f"pvesh create /nodes/{node_name}/qemu/{vmid}/spiceproxy --output-format json"
                 )
+                app_logger.debug(f"SPICE: SSH {hv_user}@{hv_host}:{hv_port} cmd = {cmd_pvesh}")
                 _stdin, stdout, stderr = _client.exec_command(cmd_pvesh)
                 out = stdout.read().decode().strip()
                 _client.close()
             except Exception as exc:
+                app_logger.debug(f"SPICE: Erreur SSH : {exc}")
                 self._set_status(_(f"Erreur SSH : {exc}"))
                 return None
             try:
@@ -1275,8 +1420,14 @@ class SpiceTab(Gtk.Box):
             import tempfile as _tempfile
 
             vv_fd, vv_path = _tempfile.mkstemp(suffix=".vv", prefix="gcm-spice-")
+            app_logger.debug(f"SPICE: fichier temporaire {vv_fd},{vv_path}")
+            d = "\n"
             with os.fdopen(vv_fd, "w") as vv_f:
-                vv_f.write("\n".join(vv_lines) + "\n")
+                vv_f.write(d.join(vv_lines) + d)
+
+            app_logger.debug(f"SPICE: file = {d.join(vv_lines) + d}")
+            app_logger.debug(f"SPICE: vv_lines = {vv_lines}")
+            app_logger.debug(f"SPICE: lancement remote-viewer {SPICE_BIN} {vv_path}")
             return [SPICE_BIN, vv_path]
 
         # ── Mode libvirt : virt-viewer avec URI qemu+ssh://
@@ -1287,10 +1438,12 @@ class SpiceTab(Gtk.Box):
                 self._set_status(_("Erreur : libvirt URI requis"))
                 return None
             cmd = [SPICE_BIN, "--connect", libvirt_uri]
+
             if vm_name:
                 cmd.append(vm_name)
             if opts_str:
                 cmd += shlex.split(opts_str)
+            app_logger.debug(f"SPICE: libvirt command = {cmd}")
             return cmd
 
         # ── Mode URI directe : spice://host:port avec TLS optionnel
@@ -1308,6 +1461,7 @@ class SpiceTab(Gtk.Box):
             cmd.append(f"--spice-ca-file={ca_cert}")
         if opts_str:
             cmd += shlex.split(opts_str)
+        app_logger.debug(f"SPICE: direct URI command = {cmd}")
         return cmd
 
     def _on_connect(self, widget):
@@ -1320,6 +1474,7 @@ class SpiceTab(Gtk.Box):
             return
         self.host.extra_params = self._entry_opts.get_text().strip()
         cmd = self._build_cmd()
+        app_logger.debug(cmd)
         if cmd is None:
             return
         try:
@@ -1328,8 +1483,14 @@ class SpiceTab(Gtk.Box):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+
         except FileNotFoundError:
+            app_logger.debug("Viewer not found")
             self._set_status(_("xfreerdp not found"))
+            return
+        except Exception as e:
+            app_logger.debug(f"Error launching viewer: {e}")
+            self._set_status(_("Error launching viewer"))
             return
         self._set_status(_("Connecting…"))
         self._btn_connect.set_sensitive(False)
@@ -1366,6 +1527,7 @@ class SpiceTab(Gtk.Box):
         Args:
             text (str): Nouveau statut.
         """
+        app_logger.debug(f"SPICE: status = {text}")
         self._lbl_status.set_text(text)
 
     def connect_spice(self):
@@ -1725,6 +1887,7 @@ class SerialTab(Gtk.Box):
             cmd = [serial_bin, device, baud, combo]
             if extra:
                 cmd += shlex.split(extra)
+        app_logger.debug(f"Serial: command = {cmd}")
         return cmd
 
     # ── connexion / déconnexion ──────────────────────────────────────────────
@@ -1767,3 +1930,289 @@ class SerialTab(Gtk.Box):
     def connect_serial(self):
         """Démarre la session série automatiquement (appelé depuis addTab)."""
         self._on_connect(None)
+
+
+def parse_spice_hosts(conf_path: Path) -> list[tuple[str, str]]:
+    """Extrait les paires (host, spice_px_node) des entrées SPICE de gcm.conf.
+
+    Args:
+        conf_path: Chemin vers le fichier gcm.conf.
+
+    Returns:
+        Liste de tuples ``(host_ip, node_name)`` uniques, ordre de déclaration préservé.
+
+    Raises:
+        FileNotFoundError: Si ``conf_path`` n'existe pas.
+    """
+    app_logger.debug("parse_spice_hosts | enter | conf_path={conf_path}", conf_path=conf_path)
+
+    if not conf_path.exists():
+        raise FileNotFoundError(f"gcm.conf introuvable : {conf_path}")
+
+    raw = conf_path.read_text(encoding="utf-8")
+    parser = configparser.RawConfigParser()
+    parser.read_string(raw)
+
+    entries: list[tuple[str, str]] = []
+
+    for section in parser.sections():
+        if not section.startswith("host "):
+            continue
+
+        proto = parser.get(section, "protocol", fallback="")
+        host = parser.get(section, "host", fallback="").strip()
+        node = parser.get(section, "spice_px_node", fallback="").strip()
+
+        if proto != "spice":
+            app_logger.trace(
+                "parse_spice_hosts | skip | section={section} proto={proto}",
+                section=section,
+                proto=proto,
+            )
+            continue
+
+        if not host or not node:
+            app_logger.warning(
+                "parse_spice_hosts | section={section} ignorée — host ou spice_px_node vide",
+                section=section,
+            )
+            continue
+
+        app_logger.debug(
+            "parse_spice_hosts | found | section={section} host={host} node={node}",
+            section=section,
+            host=host,
+            node=node,
+        )
+        entries.append((host, node))
+
+    # Dédoublonnage ordre-stable
+    seen: set[tuple[str, str]] = set()
+    unique: list[tuple[str, str]] = []
+    for pair in entries:
+        if pair not in seen:
+            seen.add(pair)
+            unique.append(pair)
+
+    app_logger.debug(
+        "parse_spice_hosts | exit | total={total} unique={unique}",
+        total=len(entries),
+        unique=len(unique),
+    )
+    return unique
+
+
+# ---------------------------------------------------------------------------
+# Gestion de /etc/hosts
+# ---------------------------------------------------------------------------
+
+
+def _existing_nodes(hosts_text: str) -> set[str]:
+    """Retourne l'ensemble des noms d'hôtes déjà présents dans /etc/hosts.
+
+    Args:
+        hosts_text: Contenu brut de /etc/hosts.
+
+    Returns:
+        Ensemble de noms (colonnes 2+) en minuscules.
+    """
+    names: set[str] = set()
+    for line in hosts_text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split()
+        for name in parts[1:]:
+            names.add(name.lower())
+    return names
+
+
+def _ask_password_dialog(prompt: str = "Mot de passe sudo requis :") -> str | None:
+    """Affiche une boîte de dialogue GTK3 demandant le mot de passe.
+
+    Args:
+        prompt: Message affiché au-dessus du champ de saisie.
+
+    Returns:
+        Le mot de passe saisi, ou None si annulé.
+    """
+    dialog = Gtk.Dialog(
+        title="Authentification requise",
+        flags=Gtk.DialogFlags.MODAL,
+    )
+    dialog.add_buttons(
+        Gtk.STOCK_CANCEL,
+        Gtk.ResponseType.CANCEL,
+        Gtk.STOCK_OK,
+        Gtk.ResponseType.OK,
+    )
+    dialog.set_default_response(Gtk.ResponseType.OK)
+    dialog.set_border_width(12)
+
+    content = dialog.get_content_area()
+    content.set_spacing(8)
+
+    label = Gtk.Label(label=prompt)
+    label.set_halign(Gtk.Align.START)
+    content.add(label)
+
+    entry = Gtk.Entry()
+    entry.set_visibility(False)
+    entry.set_invisible_char("●")
+    entry.set_activates_default(True)
+    content.add(entry)
+
+    dialog.show_all()
+    response = dialog.run()
+    password = entry.get_text() if response == Gtk.ResponseType.OK else None
+    dialog.destroy()
+    return password
+
+
+class HostsUpdater:
+    """Mise à jour de /etc/hosts pour les nœuds SPICE, avec élévation GTK3.
+
+    Si le processus est déjà root, l'écriture est directe.
+    Sinon, un dialog GTK3 demande le mot de passe et l'écriture
+    est déléguée à ``tee`` via ``sudo -S``, sans re-lancer l'appli.
+    """
+
+    HOSTS_FILE = "/etc/hosts"
+    MARKER = "# gcm-spice"
+    MAX_ATTEMPTS = 3
+
+    def _existing_nodes(self, hosts_text: str) -> set[str]:
+        """Retourne les noms d'hôtes déjà présents dans hosts_text.
+
+        Args:
+            hosts_text: Contenu brut de /etc/hosts.
+
+        Returns:
+            Ensemble de noms en minuscules.
+        """
+        names: set[str] = set()
+        for line in hosts_text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = stripped.split()
+            for name in parts[1:]:
+                names.add(name.lower())
+        return names
+
+    def _build_lines(self, pairs: list[tuple[str, str]], existing: set[str]) -> list[str]:
+        """Calcule les lignes à ajouter.
+
+        Args:
+            pairs: Liste de ``(host_ip, node_name)``.
+            existing: Noms déjà présents dans /etc/hosts.
+
+        Returns:
+            Lignes prêtes à être ajoutées (sans newline finale).
+        """
+        lines: list[str] = []
+        for host_ip, node_name in pairs:
+            if node_name.lower() in existing:
+                app_logger.debug("_build_lines | already present | node={node}", node=node_name)
+                continue
+            lines.append(f"{host_ip:<20}{node_name}  {self.MARKER}")
+            app_logger.info(
+                "_build_lines | queued | ip={ip} node={node}", ip=host_ip, node=node_name
+            )
+        return lines
+
+    def _write_direct(self, new_text: str) -> None:
+        """Écrit new_text dans /etc/hosts directement (déjà root).
+
+        Args:
+            new_text: Contenu complet du fichier.
+        """
+        with open(self.HOSTS_FILE, "w", encoding="utf-8") as fh:
+            fh.write(new_text)
+        app_logger.info("_write_direct | écriture directe OK")
+
+    def _write_via_sudo(self, new_text: str) -> None:
+        """Écrit new_text dans /etc/hosts via sudo -S tee, avec dialog GTK3.
+
+        Demande le mot de passe jusqu'à MAX_ATTEMPTS fois.
+
+        Args:
+            new_text: Contenu complet du fichier.
+
+        Raises:
+            PermissionError: Si l'authentification échoue après MAX_ATTEMPTS tentatives
+                             ou si l'utilisateur annule.
+        """
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            prompt = (
+                "Mot de passe sudo requis pour modifier /etc/hosts :"
+                if attempt == 1
+                else f"Mot de passe incorrect — tentative {attempt}/{self.MAX_ATTEMPTS} :"
+            )
+            password = _ask_password_dialog(prompt)
+
+            if password is None:
+                raise PermissionError("Authentification annulée par l'utilisateur")
+
+            # Vérifie le mot de passe
+            check = subprocess.run(
+                ["sudo", "-S", "-v"],
+                input=password + "\n",
+                capture_output=True,
+                text=True,
+            )
+            app_logger.debug(
+                "_write_via_sudo | sudo -v | attempt={attempt} rc={rc}",
+                attempt=attempt,
+                rc=check.returncode,
+            )
+            if check.returncode != 0:
+                continue
+
+            # Mot de passe valide → écriture via sudo tee (une seule opération)
+            result = subprocess.run(
+                ["sudo", "-S", "tee", self.HOSTS_FILE],
+                input=password + "\n" + new_text,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise PermissionError(f"sudo tee a échoué : {result.stderr.strip()}")
+
+            app_logger.info("_write_via_sudo | écriture via sudo tee OK")
+            return
+
+        raise PermissionError(f"Échec d'authentification après {self.MAX_ATTEMPTS} tentatives")
+
+    def update(self, pairs: list[tuple[str, str]]) -> int:
+        """Point d'entrée public : ajoute les entrées SPICE manquantes dans /etc/hosts.
+
+        Args:
+            pairs: Liste de ``(host_ip, spice_px_node)`` issues de gcm.conf.
+
+        Returns:
+            Nombre de lignes ajoutées (0 si déjà à jour).
+
+        Raises:
+            PermissionError: Si l'élévation est refusée ou annulée.
+        """
+        app_logger.debug("HostsUpdater.update | enter | pairs={pairs}", pairs=pairs)
+
+        current_text = open(self.HOSTS_FILE, encoding="utf-8").read()
+        existing = self._existing_nodes(current_text)
+        lines = self._build_lines(pairs, existing)
+
+        if not lines:
+            app_logger.info("HostsUpdater.update | déjà à jour")
+            return 0
+
+        separator = "" if current_text.endswith("\n") else "\n"
+        new_text = current_text + separator + "\n".join(lines) + "\n"
+
+        if os.geteuid() == 0:
+            self._write_direct(new_text)
+        else:
+            self._write_via_sudo(new_text)
+
+        app_logger.debug("HostsUpdater.update | exit | added={n}", n=len(lines))
+        return len(lines)

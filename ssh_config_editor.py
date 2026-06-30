@@ -3,6 +3,11 @@
 Fournit un éditeur visuel (liste d'hôtes + formulaire de champs)
 et un onglet Raw (texte brut éditable) avec diff inline.
 Utilise ssh_config_parser.py, adapté de SSH-Studio (BuddySirJava, GPLv3).
+
+Corrections v2 :
+- Ajout de Gdk dans les imports gi.repository
+- Clipboard corrigé : Gdk.Atom.intern("CLIPBOARD", False) au lieu de gdk_atom_intern
+- Handler _on_raw_changed réintégré (perdu lors du fix ruff I001)
 """
 
 from __future__ import annotations
@@ -25,12 +30,14 @@ except ImportError:
 
     logger = logging.getLogger(__name__)  # type: ignore[assignment]
 
+from key_picker_dialog import KeyPickerDialog
 from ssh_config_parser import (  # noqa: E402
     SSHConfig,
     SSHConfigParser,
     SSHHost,
     SSHOption,
 )
+from ssh_key_manager_dialog import SSHKeyManagerDialog
 
 # ---------------------------------------------------------------------------
 # Champs affichés dans le formulaire visuel
@@ -92,6 +99,7 @@ class SshConfigEditorDialog(Gtk.Dialog):
 
         self._build_ui()
         self._populate_list()
+        self._sync_raw_from_model()
         self._update_save_button()
 
     # ------------------------------------------------------------------
@@ -103,7 +111,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
         content = self.get_content_area()
         content.set_spacing(0)
 
-        # Barre d'erreur de validation
         self._error_bar = Gtk.InfoBar()
         self._error_bar.set_message_type(Gtk.MessageType.ERROR)
         self._error_bar.set_show_close_button(True)
@@ -114,7 +121,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
         self._error_bar.hide()
         content.pack_start(self._error_bar, False, False, 0)
 
-        # Notebook Visual / Raw
         self._notebook = Gtk.Notebook()
         self._notebook.set_margin_start(8)
         self._notebook.set_margin_end(8)
@@ -138,25 +144,22 @@ class SshConfigEditorDialog(Gtk.Dialog):
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         paned.set_position(230)
 
-        # ---- Panneau gauche : liste + boutons ----
         left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         left_box.set_margin_start(4)
         left_box.set_margin_end(4)
         left_box.set_margin_top(4)
 
-        # Barre de recherche
         self._search_entry = Gtk.SearchEntry()
         self._search_entry.set_placeholder_text(_("Filter hosts…"))
         self._search_entry.connect("search-changed", self._on_search_changed)
         left_box.pack_start(self._search_entry, False, False, 0)
 
-        # TreeView
         sw_left = Gtk.ScrolledWindow()
         sw_left.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         sw_left.set_shadow_type(Gtk.ShadowType.IN)
         sw_left.set_min_content_width(210)
 
-        self._host_store = Gtk.ListStore(str, str)  # alias, tooltip
+        self._host_store = Gtk.ListStore(str, str)
         self._host_filter = self._host_store.filter_new()
         self._host_filter.set_visible_func(self._host_filter_func)
 
@@ -169,7 +172,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
         sw_left.add(self._tree)
         left_box.pack_start(sw_left, True, True, 0)
 
-        # Boutons Add / Remove / Test
         btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         btn_add = Gtk.Button(label=_("＋ Add"))
         btn_add.set_tooltip_text(_("Add a new empty host"))
@@ -189,7 +191,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
 
         paned.pack1(left_box, False, False)
 
-        # ---- Panneau droit : formulaire ----
         right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         right_box.set_margin_start(8)
         right_box.set_margin_end(4)
@@ -203,6 +204,23 @@ class SshConfigEditorDialog(Gtk.Dialog):
         self._entries: dict[str, Gtk.Entry] = {}
         self._error_labels: dict[str, Gtk.Label] = {}
 
+        # for row, (key, label_text) in enumerate(_BASIC_FIELDS):
+        #     lbl = Gtk.Label(label=label_text + ":", xalign=1.0)
+        #     lbl.set_size_request(140, -1)
+        #     entry = Gtk.Entry()
+        #     entry.set_hexpand(True)
+        #     entry.set_placeholder_text(key)
+        #     entry.connect("changed", self._on_field_changed, key)
+        #     err_lbl = Gtk.Label(label="")
+        #     err_lbl.set_xalign(0.0)
+        #     err_lbl.get_style_context().add_class("error")
+        #     err_lbl.hide()
+        #     self._form_grid.attach(lbl, 0, row * 2, 1, 1)
+        #     self._form_grid.attach(entry, 1, row * 2, 1, 1)
+        #     self._form_grid.attach(err_lbl, 1, row * 2 + 1, 1, 1)
+        #     self._entries[key] = entry
+        #     self._error_labels[key] = err_lbl
+
         for row, (key, label_text) in enumerate(_BASIC_FIELDS):
             lbl = Gtk.Label(label=label_text + ":", xalign=1.0)
             lbl.set_size_request(140, -1)
@@ -215,13 +233,25 @@ class SshConfigEditorDialog(Gtk.Dialog):
             err_lbl.get_style_context().add_class("error")
             err_lbl.hide()
 
-            self._form_grid.attach(lbl, 0, row * 2, 1, 1)
-            self._form_grid.attach(entry, 1, row * 2, 1, 1)
-            self._form_grid.attach(err_lbl, 1, row * 2 + 1, 1, 1)
-            self._entries[key] = entry
-            self._error_labels[key] = err_lbl
+            if key == "IdentityFile":
+                # Boîte horizontale : entry + bouton sélecteur de clé + bouton gestionnaire
+                hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                hbox.set_hexpand(True)
+                hbox.pack_start(entry, True, True, 0)
+                btn_pick = Gtk.Button(label=_("🔑 Pick…"))
+                btn_pick.set_tooltip_text(_("Browse existing SSH keys in ~/.ssh/"))
+                btn_pick.connect("clicked", self._on_pick_identity_file)
+                btn_mgr = Gtk.Button(label=_("⚙"))
+                btn_mgr.set_tooltip_text(_("Open SSH Key Manager (generate / import / delete)"))
+                btn_mgr.connect("clicked", self._on_open_key_manager)
+                hbox.pack_start(btn_pick, False, False, 0)
+                hbox.pack_start(btn_mgr, False, False, 0)
+                self._form_grid.attach(lbl, 0, row * 2, 1, 1)
+                self._form_grid.attach(hbox, 1, row * 2, 1, 1)
+            else:
+                self._form_grid.attach(lbl, 0, row * 2, 1, 1)
+                self._form_grid.attach(entry, 1, row * 2, 1, 1)
 
-        # Ajouter bouton "Open terminal" pour le champ HostName
         copy_btn = Gtk.Button(label=_("Copy ssh cmd"))
         copy_btn.set_tooltip_text(_("Copy full ssh command to clipboard"))
         copy_btn.connect("clicked", self._on_copy_ssh_cmd)
@@ -240,7 +270,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
 
         right_box.pack_start(self._form_stack, True, True, 0)
         paned.pack2(right_box, True, False)
-
         return paned
 
     def _build_raw_tab(self) -> Gtk.Widget:
@@ -255,7 +284,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
         vbox.set_margin_top(8)
         vbox.set_margin_bottom(4)
 
-        # Label informatif
         info = Gtk.Label(
             label=_("Edit raw ~/.ssh/config — changes here override the Visual tab on Save.")
         )
@@ -266,7 +294,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
         paned_raw = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         paned_raw.set_position(340)
 
-        # Zone d'édition brute
         sw_raw = Gtk.ScrolledWindow()
         sw_raw.set_shadow_type(Gtk.ShadowType.IN)
         self._raw_buffer = Gtk.TextBuffer()
@@ -277,7 +304,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
         sw_raw.add(self._raw_view)
         paned_raw.pack1(sw_raw, True, False)
 
-        # Zone diff
         sw_diff = Gtk.ScrolledWindow()
         sw_diff.set_shadow_type(Gtk.ShadowType.IN)
         sw_diff.set_min_content_height(120)
@@ -300,18 +326,14 @@ class SshConfigEditorDialog(Gtk.Dialog):
         paned_raw.pack2(diff_box, False, False)
         vbox.pack_start(paned_raw, True, True, 0)
 
-        # Bouton Refresh diff
         btn_diff = Gtk.Button(label=_("⟳ Refresh diff"))
         btn_diff.connect("clicked", lambda _w: self._refresh_diff())
         btn_diff.set_halign(Gtk.Align.END)
         vbox.pack_start(btn_diff, False, False, 0)
 
+        # IMPORTANT : connecter le signal APRÈS avoir créé self._raw_buffer
         self._raw_buffer.connect("changed", self._on_raw_changed)
         return vbox
-
-    # ------------------------------------------------------------------
-    # Peuplement de la liste
-    # ------------------------------------------------------------------
 
     def _populate_list(self) -> None:
         """Remplit le ListStore depuis self._config.hosts."""
@@ -331,16 +353,12 @@ class SshConfigEditorDialog(Gtk.Dialog):
             _data: Données utilisateur (non utilisé).
 
         Returns:
-            ``True`` si la ligne doit être visible.
+            True si la ligne doit être visible.
         """
         text = self._search_entry.get_text().strip().lower()
         if not text:
             return True
         return text in model[it][0].lower() or text in model[it][1].lower()
-
-    # ------------------------------------------------------------------
-    # Chargement d'un hôte dans le formulaire
-    # ------------------------------------------------------------------
 
     def _load_host_in_form(self, host: SSHHost) -> None:
         """Remplit le formulaire avec les valeurs d'un hôte.
@@ -350,16 +368,12 @@ class SshConfigEditorDialog(Gtk.Dialog):
         """
         self._current_host = host
         self._form_stack.set_visible_child_name("form")
-
-        # Champ Host = patterns joints par espace
         self._entries["Host"].set_text(" ".join(host.patterns))
-
-        for key in list(_BASIC_FIELDS)[1:]:  # tous sauf "Host"
+        for key in list(_BASIC_FIELDS)[1:]:
             field_key = key[0]
             val = host.get_option(field_key) or ""
             self._entries[field_key].set_text(val)
             self._error_labels[field_key].hide()
-
         self._btn_remove.set_sensitive(True)
         self._btn_test.set_sensitive(bool(host.get_option("HostName") or host.patterns))
 
@@ -367,14 +381,13 @@ class SshConfigEditorDialog(Gtk.Dialog):
         """Applique les valeurs du formulaire dans self._current_host.
 
         Returns:
-            ``True`` si tous les champs sont valides, ``False`` sinon.
+            True si tous les champs sont valides, False sinon.
         """
         if self._current_host is None:
             return True
 
         valid = True
 
-        # Patterns (alias)
         raw_alias = self._entries["Host"].get_text().strip()
         if not raw_alias:
             self._show_field_error("Host", _("At least one alias is required"))
@@ -383,7 +396,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
             self._current_host.patterns = raw_alias.split()
             self._error_labels["Host"].hide()
 
-        # Port
         port_str = self._entries["Port"].get_text().strip()
         if port_str:
             try:
@@ -395,7 +407,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
                 self._show_field_error("Port", _("Port must be an integer between 1 and 65535"))
                 valid = False
 
-        # Autres champs
         for key, _lbl in _BASIC_FIELDS:
             if key in ("Host", "Port"):
                 continue
@@ -419,10 +430,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
             lbl.set_text(msg)
             lbl.show()
 
-    # ------------------------------------------------------------------
-    # Onglet Raw
-    # ------------------------------------------------------------------
-
     def _sync_raw_from_model(self) -> None:
         """Copie le contenu généré par le modèle dans la zone Raw."""
         content = self._config.generate_content()
@@ -435,7 +442,7 @@ class SshConfigEditorDialog(Gtk.Dialog):
         """Parse le contenu de la zone Raw et recharge le modèle.
 
         Returns:
-            ``True`` si le parsing a réussi.
+            True si le parsing a réussi.
         """
         start, end = self._raw_buffer.get_bounds()
         text = self._raw_buffer.get_text(start, end, False)
@@ -489,10 +496,6 @@ class SshConfigEditorDialog(Gtk.Dialog):
             else:
                 self._diff_buffer.insert(it, line)
 
-    # ------------------------------------------------------------------
-    # Sauvegarde publique
-    # ------------------------------------------------------------------
-
     def save(self) -> None:
         """Sauvegarde la configuration sur disque.
 
@@ -500,17 +503,11 @@ class SshConfigEditorDialog(Gtk.Dialog):
         sinon utilise le modèle en mémoire.
         """
         if self._notebook.get_current_page() == 1:
-            # Onglet Raw actif → parser le texte brut
             if not self._sync_model_from_raw():
                 logger.error("save | raw parse failed, aborting write")
                 return
-
         self._parser.write()
         logger.info("save | ~/.ssh/config written successfully")
-
-    # ------------------------------------------------------------------
-    # Validation globale
-    # ------------------------------------------------------------------
 
     def _run_validation(self) -> list[str]:
         """Lance la validation et affiche les erreurs dans l'InfoBar.
@@ -528,12 +525,37 @@ class SshConfigEditorDialog(Gtk.Dialog):
 
     def _update_save_button(self) -> None:
         """Active ou désactive le bouton Save selon la validité."""
-        errors = self._run_validation()
-        self._btn_save.set_sensitive(len(errors) == 0 or True)  # toujours actif, warn seulement
+        self._run_validation()
 
-    # ------------------------------------------------------------------
-    # Callbacks UI
-    # ------------------------------------------------------------------
+    def _on_pick_identity_file(self, _widget: Gtk.Widget) -> None:
+        """Ouvre le dialogue de sélection de clé SSH.
+
+        Args:
+            _widget: Widget qui a déclenché l'événement.
+        """
+        dlg = KeyPickerDialog(parent=self)
+        dlg.connect("key-selected", self._on_key_selected)
+        dlg.run()
+        dlg.destroy()
+
+    def _on_key_selected(self, _dlg, key_path: str) -> None:
+        """Callback du signal key-selected de KeyPickerDialog.
+
+        Args:
+            _dlg: Dialog source (non utilisé).
+            key_path: Chemin absolu de la clé privée sélectionnée.
+        """
+        self._entries["IdentityFile"].set_text(key_path)
+        self._dirty = True
+
+    def _on_open_key_manager(self, _widget: Gtk.Widget) -> None:
+        """Ouvre le dialogue de gestion des clés SSH.
+
+        Args:
+            _widget: Widget qui a déclenché l'événement.
+        """
+        dlg = SSHKeyManagerDialog(parent=self)
+        dlg.show_all()
 
     def _on_host_selected(self, selection: Gtk.TreeSelection) -> None:
         """Charge l'hôte sélectionné dans le formulaire.
@@ -560,7 +582,7 @@ class SshConfigEditorDialog(Gtk.Dialog):
         if host:
             self._load_host_in_form(host)
 
-    def _on_field_changed(self, entry: Gtk.Entry, key: str) -> None:
+    def _on_field_changed(self, _entry: Gtk.Entry, _key: str) -> None:
         """Marque le formulaire comme modifié.
 
         Args:
@@ -578,20 +600,27 @@ class SshConfigEditorDialog(Gtk.Dialog):
         self._dirty = True
 
     def _on_add_host(self, _widget: Gtk.Widget) -> None:
-        """Crée un nouvel hôte vide et le sélectionne."""
+        """Crée un nouvel hôte vide et le sélectionne.
+
+        Args:
+            _widget: Widget qui a déclenché l'événement.
+        """
         new_host = SSHHost(patterns=["new-host"])
         new_host.options.append(SSHOption(key="HostName", value=""))
         new_host.options.append(SSHOption(key="User", value=""))
         self._config.add_host(new_host)
         self._populate_list()
-        # Sélectionner le nouveau
         last = len(self._host_store) - 1
         if last >= 0:
             self._tree.set_cursor(Gtk.TreePath(last), None, False)
         self._dirty = True
 
     def _on_remove_host(self, _widget: Gtk.Widget) -> None:
-        """Supprime l'hôte actuellement sélectionné après confirmation."""
+        """Supprime l'hôte actuellement sélectionné après confirmation.
+
+        Args:
+            _widget: Widget qui a déclenché l'événement.
+        """
         if self._current_host is None:
             return
         alias = " ".join(self._current_host.patterns)
@@ -612,19 +641,26 @@ class SshConfigEditorDialog(Gtk.Dialog):
         dlg.destroy()
 
     def _on_test_connection(self, _widget: Gtk.Widget) -> None:
-        """Lance un test de connexion SSH vers l'hôte sélectionné."""
+        """Lance un test de connexion SSH vers l'hôte sélectionné.
+
+        Args:
+            _widget: Widget qui a déclenché l'événement.
+        """
         if self._current_host is None:
             return
         alias = self._current_host.patterns[0] if self._current_host.patterns else ""
         if not alias:
             return
-
         dlg = _SshTestDialog(parent=self, alias=alias)
         dlg.run()
         dlg.destroy()
 
     def _on_copy_ssh_cmd(self, _widget: Gtk.Widget) -> None:
-        """Copie la commande SSH complète dans le presse-papiers."""
+        """Copie la commande SSH complète dans le presse-papiers.
+
+        Args:
+            _widget: Widget qui a déclenché l'événement.
+        """
         if self._current_host is None:
             return
         alias = self._current_host.patterns[0] if self._current_host.patterns else ""
@@ -632,15 +668,11 @@ class SshConfigEditorDialog(Gtk.Dialog):
         port = self._current_host.get_option("Port") or "22"
         hostname = self._current_host.get_option("HostName") or alias
 
-        if user:
-            cmd = f"ssh -p {port} {user}@{hostname}"
-        else:
-            cmd = f"ssh -p {port} {hostname}"
+        cmd = f"ssh -p {port} {user}@{hostname}" if user else f"ssh -p {port} {hostname}"
 
+        # API Clipboard correcte pour GTK3 : Gdk.Atom.intern
         clip = Gtk.Clipboard.get(Gdk.Atom.intern("CLIPBOARD", False))
         clip.set_text(cmd, -1)
-
-        # Toast visuel minimal
         _show_toast(self, _("Copied: {cmd}").format(cmd=cmd))
 
     def _on_search_changed(self, _entry: Gtk.SearchEntry) -> None:
@@ -660,20 +692,13 @@ class SshConfigEditorDialog(Gtk.Dialog):
             page_num: Index de la page destination.
         """
         if page_num == 1:
-            # Passage vers Raw : sauvegarder le formulaire puis générer le texte
             if self._current_host is not None:
                 self._save_form_to_host()
             self._sync_raw_from_model()
         else:
-            # Retour vers Visual : parser le Raw et recharger la liste
             if self._sync_model_from_raw():
                 self._populate_list()
                 self._refresh_diff()
-
-
-# ---------------------------------------------------------------------------
-# Dialogue de test de connexion SSH (minimal GTK3)
-# ---------------------------------------------------------------------------
 
 
 class _SshTestDialog(Gtk.Dialog):
@@ -721,24 +746,18 @@ class _SshTestDialog(Gtk.Dialog):
         self.get_content_area().show_all()
 
     def _run_test(self) -> bool:
-        """Lance ``ssh -o ConnectTimeout=5 -v alias`` et affiche la sortie.
+        """Lance ssh -o ConnectTimeout=5 -v alias et affiche la sortie.
 
         Returns:
-            ``False`` (fin du GLib.idle_add).
+            False (fin du GLib.idle_add).
         """
         cmd = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-v", self._alias]
         self._append(_("Running: {cmd}\n\n").format(cmd=" ".join(cmd)))
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             output = result.stdout + result.stderr
             self._append(output or _("(no output)\n"))
-            rc_msg = _("\nExit code: {rc}").format(rc=result.returncode)
-            self._append(rc_msg)
+            self._append(_("\nExit code: {rc}").format(rc=result.returncode))
         except subprocess.TimeoutExpired:
             self._append(_("\n[Timeout after 10 s]"))
         except Exception as exc:
@@ -754,11 +773,6 @@ class _SshTestDialog(Gtk.Dialog):
         self._buf.insert(self._buf.get_end_iter(), text)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _show_toast(parent: Gtk.Window, msg: str, duration_ms: int = 2500) -> None:
     """Affiche une notification temporaire dans une InfoBar flottante.
 
@@ -771,7 +785,6 @@ def _show_toast(parent: Gtk.Window, msg: str, duration_ms: int = 2500) -> None:
     bar.set_message_type(Gtk.MessageType.INFO)
     bar.get_content_area().pack_start(Gtk.Label(label=msg), True, True, 0)
     bar.show_all()
-
     content = parent.get_content_area() if isinstance(parent, Gtk.Dialog) else None
     if content:
         content.pack_start(bar, False, False, 0)
